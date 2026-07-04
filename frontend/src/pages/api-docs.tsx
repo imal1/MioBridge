@@ -63,7 +63,34 @@ export default function ApiDocsPage() {
           <CardTitle className="text-xl">接口列表</CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="overflow-x-auto">
+          <div className="grid gap-3 md:hidden">
+            {ENDPOINTS.map(ep => (
+              <div key={ep.path} className="rounded-[20px] border border-[var(--border)] bg-[var(--surface-container)] p-4">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <MethodBadge method={ep.method} />
+                    <code className="mt-3 block truncate text-sm" style={{ fontFamily: 'var(--font-mono)', color: 'var(--foreground)' }}>
+                      {ep.path}
+                    </code>
+                    <p className="mt-2 text-sm" style={{ color: 'var(--muted-foreground)' }}>{ep.desc}</p>
+                  </div>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-8 shrink-0 rounded-lg text-xs"
+                    disabled={updating && ep.path === '/api/update'}
+                    onClick={() => handleAction(ep)}
+                  >
+                    {updating && ep.path === '/api/update'
+                      ? <Icon icon="ph:spinner" className="h-3 w-3 animate-spin" />
+                      : ep.actionLabel
+                    }
+                  </Button>
+                </div>
+              </div>
+            ))}
+          </div>
+          <div className="hidden min-w-0 overflow-x-auto md:block">
             <table className="signal-table min-w-[640px]">
               <thead>
                 <tr>

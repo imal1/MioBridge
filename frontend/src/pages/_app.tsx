@@ -38,7 +38,7 @@ export default function App({ Component, pageProps }: AppProps) {
           </AnimatePresence>
         </AppLayout>
         <GlobalModals />
-        <Toaster richColors position="top-right" />
+        <Toaster richColors position="top-center" />
       </AppProvider>
     </ThemeProvider>
   )

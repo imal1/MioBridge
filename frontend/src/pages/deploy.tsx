@@ -136,47 +136,84 @@ export default function DeployPage({ initialCluster, initialDeployments, initial
           </Tabs>
         </CardHeader>
         <CardContent>
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>节点</TableHead>
-                <TableHead>步骤</TableHead>
-                <TableHead>状态</TableHead>
-                <TableHead>进度</TableHead>
-                <TableHead>消息</TableHead>
-                <TableHead className="text-right">操作</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {visibleNodes.map(node => {
-                const deployment = deployments[node.nodeId]
-                return (
-                  <TableRow key={node.nodeId}>
-                    <TableCell>
-                      <span className="block font-medium">{node.name}</span>
-                      <span className="block text-xs text-muted-foreground">{node.location} · {node.nodeId}</span>
-                    </TableCell>
-                    <TableCell>{deployment ? stepLabels[deployment.step] || deployment.step : '-'}</TableCell>
-                    <TableCell><Badge variant={statusVariant(deployment?.status)}>{statusLabel(deployment?.status)}</Badge></TableCell>
-                    <TableCell className="min-w-[160px]">
+          <div className="grid gap-3 md:hidden">
+            {visibleNodes.map(node => {
+              const deployment = deployments[node.nodeId]
+              return (
+                <article key={node.nodeId} className="rounded-[20px] border border-[var(--border)] bg-[var(--surface-container)] p-4">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="truncate font-medium">{node.name}</p>
+                      <p className="mt-1 truncate text-xs text-muted-foreground">{node.location} · {node.nodeId}</p>
+                    </div>
+                    <Badge variant={statusVariant(deployment?.status)}>{statusLabel(deployment?.status)}</Badge>
+                  </div>
+                  <div className="mt-4 grid gap-3">
+                    <div className="flex items-center justify-between gap-3 text-sm">
+                      <span className="text-muted-foreground">步骤</span>
+                      <span className="font-medium">{deployment ? stepLabels[deployment.step] || deployment.step : '-'}</span>
+                    </div>
+                    <div>
                       <Progress value={deployment?.progress || 0} />
                       <span className="mt-1 block font-mono text-xs text-muted-foreground">{deployment?.progress || 0}%</span>
-                    </TableCell>
-                    <TableCell className="max-w-md break-words text-sm text-muted-foreground">{deployment?.message || (node.agent?.deployed ? '已部署' : '等待部署')}</TableCell>
-                    <TableCell className="text-right">
-                      <Button size="sm" disabled={busyNode === node.nodeId || deployment?.status === 'running'} onClick={() => deployNode(node.nodeId)}>
-                        <Icon icon={busyNode === node.nodeId ? 'ph:spinner-bold' : 'ph:rocket-launch-bold'} className={busyNode === node.nodeId ? 'animate-spin' : ''} />
-                        {node.agent?.deployed ? '重新部署' : '部署'}
-                      </Button>
-                    </TableCell>
-                  </TableRow>
-                )
-              })}
-              {visibleNodes.length === 0 ? (
-                <TableRow><TableCell colSpan={6} className="py-10 text-center text-muted-foreground">暂无远端节点</TableCell></TableRow>
-              ) : null}
-            </TableBody>
-          </Table>
+                    </div>
+                    <p className="break-words text-sm text-muted-foreground">{deployment?.message || (node.agent?.deployed ? '已部署' : '等待部署')}</p>
+                  </div>
+                  <Button className="mt-4 w-full" size="sm" disabled={busyNode === node.nodeId || deployment?.status === 'running'} onClick={() => deployNode(node.nodeId)}>
+                    <Icon icon={busyNode === node.nodeId ? 'ph:spinner-bold' : 'ph:rocket-launch-bold'} className={busyNode === node.nodeId ? 'animate-spin' : ''} />
+                    {node.agent?.deployed ? '重新部署' : '部署'}
+                  </Button>
+                </article>
+              )
+            })}
+            {visibleNodes.length === 0 ? (
+              <div className="rounded-[20px] border border-[var(--border)] bg-[var(--surface-container)] p-8 text-center text-muted-foreground">暂无远端节点</div>
+            ) : null}
+          </div>
+
+          <div className="hidden md:block">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>节点</TableHead>
+                  <TableHead>步骤</TableHead>
+                  <TableHead>状态</TableHead>
+                  <TableHead>进度</TableHead>
+                  <TableHead>消息</TableHead>
+                  <TableHead className="text-right">操作</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {visibleNodes.map(node => {
+                  const deployment = deployments[node.nodeId]
+                  return (
+                    <TableRow key={node.nodeId}>
+                      <TableCell>
+                        <span className="block font-medium">{node.name}</span>
+                        <span className="block text-xs text-muted-foreground">{node.location} · {node.nodeId}</span>
+                      </TableCell>
+                      <TableCell>{deployment ? stepLabels[deployment.step] || deployment.step : '-'}</TableCell>
+                      <TableCell><Badge variant={statusVariant(deployment?.status)}>{statusLabel(deployment?.status)}</Badge></TableCell>
+                      <TableCell className="min-w-[160px]">
+                        <Progress value={deployment?.progress || 0} />
+                        <span className="mt-1 block font-mono text-xs text-muted-foreground">{deployment?.progress || 0}%</span>
+                      </TableCell>
+                      <TableCell className="max-w-md break-words text-sm text-muted-foreground">{deployment?.message || (node.agent?.deployed ? '已部署' : '等待部署')}</TableCell>
+                      <TableCell className="text-right">
+                        <Button size="sm" disabled={busyNode === node.nodeId || deployment?.status === 'running'} onClick={() => deployNode(node.nodeId)}>
+                          <Icon icon={busyNode === node.nodeId ? 'ph:spinner-bold' : 'ph:rocket-launch-bold'} className={busyNode === node.nodeId ? 'animate-spin' : ''} />
+                          {node.agent?.deployed ? '重新部署' : '部署'}
+                        </Button>
+                      </TableCell>
+                    </TableRow>
+                  )
+                })}
+                {visibleNodes.length === 0 ? (
+                  <TableRow><TableCell colSpan={6} className="py-10 text-center text-muted-foreground">暂无远端节点</TableCell></TableRow>
+                ) : null}
+              </TableBody>
+            </Table>
+          </div>
         </CardContent>
       </Card>
     </SignalPage>

@@ -202,6 +202,9 @@ body {
   color: var(--foreground);
   font-family: var(--font-body);
   line-height: 1.55;
+  overflow-x: hidden;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: rgba(63, 143, 95, 0.14);
 }
 
 .dark body {
@@ -267,6 +270,7 @@ button, input, textarea, select {
   width: min(100%, 1440px);
   margin: 0 auto;
   padding: 38px 28px 48px;
+  overflow-x: clip;
 }
 
 @media (min-width: 1024px) {
@@ -356,10 +360,12 @@ button, input, textarea, select {
   flex-wrap: wrap;
   justify-content: flex-end;
   gap: 12px;
+  min-width: 0;
 }
 
 .signal-shell,
 .garden-card {
+  min-width: 0;
   padding: 6px;
   border: 1px solid rgba(63,143,95,.13);
   border-radius: 30px;
@@ -386,6 +392,7 @@ button, input, textarea, select {
 
 .signal-core {
   position: relative;
+  min-width: 0;
   min-height: 100%;
   border: 1px solid rgba(63,143,95,.13);
   border-radius: 24px;
@@ -530,10 +537,31 @@ button, input, textarea, select {
 }
 
 @media (max-width: 900px) {
-  .signal-page { padding: 84px 16px 32px; }
+  .signal-page { padding: 32px 14px 28px; }
+  .signal-topbar {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 10px;
+    margin-bottom: 18px;
+  }
   .signal-head { display: block; }
   .signal-actions { justify-content: flex-start; margin-top: 18px; }
-  .signal-title { font-size: 44px; }
+  .signal-actions > * { max-width: 100%; }
+  .signal-title { font-size: clamp(40px, 16vw, 56px); }
+  .signal-lead { font-size: 15px; }
+  .signal-shell,
+  .garden-card {
+    border-radius: 26px;
+  }
+  .signal-core {
+    border-radius: 20px;
+  }
+  .signal-table th,
+  .signal-table td,
+  .garden-table th,
+  .garden-table td {
+    padding-inline: 12px;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {

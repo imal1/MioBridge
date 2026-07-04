@@ -132,7 +132,7 @@ export default function Dashboard({ initialCluster = null, initialStatus = null,
         </Alert>
       ) : null}
 
-      <section className="grid gap-5 xl:grid-cols-[1.05fr_1.25fr]">
+      <section className="grid min-w-0 gap-5 xl:grid-cols-[1.05fr_1.25fr]">
         <Card className="min-h-[322px]">
           <CardHeader>
             <CardDescription>主流程</CardDescription>
@@ -155,7 +155,7 @@ export default function Dashboard({ initialCluster = null, initialStatus = null,
           </CardContent>
         </Card>
 
-        <div className="grid gap-5 lg:grid-cols-[0.76fr_1fr]">
+        <div className="grid min-w-0 gap-5 lg:grid-cols-[0.76fr_1fr]">
           <Card>
             <CardHeader>
               <CardDescription>订阅节点</CardDescription>
@@ -181,7 +181,7 @@ export default function Dashboard({ initialCluster = null, initialStatus = null,
         </div>
       </section>
 
-      <section className="mt-5 grid gap-5 xl:grid-cols-[1fr_1.32fr]">
+      <section className="mt-5 grid min-w-0 gap-5 xl:grid-cols-[1fr_1.32fr]">
         <Card>
           <CardHeader>
             <CardDescription>阻塞源</CardDescription>
@@ -206,7 +206,31 @@ export default function Dashboard({ initialCluster = null, initialStatus = null,
             <CardTitle className="text-xl">可分发文件</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="overflow-x-auto">
+            <div className="grid gap-3 sm:hidden">
+              {FILES.map(file => (
+                <div key={file.name} className="rounded-[20px] border border-[var(--border)] bg-[var(--surface-container)] p-4">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="font-medium">{file.label}</p>
+                      <p className="signal-mono mt-1 truncate text-xs text-muted-foreground">/{file.name}</p>
+                    </div>
+                    <Badge variant={status?.[file.key] ? 'secondary' : 'destructive'}>{status?.[file.key] ? '可用' : '缺失'}</Badge>
+                  </div>
+                  <div className="mt-4 grid grid-cols-2 gap-3 text-sm">
+                    <div>
+                      <p className="text-muted-foreground">大小</p>
+                      <p className="signal-mono">{file.name === 'clash.yaml' ? formatBytes(status?.clashSize) : formatBytes(status?.subscriptionSize)}</p>
+                    </div>
+                    <div>
+                      <p className="text-muted-foreground">更新时间</p>
+                      <p>{formatDate(file.name === 'clash.yaml' ? status?.clashLastUpdated : status?.subscriptionLastUpdated)}</p>
+                    </div>
+                  </div>
+                  <Button asChild size="sm" variant="outline" className="mt-4 w-full"><a href={apiService.getDownloadUrl(file.name)} target="_blank" rel="noreferrer">下载</a></Button>
+                </div>
+              ))}
+            </div>
+            <div className="hidden min-w-0 overflow-x-auto sm:block">
               <table className="signal-table min-w-[680px]">
                 <thead>
                   <tr><th>产物</th><th>状态</th><th>大小</th><th>更新时间</th><th>操作</th></tr>

@@ -69,6 +69,7 @@ export default function MobileDrawer() {
           boxShadow: 'var(--shadow-elevated)',
           transform: mobileDrawerOpen ? 'translateX(0)' : 'translateX(-100%)',
           transition: 'transform 720ms var(--motion)',
+          overscrollBehavior: 'contain',
         }}
       >
         {/* Header */}
@@ -95,6 +96,7 @@ export default function MobileDrawer() {
             style={{ color: 'var(--muted-foreground)', background: 'transparent', border: 'none', cursor: 'pointer' }}
             onMouseEnter={e => (e.currentTarget.style.backgroundColor = 'var(--sidebar-accent)')}
             onMouseLeave={e => (e.currentTarget.style.backgroundColor = 'transparent')}
+            aria-label="关闭菜单"
           >
             <Icon icon="ph:x-light" className="w-4 h-4" />
           </button>
