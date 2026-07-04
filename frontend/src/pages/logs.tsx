@@ -55,6 +55,7 @@ export default function LogsPage() {
       title="日志"
       description="查看服务端运行日志，过滤部署、转换和健康检查错误。"
       status={logs ? `${logs.file} · ${logs.lines.length} 行` : '实时流'}
+      maxWidth="narrow"
       actions={(
         <Button variant="outline" onClick={loadLogs} disabled={loading}>
           <Icon icon={loading ? 'ph:spinner-light' : 'ph:arrow-clockwise-light'} className={loading ? 'animate-spin' : ''} />

@@ -97,6 +97,7 @@ export default function DeployPage({ initialCluster, initialDeployments, initial
       title="部署"
       description="跟踪 Agent 部署进度，重试未部署或失败的远端节点。"
       status="部署进度同步中"
+      maxWidth="narrow"
       actions={(
         <Button variant="outline" onClick={refresh}>
           <Icon icon="ph:arrow-clockwise-light" />

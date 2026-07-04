@@ -106,6 +106,7 @@ export default function SubscriptionPage() {
       title="订阅"
       description="管理输出产物，更新主节点订阅，或把原始节点文本转换为 Clash YAML。"
       status={`最近生成 ${formatDate(status?.clashLastUpdated || status?.subscriptionLastUpdated)}`}
+      maxWidth="narrow"
       actions={(
         <>
           <Button onClick={handleUpdate} disabled={loading !== null}>

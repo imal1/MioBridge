@@ -97,6 +97,7 @@ export default function Dashboard({ initialCluster = null, initialStatus = null,
       title="总览"
       description="订阅生成、节点生命周期和关键产物的当前状态。"
       status={`最近生成 ${formatDate(status?.clashLastUpdated || status?.subscriptionLastUpdated)}`}
+      maxWidth="narrow"
       actions={(
         <>
           <Button onClick={handleUpdate} disabled={loading}>

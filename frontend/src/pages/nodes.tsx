@@ -134,6 +134,7 @@ export default function NodesPage({ initialCluster, initialError }: NodesPagePro
       title="节点"
       description="管理主节点和远端 Agent，按生命周期状态执行健康检查、部署和恢复。"
       status={`Agent 心跳 ${cluster?.lastUpdated ? new Date(cluster.lastUpdated).toLocaleTimeString('zh-CN') : '待同步'}`}
+      maxWidth="narrow"
       actions={(
         <>
           <Button variant="outline" onClick={refresh}>
