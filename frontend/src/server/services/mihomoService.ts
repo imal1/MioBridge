@@ -2,10 +2,11 @@ import axios from 'axios';
 import * as fs from 'fs-extra';
 import { execSync } from 'child_process';
 import * as path from 'path';
+import YAML from 'yaml';
 import { logger } from '../utils/logger';
 import { config } from '../config';
 import { VERSION } from '../version';
-import { getMioBridgeBaseDir } from './yamlService';
+import { getMioBridgeBaseDir, yamlService } from './yamlService';
 
 interface ProxyConfig {
     name: string;
@@ -27,41 +28,12 @@ export class MihomoService {
     private configPath: string;
 
     private constructor() {
-        // 从配置中获取 mihomo 路径
-        try {
-            const { yamlService } = require('./yamlService');
-            const fullConfig = yamlService.getFullConfig() || {};
-            
-            // 使用配置中的路径
-            if (fullConfig.binaries?.mihomo_path) {
-                this.mihomoPath = fullConfig.binaries.mihomo_path;
-            } else {
-                // 使用默认路径
-                const basePath = path.join(getMioBridgeBaseDir(), 'bin');
-                this.mihomoPath = path.join(basePath, 'mihomo');
-            }
+        const fullConfig = yamlService.getFullConfig() || {};
+        this.mihomoPath = this.buildMihomoCandidates(fullConfig)[0];
 
-            // 配置文件路径
-            const configDir = path.join(getMioBridgeBaseDir(), 'mihomo');
-            this.configPath = path.join(configDir, 'config.yaml');
-            
-            // 确保目录存在
-            fs.ensureDirSync(path.dirname(this.mihomoPath));
-            fs.ensureDirSync(path.dirname(this.configPath));
-        } catch (error) {
-            // 回退到默认路径
-            const basePath = path.join(getMioBridgeBaseDir(), 'bin');
-            this.mihomoPath = path.join(basePath, 'mihomo');
-            const configDir = path.join(getMioBridgeBaseDir(), 'mihomo');
-            this.configPath = path.join(configDir, 'config.yaml');
-            
-            // 确保目录存在
-            fs.ensureDirSync(path.dirname(this.mihomoPath));
-            fs.ensureDirSync(path.dirname(this.configPath));
-            
-            // 记录错误但继续运行
-            console.warn('无法从配置文件获取 mihomo 路径，使用默认路径:', error);
-        }
+        const configDir = path.join(getMioBridgeBaseDir(), 'mihomo');
+        this.configPath = path.join(configDir, 'config.yaml');
+        fs.ensureDirSync(path.dirname(this.configPath));
     }
 
     public static getInstance(): MihomoService {
@@ -71,19 +43,75 @@ export class MihomoService {
         return MihomoService.instance;
     }
 
+    private normalizeMihomoCandidate(candidate?: string): string | null {
+        if (!candidate) return null;
+        const trimmed = candidate.trim();
+        if (!trimmed) return null;
+        if (path.basename(trimmed) === 'mihomo') return trimmed;
+        return path.join(trimmed, 'mihomo');
+    }
+
+    private buildMihomoCandidates(fullConfig: any): string[] {
+        const configuredPath = this.normalizeMihomoCandidate(fullConfig.binaries?.mihomo_path);
+        const envPath = this.normalizeMihomoCandidate(process.env.MIOBRIDGE_MIHOMO_PATH);
+        const baseDir = getMioBridgeBaseDir();
+        const candidates = [
+            envPath,
+            configuredPath,
+            path.join(baseDir, 'bin', 'mihomo'),
+            path.join(process.cwd(), 'bin', 'mihomo'),
+            path.join(process.cwd(), '..', 'bin', 'mihomo'),
+            'mihomo',
+        ].filter(Boolean) as string[];
+
+        return Array.from(new Set(candidates));
+    }
+
+    private quoteShellPath(value: string): string {
+        return `"${value.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`;
+    }
+
+    private commandExists(command: string): string | null {
+        try {
+            return execSync(`command -v ${this.quoteShellPath(command)}`, {
+                encoding: 'utf8',
+                timeout: 2000,
+                stdio: ['ignore', 'pipe', 'ignore'],
+            }).trim() || null;
+        } catch {
+            return null;
+        }
+    }
+
+    private findMihomoExecutable(): string | null {
+        const fullConfig = yamlService.getFullConfig() || {};
+        for (const candidate of this.buildMihomoCandidates(fullConfig)) {
+            if (candidate.includes(path.sep)) {
+                if (fs.existsSync(candidate)) return candidate;
+                continue;
+            }
+
+            const found = this.commandExists(candidate);
+            if (found) return found;
+        }
+        return null;
+    }
+
     /**
      * 检查本地 mihomo 是否可用
      */
     private async checkLocalMihomo(): Promise<boolean> {
         try {
-            if (!fs.existsSync(this.mihomoPath)) {
-                logger.error(`mihomo 二进制文件不存在: ${this.mihomoPath}`);
-                logger.info('请确保已通过安装脚本安装 mihomo');
+            const executable = this.findMihomoExecutable();
+            if (!executable) {
+                logger.warn(`mihomo 二进制文件不可用，已检查首选路径: ${this.mihomoPath}`);
+                logger.info('可通过 MIOBRIDGE_MIHOMO_PATH、config.yaml binaries.mihomo_path、仓库 bin/ 或 PATH 提供 mihomo');
                 return false;
             }
+            this.mihomoPath = executable;
 
             // 尝试执行版本命令
-            const result = execSync(`"${this.mihomoPath}" -v`, { 
+            const result = execSync(`${this.quoteShellPath(executable)} -v`, { 
                 encoding: 'utf8',
                 timeout: 5000 
             });
@@ -125,11 +153,13 @@ export class MihomoService {
      */
     public async getVersion(): Promise<MihomoVersionInfo | null> {
         try {
-            if (!await this.ensureMihomoAvailable()) {
+            const executable = this.findMihomoExecutable();
+            if (!executable) {
                 throw new Error('mihomo 不可用');
             }
+            this.mihomoPath = executable;
 
-            const result = execSync(`"${this.mihomoPath}" -v`, { 
+            const result = execSync(`${this.quoteShellPath(executable)} -v`, { 
                 encoding: 'utf8',
                 timeout: 5000 
             });
@@ -167,11 +197,6 @@ export class MihomoService {
         logger.info(`开始使用 mihomo 转换订阅: ${subscriptionUrl}`);
 
         try {
-            // 确保 mihomo 可用
-            if (!await this.ensureMihomoAvailable()) {
-                throw new Error('mihomo 服务不可用');
-            }
-
             // 下载订阅内容
             const subscriptionContent = await this.fetchSubscriptionContent(subscriptionUrl);
             
@@ -191,11 +216,6 @@ export class MihomoService {
         logger.debug(`内容长度: ${content.length} 字符`);
 
         try {
-            // 确保 mihomo 可用
-            if (!await this.ensureMihomoAvailable()) {
-                throw new Error('mihomo 服务不可用');
-            }
-
             return await this.convertContentToClash(content);
         } catch (error) {
             logger.error('mihomo 内容转换失败:', {
@@ -717,35 +737,14 @@ export class MihomoService {
      */
     private convertObjectToYaml(config: any, proxyCount: number): string {
         try {
-            // 创建临时 JSON 文件
-            const tempJsonPath = path.join(path.dirname(this.configPath), 'temp-config.json');
-            fs.writeFileSync(tempJsonPath, JSON.stringify(config, null, 2));
-            
-            try {
-                // 获取 yq 工具路径
-                const yqPath = this.getYqPath();
-                
-                // 使用 yq 将 JSON 转换为 YAML（-o yaml 确保输出 YAML 而非 JSON）
-                const yamlResult = execSync(`${yqPath} eval -P -o yaml '.' "${tempJsonPath}"`, {
-                    encoding: 'utf8',
-                    timeout: 10000
-                });
-                
-                // 添加注释头
-                const header = `# Clash 配置文件
-# 由 miobridge 使用 mihomo 内核生成
+            const yamlResult = YAML.stringify(config, { lineWidth: 0 });
+            const header = `# Clash 配置文件
+# 由 miobridge 生成，mihomo 可用时自动验证
 # 生成时间: ${new Date().toISOString()}
 # 节点数量: ${proxyCount}
 
 `;
-                
-                return header + yamlResult;
-            } finally {
-                // 清理临时文件
-                if (fs.existsSync(tempJsonPath)) {
-                    fs.removeSync(tempJsonPath);
-                }
-            }
+            return header + yamlResult;
         } catch (error) {
             logger.error('转换配置为 YAML 失败:', error);
             throw new Error('配置转换失败');
@@ -753,31 +752,17 @@ export class MihomoService {
     }
     
     /**
-     * 获取 yq 工具路径
-     */
-    private getYqPath(): string {
-        const yqPath = path.join(getMioBridgeBaseDir(), 'bin', 'yq');
-        
-        // 检查 BASE_DIR/bin/yq 是否存在
-        if (fs.existsSync(yqPath)) {
-            return yqPath;
-        }
-        
-        // 向后兼容：检查进程工作目录下的 bin/yq
-        const fallbackYqPath = path.join(process.cwd(), 'bin', 'yq');
-        if (fs.existsSync(fallbackYqPath)) {
-            return fallbackYqPath;
-        }
-
-        // 最后尝试系统 yq（依赖 PATH）
-        return 'yq';
-    }
-
-    /**
      * 验证 Clash 配置
      */
     private async validateClashConfig(config: string): Promise<void> {
         try {
+            const executable = this.findMihomoExecutable();
+            if (!executable) {
+                logger.warn('mihomo 不可用，跳过 Clash 配置二进制校验');
+                return;
+            }
+            this.mihomoPath = executable;
+
             // 将配置写入临时文件
             const tempConfigPath = path.join(path.dirname(this.configPath), 'temp-config.yaml');
             await fs.writeFile(tempConfigPath, config);
@@ -786,7 +771,7 @@ export class MihomoService {
                 logger.debug(`使用 mihomo 验证配置文件: ${tempConfigPath}`);
                 
                 // 使用 mihomo -t 参数验证配置
-                const result = execSync(`"${this.mihomoPath}" -t -f "${tempConfigPath}"`, {
+                const result = execSync(`${this.quoteShellPath(executable)} -t -f "${tempConfigPath}"`, {
                     encoding: 'utf8',
                     timeout: 10000,
                     stdio: ['ignore', 'pipe', 'pipe']

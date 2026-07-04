@@ -534,7 +534,7 @@ export class NodeManager {
         subscriptionExists: data.subscriptionExists,
         clashExists: data.clashExists,
         mihomoAvailable: data.mihomoAvailable,
-        kernelAccessible: data.singBoxAccessible,
+        kernelAccessible: data.kernelAccessible ?? data.singBoxAccessible,
         version: data.version,
         uptime: data.uptime,
         agent: node.agent,
@@ -602,11 +602,8 @@ export class NodeManager {
   async getClusterStatus(): Promise<ClusterStatus> {
     await this.loadNodes({ triggerDeploy: false });
 
-    // 获取本地节点状态
-    const localStatus = await this.getLocalNodeStatus();
-    const allStatuses: NodeStatus[] = [localStatus];
+    const allStatuses: NodeStatus[] = [];
 
-    // 并发轮询所有远程节点
     if (this.nodes.length > 0) {
       const remoteResults = await Promise.allSettled(
         this.nodes.map(node => this.fetchRemoteStatus(node))
@@ -623,47 +620,10 @@ export class NodeManager {
     return this.buildClusterStatus(allStatuses);
   }
 
-  /** 构建本地节点状态 */
-  private async getLocalNodeStatus(): Promise<NodeStatus> {
-    try {
-      const status = await this.localService.getStatus();
-      const nodeStatus: NodeStatus = {
-        nodeId: 'local',
-        name: '本地',
-        kernel: 'sing-box',
-        location: '本地',
-        online: true,
-        latency: 0,
-        nodesCount: status.nodesCount || 0,
-        subscriptionExists: status.subscriptionExists,
-        clashExists: status.clashExists,
-        mihomoAvailable: status.mihomoAvailable,
-        kernelAccessible: status.singBoxAccessible,
-        version: status.version,
-        uptime: status.uptime,
-      };
-      this.nodeCache.set('local', nodeStatus);
-      return nodeStatus;
-    } catch (error: any) {
-      return {
-        nodeId: 'local',
-        name: '本地',
-        kernel: 'sing-box',
-        location: '本地',
-        online: false,
-        error: error.message,
-      };
-    }
-  }
-
   /** 构建 ClusterStatus */
   private buildClusterStatus(allStatuses: NodeStatus[]): ClusterStatus {
     const onlineNodes = allStatuses.filter(n => n.online);
-    const remoteProxyCount = allStatuses
-      .filter(n => n.nodeId !== 'local')
-      .reduce((sum, n) => sum + (n.nodesCount || 0), 0);
-    const localProxyCount = allStatuses.find(n => n.nodeId === 'local')?.nodesCount || 0;
-    const totalProxies = remoteProxyCount > 0 ? remoteProxyCount : localProxyCount;
+    const totalProxies = allStatuses.reduce((sum, n) => sum + (n.nodesCount || 0), 0);
     return {
       totalNodes: allStatuses.length,
       onlineNodes: onlineNodes.length,
@@ -701,8 +661,10 @@ export class NodeManager {
   > {
     const results: Record<string, { online: boolean; latency: number }> = {};
 
+    await this.loadNodes({ triggerDeploy: false });
+
     // If a specific remote node is requested
-    if (nodeId && nodeId !== 'local') {
+    if (nodeId) {
       const targetNode = this.nodes.find(n => n.id === nodeId);
       if (targetNode) {
         results[nodeId] = await this.fetchRemoteHealth(targetNode);
@@ -710,15 +672,6 @@ export class NodeManager {
         results[nodeId] = { online: false, latency: 0 };
       }
       return results;
-    }
-
-    // Check local
-    try {
-      const start = Date.now();
-      await this.localService.getStatus();
-      results['local'] = { online: true, latency: Date.now() - start };
-    } catch {
-      results['local'] = { online: false, latency: 0 };
     }
 
     // Check all remote nodes concurrently

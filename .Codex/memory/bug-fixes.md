@@ -7,6 +7,9 @@ metadata:
 
 # Bug Fixes
 
+- 2026-07-04: Vercel control plane is no longer counted as a cluster node;
+  mihomo/yq absence falls back to built-in Clash YAML generation and optional
+  mihomo validation.
 - 2026-07-02: SSR pages catch service import failures, browser-only ConvertModal
   loads client-side, and `/api/logs` returns structured fallback data instead
   of surfacing filesystem errors as page/API 500s.

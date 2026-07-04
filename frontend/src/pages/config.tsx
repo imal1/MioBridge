@@ -3,6 +3,7 @@ import { useCallback, useState } from 'react'
 import { Icon } from '@iconify/react'
 import { toast } from 'sonner'
 import { apiService, type ApiStatus } from '@/lib/api'
+import type { ClusterStatus, KernelType } from '@/server/types'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -15,14 +16,22 @@ import SignalPage from '@/components/shared/SignalPage'
 
 interface ConfigPageProps {
   initialStatus: ApiStatus | null
+  initialCluster: ClusterStatus | null
   initialConfigs: string[]
   frontendConfig: any
   initialError: string | null
 }
 
-export default function ConfigPage({ initialStatus, initialConfigs, frontendConfig, initialError }: ConfigPageProps) {
+const kernelLabels: Record<KernelType, string> = {
+  'sing-box': 'sing-box',
+  xray: 'Xray',
+  v2ray: 'V2Ray',
+}
+
+export default function ConfigPage({ initialStatus, initialCluster, initialConfigs, frontendConfig, initialError }: ConfigPageProps) {
   const [configsText, setConfigsText] = useState(initialConfigs.join('\n'))
   const [status, setStatus] = useState(initialStatus)
+  const [cluster, setCluster] = useState(initialCluster)
   const [error, setError] = useState<string | null>(initialError)
   const [message, setMessage] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
@@ -51,13 +60,28 @@ export default function ConfigPage({ initialStatus, initialConfigs, frontendConf
   }, [configsText])
 
   const refreshStatus = useCallback(async () => {
-    setStatus(await apiService.getStatus())
+    const [nextStatus, nextCluster] = await Promise.all([
+      apiService.getStatus(),
+      apiService.getClusterStatus(),
+    ])
+    setStatus(nextStatus)
+    if (nextCluster.success) setCluster(nextCluster.data as ClusterStatus)
     toast.success('状态已刷新')
   }, [])
 
   const network = frontendConfig?.network || {}
   const app = frontendConfig?.app || {}
   const protocols = frontendConfig?.protocols || {}
+  const childNodes = cluster?.nodes || []
+  const kernelCapabilities = (Object.keys(kernelLabels) as KernelType[]).map((kernel) => {
+    const nodes = childNodes.filter(node => node.kernel === kernel)
+    const accessible = nodes.filter(node => node.online && node.kernelAccessible).length
+    return {
+      label: `${kernelLabels[kernel]} 子节点`,
+      ok: nodes.length > 0 && accessible === nodes.length,
+      detail: nodes.length > 0 ? `${accessible}/${nodes.length} 可用` : '无子节点',
+    }
+  })
 
   return (
     <SignalPage
@@ -125,14 +149,17 @@ export default function ConfigPage({ initialStatus, initialConfigs, frontendConf
             </TabsContent>
             <TabsContent value="capabilities" className="grid gap-3 md:grid-cols-2">
               {[
-                ['Mihomo', status?.mihomoAvailable],
-                ['sing-box', status?.singBoxAccessible],
-                ['subscription.txt', status?.subscriptionExists],
-                ['clash.yaml', status?.clashExists],
-                ['raw.txt', status?.rawExists],
-              ].map(([label, ok]) => (
-                <div key={String(label)} className="flex items-center justify-between rounded-2xl bg-[var(--surface-container)] p-3">
-                  <span className="text-sm font-medium">{label}</span>
+                { label: 'Mihomo 转换', ok: Boolean(status?.mihomoAvailable), detail: status?.mihomoVersion || '未检测到' },
+                ...kernelCapabilities,
+                { label: 'subscription.txt', ok: Boolean(status?.subscriptionExists), detail: status?.subscriptionExists ? '已生成' : '未生成' },
+                { label: 'clash.yaml', ok: Boolean(status?.clashExists), detail: status?.clashExists ? '已生成' : '未生成' },
+                { label: 'raw.txt', ok: Boolean(status?.rawExists), detail: status?.rawExists ? '已生成' : '未生成' },
+              ].map(({ label, ok, detail }) => (
+                <div key={label} className="flex items-center justify-between gap-3 rounded-2xl bg-[var(--surface-container)] p-3">
+                  <span className="min-w-0">
+                    <span className="block text-sm font-medium">{label}</span>
+                    <span className="block truncate text-xs text-muted-foreground">{detail}</span>
+                  </span>
                   <Badge variant={ok ? 'secondary' : 'destructive'}>{ok ? '可用' : '不可用'}</Badge>
                 </div>
               ))}
@@ -153,11 +180,16 @@ export default function ConfigPage({ initialStatus, initialConfigs, frontendConf
 export const getServerSideProps: GetServerSideProps<ConfigPageProps> = async () => {
   try {
     const { MioBridgeService } = await import('@/server/services/mioBridgeService')
+    const { NodeManager } = await import('@/server/services/nodeManager')
     const { config, getFrontendConfig } = await import('@/server/config')
-    const status = await MioBridgeService.getInstance().getStatus()
+    const [status, cluster] = await Promise.all([
+      MioBridgeService.getInstance().getStatus(),
+      NodeManager.getInstance().getClusterStatus(),
+    ])
     return {
       props: {
         initialStatus: JSON.parse(JSON.stringify(status)),
+        initialCluster: JSON.parse(JSON.stringify(cluster)),
         initialConfigs: config.singBoxConfigs,
         frontendConfig: JSON.parse(JSON.stringify(getFrontendConfig())),
         initialError: null,
@@ -167,6 +199,7 @@ export const getServerSideProps: GetServerSideProps<ConfigPageProps> = async () 
     return {
       props: {
         initialStatus: null,
+        initialCluster: null,
         initialConfigs: [],
         frontendConfig: null,
         initialError: error instanceof Error ? error.message : '读取配置失败',

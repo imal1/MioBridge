@@ -46,7 +46,6 @@ const kernelLabels: Record<string, string> = {
 }
 
 function agentLabel(node: NodeStatus) {
-  if (node.nodeId === 'local') return '主节点'
   switch (node.agent?.status) {
     case 'running': return '运行中'
     case 'deploying': return '部署中'
@@ -132,8 +131,8 @@ export default function NodesPage({ initialCluster, initialError }: NodesPagePro
     <SignalPage
       crumb="Fleet topology"
       title="节点"
-      description="管理主节点和远端 Agent，按生命周期状态执行健康检查、部署和恢复。"
-      status={`Agent 心跳 ${cluster?.lastUpdated ? new Date(cluster.lastUpdated).toLocaleTimeString('zh-CN') : '待同步'}`}
+      description="管理子节点和远端 Agent，按生命周期状态执行健康检查、部署和恢复。"
+      status={`子节点心跳 ${cluster?.lastUpdated ? new Date(cluster.lastUpdated).toLocaleTimeString('zh-CN') : '待同步'}`}
       maxWidth="narrow"
       actions={(
         <>
@@ -161,10 +160,10 @@ export default function NodesPage({ initialCluster, initialError }: NodesPagePro
 
       <div className="grid gap-5 md:grid-cols-3">
         <Card variant="elevated">
-          <CardHeader className="pb-3"><CardDescription>节点总数</CardDescription><CardTitle className="signal-value">{cluster?.totalNodes ?? 0}</CardTitle></CardHeader>
+          <CardHeader className="pb-3"><CardDescription>子节点总数</CardDescription><CardTitle className="signal-value">{cluster?.totalNodes ?? 0}</CardTitle></CardHeader>
         </Card>
         <Card variant="elevated">
-          <CardHeader className="pb-3"><CardDescription>在线节点</CardDescription><CardTitle className="signal-value signal-success">{cluster?.onlineNodes ?? 0}</CardTitle></CardHeader>
+          <CardHeader className="pb-3"><CardDescription>在线子节点</CardDescription><CardTitle className="signal-value signal-success">{cluster?.onlineNodes ?? 0}</CardTitle></CardHeader>
         </Card>
         <Card variant="elevated">
           <CardHeader className="pb-3"><CardDescription>代理总数</CardDescription><CardTitle className="signal-value">{cluster?.totalProxies ?? 0}</CardTitle></CardHeader>
@@ -176,12 +175,12 @@ export default function NodesPage({ initialCluster, initialError }: NodesPagePro
           <div>
             <CardTitle className="text-xl">节点生命周期</CardTitle>
             <CardDescription className="flex items-center gap-1">
-              子节点只暴露节点源，订阅文件由主节点统一生成。
+              子节点提供节点源，控制面聚合后生成 raw.txt、subscription.txt 和 clash.yaml。
               <Tooltip>
                 <TooltipTrigger asChild>
                   <Icon icon="ph:info-bold" className="h-3.5 w-3.5 cursor-help" />
                 </TooltipTrigger>
-                <TooltipContent>主节点负责生成 raw.txt、subscription.txt 和 clash.yaml</TooltipContent>
+                <TooltipContent>Vercel 控制面只聚合与转换，不作为子节点参与统计</TooltipContent>
               </Tooltip>
             </CardDescription>
           </div>
@@ -232,7 +231,7 @@ export default function NodesPage({ initialCluster, initialError }: NodesPagePro
               </article>
             ))}
             {nodes.length === 0 ? (
-              <div className="rounded-[24px] border border-[var(--border)] bg-[var(--surface-container)] p-10 text-center text-muted-foreground">没有匹配的节点</div>
+              <div className="rounded-[24px] border border-[var(--border)] bg-[var(--surface-container)] p-10 text-center text-muted-foreground">还没有匹配的子节点</div>
             ) : null}
           </div>
         </CardContent>
@@ -252,7 +251,7 @@ export default function NodesPage({ initialCluster, initialError }: NodesPagePro
                 ['内核', kernelLabels[selectedNode.kernel] || selectedNode.kernel],
                 ['代理数量', selectedNode.nodesCount ?? '-'],
                 ['版本', selectedNode.version || '-'],
-                ['Agent', selectedNode.nodeId === 'local' ? '主节点' : `${agentLabel(selectedNode)} ${selectedNode.agent?.version || ''}`],
+                ['Agent', `${agentLabel(selectedNode)} ${selectedNode.agent?.version || ''}`],
               ].map(([label, value]) => (
                 <div key={label} className="flex items-center justify-between gap-4 rounded-2xl bg-[var(--surface-container)] p-3">
                   <span className="text-muted-foreground">{label}</span>

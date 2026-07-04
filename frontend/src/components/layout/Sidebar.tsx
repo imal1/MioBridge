@@ -1,8 +1,9 @@
 import Link from 'next/link'
 import { useRouter } from 'next/router'
-import { memo } from 'react'
+import { memo, useEffect, useState } from 'react'
 import { Icon } from '@iconify/react'
 import ThemeToggle from '@/components/ThemeToggle'
+import { apiService } from '@/lib/api'
 import { NAV_ITEMS, type NavIcon } from './navigation'
 
 const ICONS: Record<NavIcon, string> = {
@@ -42,10 +43,23 @@ function NavItem({ href, icon, label, active }: { href: string; icon: NavIcon; l
 
 const Sidebar = memo(function Sidebar() {
   const router = useRouter()
+  const [mihomoAvailable, setMihomoAvailable] = useState<boolean | null>(null)
+
+  useEffect(() => {
+    let active = true
+    apiService.getStatus()
+      .then(status => {
+        if (active) setMihomoAvailable(Boolean(status.mihomoAvailable))
+      })
+      .catch(() => {
+        if (active) setMihomoAvailable(false)
+      })
+    return () => { active = false }
+  }, [])
 
   return (
     <aside
-      className="fixed bottom-7 left-7 top-7 z-20 flex w-[188px] flex-col rounded-[32px] border p-[18px]"
+      className="fixed bottom-[var(--desktop-sidebar-gap)] left-[var(--desktop-sidebar-gap)] top-[var(--desktop-sidebar-gap)] z-20 flex w-[var(--desktop-sidebar-width)] flex-col rounded-[32px] border p-[18px]"
       style={{
         background: 'var(--sidebar)',
         borderColor: 'var(--sidebar-border)',
@@ -91,8 +105,10 @@ const Sidebar = memo(function Sidebar() {
             color: 'var(--muted-foreground)',
           }}
         >
-          主节点在线<br />
-          <span className="signal-mono signal-success">control active</span>
+          mihomo 状态<br />
+          <span className={`signal-mono ${mihomoAvailable ? 'signal-success' : mihomoAvailable === false ? 'text-danger' : ''}`}>
+            {mihomoAvailable === null ? 'checking' : mihomoAvailable ? 'available' : 'unavailable'}
+          </span>
         </div>
         <div className="flex items-center justify-between px-1 text-xs text-muted-foreground">
           <span>主题</span>

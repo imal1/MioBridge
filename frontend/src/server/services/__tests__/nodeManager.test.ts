@@ -220,23 +220,21 @@ describe('Task 3: NodeManager Service', () => {
   });
 
   describe('getClusterStatus', () => {
-    it('should return cluster status with local node', async () => {
+    it('should return an empty remote cluster when no child nodes are configured', async () => {
       const manager = await getTestNodeManager();
       const cluster = await manager.getClusterStatus();
-      expect(cluster).toBeDefined();
-      expect(typeof cluster.totalNodes).toBe('number');
-      expect(typeof cluster.onlineNodes).toBe('number');
-      expect(typeof cluster.totalProxies).toBe('number');
-      expect(Array.isArray(cluster.nodes)).toBe(true);
+      expect(cluster.totalNodes).toBe(0);
+      expect(cluster.onlineNodes).toBe(0);
+      expect(cluster.totalProxies).toBe(0);
+      expect(cluster.nodes).toEqual([]);
       expect(cluster.lastUpdated).toBeDefined();
     });
 
-    it('should include local node in cluster nodes', async () => {
+    it('should not include a local control-plane node in cluster nodes', async () => {
       const manager = await getTestNodeManager();
       const cluster = await manager.getClusterStatus();
       const localNode = cluster.nodes.find(n => n.nodeId === 'local');
-      expect(localNode).toBeDefined();
-      expect(localNode!.name).toBe('本地');
+      expect(localNode).toBeUndefined();
     });
   });
 
@@ -346,14 +344,31 @@ describe('Task 3: NodeManager Service', () => {
   });
 
   describe('getClusterStatus (multi-node)', () => {
-    it('should aggregate local + remote node statuses', async () => {
+    it('should aggregate only remote child node statuses', async () => {
+      const secret = 'distributed-secret-32chars-minimum';
+      const agent = await startAgentStub(secret);
       const manager = await getTestNodeManager();
-      const cluster = await manager.getClusterStatus();
-      expect(cluster).toBeDefined();
-      expect(cluster.totalNodes).toBeGreaterThanOrEqual(1); // at least local
-      expect(Array.isArray(cluster.nodes)).toBe(true);
-      const localNode = cluster.nodes.find((n: NodeStatus) => n.nodeId === 'local');
-      expect(localNode).toBeDefined();
+
+      try {
+        await writeTestNodesYaml([{
+          id: 'remote-agent',
+          name: 'Remote Agent',
+          host: '0.0.0.0',
+          port: agent.port,
+          secret,
+          kernel: 'xray',
+          location: 'loopback',
+          enabled: true,
+        }]);
+
+        const cluster = await manager.getClusterStatus();
+        expect(cluster.totalNodes).toBe(1);
+        expect(cluster.onlineNodes).toBe(1);
+        expect(cluster.nodes.map((node: NodeStatus) => node.nodeId)).toEqual(['remote-agent']);
+        expect(cluster.nodes.find((n: NodeStatus) => n.nodeId === 'local')).toBeUndefined();
+      } finally {
+        await agent.close();
+      }
     });
 
     it('should handle remote node offline without failing entire cluster', async () => {
@@ -433,6 +448,12 @@ describe('Task 3: NodeManager Service', () => {
   });
 
   describe('healthCheck (multi-node)', () => {
+    it('should not check local control-plane health when no child nodes exist', async () => {
+      const manager = await getTestNodeManager();
+      const result = await manager.healthCheck();
+      expect(result).toEqual({});
+    });
+
     it('should check health for specific remote node', async () => {
       const manager = await getTestNodeManager();
       const result = await manager.healthCheck('node-hk');
