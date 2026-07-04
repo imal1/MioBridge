@@ -6,7 +6,7 @@
   "packageManager": "bun@1.0.30",
   "scripts": {
     "dev": "next dev -p 3001",
-    "build": "next build",
+    "build": "node ../scripts/ensure-mihomo-binary.mjs && next build",
     "start": "next start",
     "export": "next build",
     "lint": "oxlint src/",

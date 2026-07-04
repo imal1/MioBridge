@@ -4,7 +4,7 @@ import * as crypto from 'crypto';
 import { logger } from '../utils/logger';
 import { MioBridgeService } from './mioBridgeService';
 import { getMioBridgeBaseDir } from '../runtimePaths';
-import type { NodeConfig, NodeStatus, ClusterStatus, NodesYaml, NodeAgentInfo } from '../types';
+import type { NodeConfig, NodeStatus, ClusterStatus, NodesYaml, NodeAgentInfo, LogsResult } from '../types';
 
 const CONFIG_DIR = getMioBridgeBaseDir();
 const NODES_YAML_PATH = path.join(CONFIG_DIR, 'nodes.yaml');
@@ -594,6 +594,33 @@ export class NodeManager {
     } catch {
       return { online: false, latency: 0 };
     }
+  }
+
+  async getRemoteLogs(
+    nodeId: string,
+    options: { file?: string; level?: string; query?: string } = {},
+  ): Promise<LogsResult> {
+    await this.loadNodes({ triggerDeploy: false });
+    const node = this.nodes.find(item => item.id === nodeId);
+    if (!node) {
+      throw new Error(`节点 ${nodeId} 不存在`);
+    }
+
+    const params = new URLSearchParams();
+    if (options.file) params.set('file', options.file);
+    if (options.level && options.level !== 'all') params.set('level', options.level);
+    if (options.query) params.set('q', options.query);
+    const reqPath = `/api/logs${params.toString() ? `?${params.toString()}` : ''}`;
+    const json = await this.fetchRemoteJson(node, reqPath);
+    const data = json.data || json;
+    return {
+      file: data.file || options.file || 'journalctl',
+      files: Array.isArray(data.files) ? data.files : ['journalctl'],
+      lines: Array.isArray(data.lines) ? data.lines : [],
+      updatedAt: data.updatedAt || new Date().toISOString(),
+      nodeId: data.nodeId || node.id,
+      nodeName: data.nodeName || node.name,
+    };
   }
 
   // ==================== 集群聚合操作 ====================

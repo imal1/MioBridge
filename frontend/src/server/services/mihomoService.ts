@@ -59,6 +59,7 @@ export class MihomoService {
             envPath,
             configuredPath,
             path.join(baseDir, 'bin', 'mihomo'),
+            path.join(process.cwd(), 'frontend', 'bin', 'mihomo'),
             path.join(process.cwd(), 'bin', 'mihomo'),
             path.join(process.cwd(), '..', 'bin', 'mihomo'),
             'mihomo',
@@ -105,7 +106,7 @@ export class MihomoService {
             const executable = this.findMihomoExecutable();
             if (!executable) {
                 logger.warn(`mihomo 二进制文件不可用，已检查首选路径: ${this.mihomoPath}`);
-                logger.info('可通过 MIOBRIDGE_MIHOMO_PATH、config.yaml binaries.mihomo_path、仓库 bin/ 或 PATH 提供 mihomo');
+                logger.info('可通过 MIOBRIDGE_MIHOMO_PATH、config.yaml binaries.mihomo_path、frontend/bin/mihomo、仓库 bin/ 或 PATH 提供 mihomo');
                 return false;
             }
             this.mihomoPath = executable;
@@ -758,8 +759,7 @@ export class MihomoService {
         try {
             const executable = this.findMihomoExecutable();
             if (!executable) {
-                logger.warn('mihomo 不可用，跳过 Clash 配置二进制校验');
-                return;
+                throw new Error('mihomo 不可用，无法验证 Clash 配置');
             }
             this.mihomoPath = executable;
 

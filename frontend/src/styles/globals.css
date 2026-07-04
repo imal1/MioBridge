@@ -343,9 +343,9 @@ button, input, textarea, select {
   margin: 0;
   color: var(--foreground);
   font-family: var(--font-display);
-  font-size: clamp(48px, 6vw, 76px);
+  font-size: clamp(38px, 4.6vw, 60px);
   font-weight: 780;
-  line-height: .94;
+  line-height: 1;
   letter-spacing: 0;
   text-wrap: balance;
 }
@@ -549,7 +549,7 @@ button, input, textarea, select {
   .signal-head { display: block; }
   .signal-actions { justify-content: flex-start; margin-top: 18px; }
   .signal-actions > * { max-width: 100%; }
-  .signal-title { font-size: clamp(40px, 16vw, 56px); }
+  .signal-title { font-size: clamp(34px, 12vw, 46px); }
   .signal-lead { font-size: 15px; }
   .signal-shell,
   .garden-card {

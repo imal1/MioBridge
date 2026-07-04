@@ -2,6 +2,7 @@ import { describe, it, expect } from 'bun:test';
 import { handleStatus } from '../handlers/status';
 import { handleUpdate } from '../handlers/update';
 import { handleHealth } from '../handlers/health';
+import { handleLogs } from '../handlers/logs';
 import type { AgentConfig } from '../config';
 import * as crypto from 'crypto';
 
@@ -88,6 +89,19 @@ describe('handleHealth', () => {
     expect(body.uptime).toBeDefined();
     expect(body.memory).toBeDefined();
     expect(body.version).toBe('1.0.0');
+  });
+});
+
+describe('handleLogs', () => {
+  it('should return logs JSON', async () => {
+    const req = mockReq({ url: '/api/logs' });
+    const res = await handleLogs(req, MOCK_CONFIG);
+    const body = await res.json();
+    expect(res.status).toBe(200);
+    expect(body.success).toBe(true);
+    expect(body.data.file).toBeDefined();
+    expect(Array.isArray(body.data.files)).toBe(true);
+    expect(Array.isArray(body.data.lines)).toBe(true);
   });
 });
 

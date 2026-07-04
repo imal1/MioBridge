@@ -54,6 +54,15 @@ export interface ApiResponse<T = any> {
     timestamp: string;
 }
 
+export interface LogsResult {
+    file: string;
+    files: string[];
+    lines: string[];
+    updatedAt: string;
+    nodeId?: string;
+    nodeName?: string;
+}
+
 export interface ConfigUpdateRequest {
     configs: string[];
 }

@@ -10,10 +10,25 @@ async function getTestMihomoService() {
   return MihomoService.getInstance();
 }
 
-describe('MihomoService Vercel-compatible fallback', () => {
+async function writeFakeMihomo() {
+  const fs = await import('fs-extra');
+  const binaryPath = `${TEST_CONFIG_DIR}/bin/mihomo`;
+  await fs.ensureDir(`${TEST_CONFIG_DIR}/bin`);
+  await fs.writeFile(binaryPath, [
+    '#!/bin/sh',
+    'if [ "$1" = "-v" ]; then echo "Mihomo v-test"; exit 0; fi',
+    'if [ "$1" = "-t" ]; then exit 0; fi',
+    'echo "ok"',
+    '',
+  ].join('\n'));
+  await fs.chmod(binaryPath, 0o755);
+}
+
+describe('MihomoService binary-backed conversion', () => {
   beforeEach(async () => {
     const fs = await import('fs-extra');
     await fs.remove(TEST_CONFIG_DIR);
+    await writeFakeMihomo();
   });
 
   afterEach(async () => {
@@ -22,16 +37,17 @@ describe('MihomoService Vercel-compatible fallback', () => {
     vi.unstubAllEnvs();
   });
 
-  it('should generate Clash YAML even when mihomo and yq binaries are unavailable', async () => {
+  it('should require mihomo and validate generated Clash YAML with the binary', async () => {
     const service = await getTestMihomoService();
     const content = 'vless://00000000-0000-4000-8000-000000000001@example.com:443?type=tcp&security=tls#vercel-node';
 
-    expect(await service.ensureMihomoAvailable()).toBe(false);
+    expect(await service.ensureMihomoAvailable()).toBe(true);
+    expect(await service.getVersion()).toMatchObject({ version: 'v-test' });
 
     const yaml = await service.convertToClashByContent(content);
     expect(yaml).toContain('proxies:');
     expect(yaml).toContain('name: vercel-node');
     expect(yaml).toContain('type: vless');
     expect(yaml).toContain('proxy-groups:');
-  });
+  }, 10_000);
 });

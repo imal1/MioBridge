@@ -16,6 +16,11 @@ const nextConfig = {
   // monorepo（bun workspace）下依赖被提升到仓库根 node_modules，
   // 显式指定 tracing 根，确保 standalone 正确打包依赖（否则会误选 ~ 目录）
   outputFileTracingRoot: path.join(__dirname, '..'),
+  outputFileTracingIncludes: {
+    '/*': ['./bin/mihomo'],
+    '/api/*': ['./bin/mihomo'],
+    '/api/**/*': ['./bin/mihomo'],
+  },
   // 后端 service 层会 spawn 外部进程（mihomo/yq/sing-box），且 winston 等需在 Node 端运行
   serverExternalPackages: ['winston', 'fs-extra', 'node-cron'],
   // React 19.x 兼容性配置

@@ -78,6 +78,8 @@ export interface LogsResult {
   files: string[];
   lines: string[];
   updatedAt: string;
+  nodeId?: string;
+  nodeName?: string;
 }
 
 // 自定义错误类
@@ -168,9 +170,10 @@ class ApiService {
     }
   }
 
-  async getLogs(file?: string, level?: string, query?: string): Promise<ApiResponse<LogsResult>> {
+  async getLogs(nodeId?: string, file?: string, level?: string, query?: string): Promise<ApiResponse<LogsResult>> {
     try {
       const params = new URLSearchParams();
+      if (nodeId) params.set('node', nodeId);
       if (file) params.set('file', file);
       if (level && level !== 'all') params.set('level', level);
       if (query) params.set('q', query);

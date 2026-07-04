@@ -44,7 +44,6 @@ export class MioBridgeService {
         try {
             logger.info('开始更新订阅...');
 
-            // 检查服务依赖
             const mihomoAvailable = await this.mihomoService.checkHealth();
             if (!mihomoAvailable) {
                 throw new Error('Mihomo服务未运行或不可访问');
@@ -135,14 +134,6 @@ export class MioBridgeService {
             let clashGenerated = false;
             let clashError: string | null = null;
             try {
-                // 检查 mihomo 服务状态
-                const mihomoHealthy = await this.mihomoService.checkHealth();
-                logger.info(`Mihomo服务状态: ${mihomoHealthy ? '正常' : '异常'}`);
-                
-                if (!mihomoHealthy) {
-                    throw new Error('Mihomo服务不可用，请检查服务是否启动');
-                }
-                
                 logger.info(`开始生成Clash配置，使用订阅内容直接转换，内容长度: ${subscriptionContent.length} 字符`);
                 
                 // 使用 mihomoService 将订阅内容转换为 Clash 配置

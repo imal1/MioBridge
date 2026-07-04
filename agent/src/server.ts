@@ -4,6 +4,7 @@ import { handleStatus } from './handlers/status';
 import { handleUpdate } from './handlers/update';
 import { handleHealth } from './handlers/health';
 import { handleUrls } from './handlers/urls';
+import { handleLogs } from './handlers/logs';
 import * as path from 'path';
 import * as os from 'os';
 
@@ -29,6 +30,10 @@ async function main() {
         res.end(await response.text());
       } else if (url === '/api/urls') {
         const response = handleUrls(req, config);
+        res.writeHead(response.status, Object.fromEntries(response.headers));
+        res.end(await response.text());
+      } else if (url.startsWith('/api/logs')) {
+        const response = await handleLogs(req, config);
         res.writeHead(response.status, Object.fromEntries(response.headers));
         res.end(await response.text());
       } else if (url === '/api/health' || url === '/health') {
