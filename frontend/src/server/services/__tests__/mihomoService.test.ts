@@ -5,6 +5,7 @@ const TEST_CONFIG_DIR = '/tmp/miobridge-mihomo-service-test';
 async function getTestMihomoService() {
   vi.stubEnv('MIOBRIDGE_CONFIG_DIR', TEST_CONFIG_DIR);
   vi.stubEnv('MIOBRIDGE_MIHOMO_PATH', `${TEST_CONFIG_DIR}/bin/mihomo`);
+  vi.stubEnv('TMPDIR', `${TEST_CONFIG_DIR}/tmp`);
   vi.resetModules();
   const { MihomoService } = await import('../mihomoService');
   return MihomoService.getInstance();
@@ -16,8 +17,10 @@ async function writeFakeMihomo() {
   await fs.ensureDir(`${TEST_CONFIG_DIR}/bin`);
   await fs.writeFile(binaryPath, [
     '#!/bin/sh',
-    'if [ "$1" = "-v" ]; then echo "Mihomo v-test"; exit 0; fi',
-    'if [ "$1" = "-t" ]; then exit 0; fi',
+    'for arg in "$@"; do',
+    '  if [ "$arg" = "-v" ]; then echo "Mihomo v-test"; exit 0; fi',
+    '  if [ "$arg" = "-t" ]; then touch "$HOME/write-check" && exit 0; exit 3; fi',
+    'done',
     'echo "ok"',
     '',
   ].join('\n'));
@@ -45,6 +48,8 @@ describe('MihomoService binary-backed conversion', () => {
     expect(await service.getVersion()).toMatchObject({ version: 'v-test' });
 
     const yaml = await service.convertToClashByContent(content);
+    const fs = await import('fs-extra');
+    expect(await fs.pathExists(`${TEST_CONFIG_DIR}/tmp/miobridge-mihomo/write-check`)).toBe(true);
     expect(yaml).toContain('proxies:');
     expect(yaml).toContain('name: vercel-node');
     expect(yaml).toContain('type: vless');

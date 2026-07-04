@@ -72,6 +72,38 @@ export class MihomoService {
         return `"${value.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`;
     }
 
+    private getMihomoRuntimeDir(): string {
+        const baseTmp = process.env.TMPDIR || '/tmp';
+        const runtimeDir = path.join(baseTmp, 'miobridge-mihomo');
+        fs.ensureDirSync(runtimeDir);
+        return runtimeDir;
+    }
+
+    private getMihomoExecOptions(timeout: number) {
+        const runtimeDir = this.getMihomoRuntimeDir();
+        return {
+            encoding: 'utf8' as BufferEncoding,
+            timeout,
+            cwd: runtimeDir,
+            env: {
+                ...process.env,
+                HOME: runtimeDir,
+                XDG_CONFIG_HOME: runtimeDir,
+                XDG_CACHE_HOME: runtimeDir,
+                XDG_DATA_HOME: runtimeDir,
+            },
+        };
+    }
+
+    private parseMihomoVersion(output: string): string {
+        const versionTag = output.match(/\bv?\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?\b/);
+        if (versionTag) return versionTag[0];
+
+        const versionLine = output.trim().split('\n').find(line => line.includes('Mihomo'));
+        const versionMatch = versionLine?.match(/Mihomo\s+(?:Meta\s+)?(\S+)/i);
+        return versionMatch?.[1] || 'unknown';
+    }
+
     private commandExists(command: string): string | null {
         try {
             return execSync(`command -v ${this.quoteShellPath(command)}`, {
@@ -112,10 +144,7 @@ export class MihomoService {
             this.mihomoPath = executable;
 
             // 尝试执行版本命令
-            const result = execSync(`${this.quoteShellPath(executable)} -v`, { 
-                encoding: 'utf8',
-                timeout: 5000 
-            });
+            const result = execSync(`${this.quoteShellPath(executable)} -v`, this.getMihomoExecOptions(5000));
             
             logger.info(`本地 mihomo 版本: ${result.trim()}`);
             return true;
@@ -160,28 +189,10 @@ export class MihomoService {
             }
             this.mihomoPath = executable;
 
-            const result = execSync(`${this.quoteShellPath(executable)} -v`, { 
-                encoding: 'utf8',
-                timeout: 5000 
-            });
-
-            // 解析版本输出
-            const lines = result.trim().split('\n');
-            const versionLine = lines.find(line => line.includes('Mihomo'));
-            
-            if (versionLine) {
-                const versionMatch = versionLine.match(/Mihomo\s+(\S+)/);
-                if (versionMatch) {
-                    return {
-                        version: versionMatch[1],
-                        build_time: new Date().toISOString(),
-                        commit: 'unknown'
-                    };
-                }
-            }
+            const result = execSync(`${this.quoteShellPath(executable)} -v`, this.getMihomoExecOptions(5000));
 
             return {
-                version: 'unknown',
+                version: this.parseMihomoVersion(result),
                 build_time: new Date().toISOString(),
                 commit: 'unknown'
             };
@@ -725,7 +736,6 @@ export class MihomoService {
                 'IP-CIDR,17.0.0.0/8,DIRECT',
                 'IP-CIDR,100.64.0.0/10,DIRECT',
                 'DOMAIN-SUFFIX,cn,DIRECT',
-                'GEOIP,CN,DIRECT',
                 'MATCH,🐟 漏网之鱼'
             ]
         };
@@ -771,10 +781,10 @@ export class MihomoService {
                 logger.debug(`使用 mihomo 验证配置文件: ${tempConfigPath}`);
                 
                 // 使用 mihomo -t 参数验证配置
-                const result = execSync(`${this.quoteShellPath(executable)} -t -f "${tempConfigPath}"`, {
-                    encoding: 'utf8',
-                    timeout: 10000,
-                    stdio: ['ignore', 'pipe', 'pipe']
+                const runtimeDir = this.getMihomoRuntimeDir();
+                const result = execSync(`${this.quoteShellPath(executable)} -d ${this.quoteShellPath(runtimeDir)} -t -f ${this.quoteShellPath(tempConfigPath)}`, {
+                    ...this.getMihomoExecOptions(10000),
+                    stdio: ['ignore', 'pipe', 'pipe'],
                 });
 
                 logger.info('Clash 配置验证通过');

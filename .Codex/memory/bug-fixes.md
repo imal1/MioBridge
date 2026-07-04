@@ -12,6 +12,8 @@ metadata:
   built-in conversion fallback.
 - 2026-07-04: Logs are fetched from the selected child Agent instead of local
   Vercel filesystem logs.
+- 2026-07-04: mihomo validation runs with `-d /tmp/...` on Vercel so it does
+  not write under the read-only function bundle.
 - 2026-07-02: SSR pages catch service import failures, browser-only ConvertModal
   loads client-side, and `/api/logs` returns structured fallback data instead
   of surfacing filesystem errors as page/API 500s.
