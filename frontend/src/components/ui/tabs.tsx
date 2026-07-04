@@ -12,7 +12,7 @@ const TabsList = React.forwardRef<
 >(({ className, ...props }, ref) => (
   <TabsPrimitive.List
     ref={ref}
-    className={cn("inline-flex h-10 max-w-full items-center justify-start overflow-x-auto rounded-lg bg-[var(--surface-container)] p-1 text-muted-foreground", className)}
+    className={cn("inline-flex h-11 max-w-full items-center justify-start overflow-x-auto rounded-full bg-[var(--surface-container)] p-1 text-muted-foreground", className)}
     {...props}
   />
 ))
@@ -25,7 +25,7 @@ const TabsTrigger = React.forwardRef<
   <TabsPrimitive.Trigger
     ref={ref}
     className={cn(
-      "inline-flex items-center justify-center whitespace-nowrap rounded-md px-3 py-1.5 text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)] focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 data-[state=active]:bg-[var(--surface-container-lowest)] data-[state=active]:text-foreground",
+      "inline-flex items-center justify-center whitespace-nowrap rounded-full px-3.5 py-2 text-sm font-medium ring-offset-background transition-[transform,background-color,color] duration-700 ease-[var(--motion)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)] focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 data-[state=active]:bg-[var(--surface-container-lowest)] data-[state=active]:text-foreground",
       className,
     )}
     {...props}
@@ -45,7 +45,7 @@ const TabsContent = React.forwardRef<
     <motion.div
       initial={{ opacity: 0, y: 6 }}
       animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.16, ease: "easeOut" }}
+      transition={{ duration: 0.62, ease: [0.32, 0.72, 0, 1] }}
       className={cn("mt-4 ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)] focus-visible:ring-offset-2", className)}
     >
       {children}

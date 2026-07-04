@@ -3,209 +3,101 @@ import { useRouter } from 'next/router'
 import { memo } from 'react'
 import { Icon } from '@iconify/react'
 import ThemeToggle from '@/components/ThemeToggle'
-import { useAppContext } from '@/context/AppContext'
 import { NAV_ITEMS, type NavIcon } from './navigation'
 
 const ICONS: Record<NavIcon, string> = {
-  overview: 'ph:gauge-bold',
-  subscription: 'ph:arrows-clockwise-bold',
-  nodes: 'ph:hard-drives-bold',
-  deploy: 'ph:rocket-launch-bold',
-  logs: 'ph:terminal-window-bold',
-  config: 'ph:sliders-horizontal-bold',
-  api: 'ph:globe-bold',
+  overview: 'ph:gauge-light',
+  subscription: 'ph:arrows-clockwise-light',
+  nodes: 'ph:hard-drives-light',
+  deploy: 'ph:paper-plane-tilt-light',
+  logs: 'ph:terminal-window-light',
+  config: 'ph:sliders-horizontal-light',
+  api: 'ph:globe-hemisphere-west-light',
 }
 
-interface NavItemProps {
-  href: string
-  icon: NavIcon
-  label: string
-  isActive: boolean
-  isCollapsed: boolean
-}
-
-function NavItem({ href, icon, label, isActive, isCollapsed }: NavItemProps) {
+function NavItem({ href, icon, label, active }: { href: string; icon: NavIcon; label: string; active: boolean }) {
   return (
     <Link
       href={href}
-      title={isCollapsed ? label : undefined}
-      className="relative flex items-center rounded-lg mx-2 transition-colors duration-200"
+      className="group relative flex h-11 items-center gap-3 rounded-full px-3 text-sm font-medium transition-[transform,background-color,color,box-shadow] duration-700 ease-[var(--motion)] active:scale-[0.985]"
       style={{
-        gap: isCollapsed ? 0 : '0.75rem',
-        padding: isCollapsed ? '0.625rem' : '0.625rem 0.75rem',
-        justifyContent: isCollapsed ? 'center' : 'flex-start',
-        backgroundColor: isActive ? 'var(--sidebar-accent)' : 'transparent',
-        color: isActive ? 'var(--sidebar-primary)' : 'var(--sidebar-foreground)',
-      }}
-      onMouseEnter={e => {
-        if (!isActive) (e.currentTarget as HTMLElement).style.backgroundColor = 'var(--sidebar-accent)'
-      }}
-      onMouseLeave={e => {
-        if (!isActive) (e.currentTarget as HTMLElement).style.backgroundColor = 'transparent'
+        background: active ? 'var(--sidebar-accent)' : 'transparent',
+        color: active ? 'var(--sidebar-accent-foreground)' : 'var(--sidebar-foreground)',
+        boxShadow: active ? '0 18px 42px rgba(63, 143, 95, .22)' : 'none',
       }}
     >
-      {/* Active indicator bar */}
       <span
-        className="absolute left-0 rounded-r-full"
+        className="grid h-5 w-5 place-items-center rounded-md border transition-transform duration-700 ease-[var(--motion)] group-hover:translate-x-0.5"
         style={{
-          top: '50%',
-          transform: 'translateY(-50%)',
-          width: '3px',
-          height: isActive ? '60%' : '0%',
-          background: 'var(--fern)',
-          transition: 'height 250ms cubic-bezier(0.34, 1.56, 0.64, 1)',
-          opacity: isActive ? 1 : 0,
-        }}
-      />
-
-      <Icon icon={ICONS[icon]} className="w-5 h-5 flex-shrink-0" />
-
-      {/* Label fades in/out */}
-      <span
-        className="text-sm font-medium whitespace-nowrap overflow-hidden"
-        style={{
-          maxWidth: isCollapsed ? '0' : '160px',
-          opacity: isCollapsed ? 0 : 1,
-          transition: 'opacity 150ms ease, max-width 300ms cubic-bezier(0.16, 1, 0.3, 1)',
+          borderColor: active ? 'rgba(255,255,255,.34)' : 'var(--sidebar-border)',
+          background: active ? 'rgba(255,255,255,.12)' : 'transparent',
         }}
       >
-        {label}
+        <Icon icon={ICONS[icon]} className="h-4 w-4" />
       </span>
+      <span>{label}</span>
     </Link>
   )
 }
 
 const Sidebar = memo(function Sidebar() {
-  const { sidebarCollapsed, setSidebarCollapsed } = useAppContext()
   const router = useRouter()
 
   return (
     <aside
-      className="fixed left-0 top-0 bottom-0 z-40 flex flex-col overflow-hidden"
+      className="fixed bottom-7 left-7 top-7 z-20 flex w-[188px] flex-col rounded-[32px] border p-[18px]"
       style={{
-        width: sidebarCollapsed ? '64px' : '240px',
-        transition: 'width 300ms cubic-bezier(0.16, 1, 0.3, 1)',
         background: 'var(--sidebar)',
-        boxShadow: '2px 0 18px rgba(74,124,89,0.06)',
+        borderColor: 'var(--sidebar-border)',
+        boxShadow: 'inset 0 1px 0 rgba(255,255,255,.08), var(--shadow-elevated)',
+        backdropFilter: 'blur(18px)',
       }}
     >
-      {/* Logo */}
-      <div
-        className="flex items-center overflow-hidden"
-        style={{
-          padding: sidebarCollapsed ? '1.25rem 0' : '1.25rem 1rem',
-          justifyContent: sidebarCollapsed ? 'center' : 'flex-start',
-          gap: '0.625rem',
-          minHeight: '64px',
-          transition: 'padding 300ms cubic-bezier(0.16, 1, 0.3, 1)',
-        }}
-      >
-        <Icon
-          icon="ph:plant-bold"
-          className="w-6 h-6 flex-shrink-0"
-          style={{ color: 'var(--fern)', animation: 'sway 4s ease-in-out infinite' }}
-        />
+      <Link href="/" className="mb-8 flex items-center gap-3">
         <span
-          className="font-semibold whitespace-nowrap overflow-hidden"
+          className="grid h-10 w-10 place-items-center rounded-2xl border"
           style={{
-            fontFamily: 'var(--font-display)',
-            fontSize: '0.9375rem',
-            color: 'var(--sidebar-foreground)',
-            maxWidth: sidebarCollapsed ? '0' : '160px',
-            opacity: sidebarCollapsed ? 0 : 1,
-            transition: 'opacity 150ms ease, max-width 300ms cubic-bezier(0.16, 1, 0.3, 1)',
+            borderColor: 'var(--sidebar-border)',
+            background: 'var(--muted)',
+            color: 'var(--sidebar-primary)',
           }}
         >
-          Mio Garden
+          <Icon icon="ph:wave-sine-light" className="h-6 w-6" />
         </span>
-      </div>
+        <span
+          className="text-[24px] font-black leading-[0.92] tracking-normal text-sidebar-foreground"
+          style={{ fontFamily: 'var(--font-display)' }}
+        >
+          Mio<br />Bridge
+        </span>
+      </Link>
 
-      {/* Nav items */}
-      <nav className="flex-1 py-3 space-y-0.5 overflow-hidden">
+      <nav className="flex flex-1 flex-col gap-2">
         {NAV_ITEMS.map(item => (
           <NavItem
             key={item.href}
             {...item}
-            isActive={router.pathname === item.href}
-            isCollapsed={sidebarCollapsed}
+            active={router.pathname === item.href}
           />
         ))}
       </nav>
 
-      {/* Bottom controls */}
-      <div
-        className="py-3 space-y-1"
-      >
-        {/* Theme toggle */}
+      <div className="space-y-3">
         <div
-          className="flex items-center mx-2 rounded-lg overflow-hidden transition-colors duration-200"
+          className="rounded-[22px] border px-4 py-3 text-xs"
           style={{
-            padding: sidebarCollapsed ? '0.625rem' : '0.375rem 0.75rem',
-            justifyContent: sidebarCollapsed ? 'center' : 'flex-start',
-            gap: sidebarCollapsed ? 0 : '0.75rem',
-          }}
-        >
-          <div className="flex-shrink-0"><ThemeToggle /></div>
-          <span
-            className="text-sm whitespace-nowrap overflow-hidden"
-            style={{
-              color: 'var(--muted-foreground)',
-              maxWidth: sidebarCollapsed ? '0' : '120px',
-              opacity: sidebarCollapsed ? 0 : 1,
-              transition: 'opacity 150ms ease, max-width 300ms cubic-bezier(0.16, 1, 0.3, 1)',
-            }}
-          >
-            切换主题
-          </span>
-        </div>
-
-        {/* Collapse button */}
-        <button
-          onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
-          title={sidebarCollapsed ? '展开侧边栏' : '收起侧边栏'}
-          className="w-full flex items-center rounded-lg mx-2 transition-colors duration-200"
-          style={{
-            padding: sidebarCollapsed ? '0.625rem' : '0.625rem 0.75rem',
-            justifyContent: sidebarCollapsed ? 'center' : 'flex-start',
-            gap: '0.75rem',
-            width: 'calc(100% - 1rem)',
+            borderColor: 'var(--sidebar-border)',
+            background: 'var(--surface-container-low)',
             color: 'var(--muted-foreground)',
-            background: 'transparent',
-            border: 'none',
-            cursor: 'pointer',
           }}
-          onMouseEnter={e => (e.currentTarget.style.backgroundColor = 'var(--sidebar-accent)')}
-          onMouseLeave={e => (e.currentTarget.style.backgroundColor = 'transparent')}
         >
-          <Icon
-            icon="ph:sidebar-bold"
-            className="w-5 h-5 flex-shrink-0"
-            style={{
-              transform: sidebarCollapsed ? 'scaleX(-1)' : 'scaleX(1)',
-              transition: 'transform 300ms cubic-bezier(0.16, 1, 0.3, 1)',
-            }}
-          />
-          <span
-            className="text-sm whitespace-nowrap overflow-hidden"
-            style={{
-              maxWidth: sidebarCollapsed ? '0' : '120px',
-              opacity: sidebarCollapsed ? 0 : 1,
-              transition: 'opacity 150ms ease, max-width 300ms cubic-bezier(0.16, 1, 0.3, 1)',
-            }}
-          >
-            收起侧边栏
-          </span>
-        </button>
-
-        {/* Version */}
-        {!sidebarCollapsed && (
-          <p
-            className="text-center text-[10px] px-4 pb-1"
-            style={{ color: 'var(--muted-foreground)', opacity: 0.6 }}
-          >
-            Mio Garden
-          </p>
-        )}
+          主节点在线<br />
+          <span className="signal-mono signal-success">control active</span>
+        </div>
+        <div className="flex items-center justify-between px-1 text-xs text-muted-foreground">
+          <span>主题</span>
+          <ThemeToggle />
+        </div>
       </div>
     </aside>
   )

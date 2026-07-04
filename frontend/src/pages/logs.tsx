@@ -9,6 +9,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from '@/components/ui/resizable'
 import { Select } from '@/components/ui/select'
+import SignalPage from '@/components/shared/SignalPage'
 
 const LEVELS = [
   { value: 'all', label: '全部级别' },
@@ -49,17 +50,18 @@ export default function LogsPage() {
   }, [])
 
   return (
-    <main className="mx-auto max-w-7xl space-y-6 px-4 py-6 sm:px-6 lg:px-8">
-      <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
-        <div>
-          <h1 className="text-2xl font-semibold tracking-normal text-foreground">日志</h1>
-          <p className="mt-1 text-sm text-muted-foreground">查看服务端运行日志，过滤部署、转换和健康检查错误。</p>
-        </div>
+    <SignalPage
+      crumb="Diagnostics stream"
+      title="日志"
+      description="查看服务端运行日志，过滤部署、转换和健康检查错误。"
+      status={logs ? `${logs.file} · ${logs.lines.length} 行` : '实时流'}
+      actions={(
         <Button variant="outline" onClick={loadLogs} disabled={loading}>
-          <Icon icon={loading ? 'ph:spinner-bold' : 'ph:arrow-clockwise-bold'} className={loading ? 'animate-spin' : ''} />
-          刷新
+          <Icon icon={loading ? 'ph:spinner-light' : 'ph:arrow-clockwise-light'} className={loading ? 'animate-spin' : ''} />
+          刷新日志
         </Button>
-      </div>
+      )}
+    >
 
       {error ? (
         <Alert variant="destructive" className="flex gap-3">
@@ -72,10 +74,10 @@ export default function LogsPage() {
       ) : null}
 
       <Card className="min-h-0 md:min-h-[72vh]">
-        <ResizablePanelGroup direction="horizontal" className="min-h-0 rounded-lg md:min-h-[72vh]">
+        <ResizablePanelGroup direction="horizontal" className="min-h-0 rounded-[24px] md:min-h-[72vh]">
           <ResizablePanel defaultSize={28} minSize={22}>
             <CardHeader>
-              <CardTitle className="text-base">过滤器</CardTitle>
+              <CardTitle className="text-xl">过滤日志</CardTitle>
               <CardDescription>读取日志尾部 256 KB，避免页面加载过重。</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
@@ -101,17 +103,17 @@ export default function LogsPage() {
           <ResizableHandle withHandle />
           <ResizablePanel defaultSize={72} minSize={44}>
             <CardHeader>
-              <CardTitle className="text-base">日志流</CardTitle>
+              <CardTitle className="text-xl">日志流</CardTitle>
               <CardDescription>{logs ? `${logs.file} · ${logs.lines.length} 行 · ${new Date(logs.updatedAt).toLocaleString('zh-CN')}` : '等待加载'}</CardDescription>
             </CardHeader>
             <CardContent>
-              <pre className="max-h-[58vh] overflow-auto rounded-2xl bg-[var(--surface-container-lowest)] p-4 font-mono text-xs leading-6 text-foreground shadow-[var(--shadow-card)] md:max-h-[60vh] md:rounded-3xl">
+              <pre className="signal-terminal max-h-[58vh] overflow-auto p-5 font-mono text-xs leading-6 md:max-h-[60vh]">
                 {logs?.lines.length ? logs.lines.join('\n') : '暂无日志内容'}
               </pre>
             </CardContent>
           </ResizablePanel>
         </ResizablePanelGroup>
       </Card>
-    </main>
+    </SignalPage>
   )
 }

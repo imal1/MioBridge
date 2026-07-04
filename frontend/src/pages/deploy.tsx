@@ -11,6 +11,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Progress } from '@/components/ui/progress'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
+import SignalPage from '@/components/shared/SignalPage'
 
 interface DeployPageProps {
   initialCluster: ClusterStatus | null
@@ -91,17 +92,18 @@ export default function DeployPage({ initialCluster, initialDeployments, initial
   }, [refresh])
 
   return (
-    <main className="mx-auto max-w-7xl space-y-6 px-4 py-6 sm:px-6 lg:px-8">
-      <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
-        <div>
-          <h1 className="text-2xl font-semibold tracking-normal text-foreground">部署</h1>
-          <p className="mt-1 text-sm text-muted-foreground">跟踪 Agent 部署进度，重试未部署或失败的远端节点。</p>
-        </div>
+    <SignalPage
+      crumb="Agent deployment"
+      title="部署"
+      description="跟踪 Agent 部署进度，重试未部署或失败的远端节点。"
+      status="部署进度同步中"
+      actions={(
         <Button variant="outline" onClick={refresh}>
-          <Icon icon="ph:arrow-clockwise-bold" />
+          <Icon icon="ph:arrow-clockwise-light" />
           刷新
         </Button>
-      </div>
+      )}
+    >
 
       {error ? (
         <Alert variant="destructive" className="flex gap-3">
@@ -113,16 +115,16 @@ export default function DeployPage({ initialCluster, initialDeployments, initial
         </Alert>
       ) : null}
 
-      <div className="grid gap-4 md:grid-cols-3">
-        <Card variant="elevated"><CardHeader className="pb-3"><CardDescription>运行任务</CardDescription><CardTitle className="text-3xl">{activeCount}</CardTitle></CardHeader></Card>
-        <Card variant="elevated"><CardHeader className="pb-3"><CardDescription>未部署节点</CardDescription><CardTitle className="text-3xl">{undeployedCount}</CardTitle></CardHeader></Card>
-        <Card variant="elevated"><CardHeader className="pb-3"><CardDescription>失败任务</CardDescription><CardTitle className="text-3xl">{failedCount}</CardTitle></CardHeader></Card>
+      <div className="grid gap-5 md:grid-cols-3">
+        <Card variant="elevated"><CardHeader className="pb-3"><CardDescription>运行任务</CardDescription><CardTitle className="signal-value signal-success">{activeCount}</CardTitle></CardHeader></Card>
+        <Card variant="elevated"><CardHeader className="pb-3"><CardDescription>未部署节点</CardDescription><CardTitle className="signal-value">{undeployedCount}</CardTitle></CardHeader></Card>
+        <Card variant="elevated"><CardHeader className="pb-3"><CardDescription>失败任务</CardDescription><CardTitle className="signal-value signal-danger">{failedCount}</CardTitle></CardHeader></Card>
       </div>
 
-      <Card>
+      <Card className="mt-5">
         <CardHeader className="gap-4 md:flex-row md:items-center md:justify-between">
           <div>
-            <CardTitle className="text-base">部署任务</CardTitle>
+            <CardTitle className="text-xl">部署任务</CardTitle>
             <CardDescription>部署状态由服务端内存进度存储提供，页面会自动轮询刷新。</CardDescription>
           </div>
           <Tabs value={filter} onValueChange={value => setFilter(value as typeof filter)}>
@@ -177,7 +179,7 @@ export default function DeployPage({ initialCluster, initialDeployments, initial
           </Table>
         </CardContent>
       </Card>
-    </main>
+    </SignalPage>
   )
 }
 

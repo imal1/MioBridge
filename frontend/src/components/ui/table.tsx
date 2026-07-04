@@ -60,7 +60,7 @@ const TableRow = React.forwardRef<
     ref={ref}
     initial={{ opacity: 0, x: -6 }}
     animate={{ opacity: 1, x: 0 }}
-    transition={{ duration: 0.16, ease: "easeOut" }}
+    transition={{ duration: 0.62, ease: [0.32, 0.72, 0, 1] }}
     className={cn(
       "data-[state=selected]:bg-muted",
       className

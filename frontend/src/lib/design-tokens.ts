@@ -1,66 +1,49 @@
-// Botanical Garden design tokens
-// Core palette from theme-factory, extended with derived shades
+// Signal Room / Signal Garden design tokens.
 
 export const tokens = {
   color: {
-    // Core botanical palette
-    fern: '#4a7c59',
-    fernLight: '#8faa95',
-    fernDark: '#2d4f37',
-    fernPale: '#e8f0ea',
+    graphite: '#080b09',
+    carbon: '#101511',
+    mossGlass: 'rgba(35, 57, 43, 0.62)',
+    signal: '#7ee2a8',
+    frost: '#eaf5eb',
+    mist: '#8ea097',
 
-    marigold: '#f9a620',
-    marigoldLight: '#fcd77d',
-    marigoldDark: '#d4890f',
+    paper: '#f7f8ef',
+    mistGreen: '#e9f2e8',
+    porcelain: 'rgba(255, 255, 250, 0.84)',
+    stem: '#3f8f5f',
+    sage: '#526357',
+    inkLeaf: '#142016',
 
-    terracotta: '#b7472a',
-    terracottaLight: '#e88b74',
-
-    cream: '#f5f3ed',
-    creamLight: '#fafaf8',
-    creamDark: '#e8e4db',
-
-    // Neutrals
-    ink: '#1a1d1a',
-    inkLight: '#4a504a',
-    stone: '#8a908a',
-
-    // Dark mode surfaces
-    darkBg: '#1a221c',
-    darkSurface: '#222b25',
-    darkElevated: '#2a342d',
-    darkBorder: '#374038',
-
-    // Semantic
-    success: '#4a7c59',
-    warning: '#f9a620',
-    danger: '#b7472a',
-    info: '#5b8c9e',
+    success: '#3f8f5f',
+    warning: '#c9972f',
+    danger: '#b9573e',
+    info: '#4b8ba8',
   },
 
   typography: {
-    display: 'Georgia, "Times New Roman", serif',
-    body: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
-    mono: '"JetBrains Mono", "SF Mono", "Cascadia Code", monospace',
+    display: '"Geist", "Plus Jakarta Sans", ui-sans-serif, system-ui, sans-serif',
+    body: '"Plus Jakarta Sans", "Geist", ui-sans-serif, system-ui, sans-serif',
+    mono: '"JetBrains Mono", "SF Mono", "Cascadia Code", ui-monospace, monospace',
   },
 
   radius: {
-    sm: '6px',
-    md: '12px',
-    lg: '16px',
-    xl: '24px',
+    sm: '12px',
+    md: '18px',
+    lg: '24px',
+    xl: '30px',
   },
 
   shadow: {
-    card: '0 1px 3px rgba(26, 29, 26, 0.06)',
-    cardHover: '0 4px 16px rgba(26, 29, 26, 0.10)',
-    elevated: '0 8px 30px rgba(26, 29, 26, 0.12)',
+    card: 'inset 0 1px 0 rgba(255,255,255,.88), 0 28px 88px rgba(63, 99, 73, .15)',
+    cardHover: 'inset 0 1px 0 rgba(255,255,255,.96), 0 34px 104px rgba(63, 99, 73, .19)',
+    elevated: '0 28px 90px rgba(63, 99, 73, .16)',
   },
 
   animation: {
-    breathe: 'breathe 3s ease-in-out infinite',
-    slideUp: 'slideUp 0.4s cubic-bezier(0.16, 1, 0.3, 1)',
-    fadeIn: 'fadeIn 0.3s ease-out',
-    growLine: 'growLine 0.6s cubic-bezier(0.16, 1, 0.3, 1) forwards',
+    rise: 'signal-rise 760ms cubic-bezier(0.32, 0.72, 0, 1) both',
+    pulse: 'signal-pulse 2400ms cubic-bezier(0.32, 0.72, 0, 1) infinite',
+    pipeline: 'pipeline-beat 2200ms cubic-bezier(0.32, 0.72, 0, 1) infinite',
   },
-} as const;
+} as const

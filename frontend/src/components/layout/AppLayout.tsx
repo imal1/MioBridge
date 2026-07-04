@@ -12,7 +12,7 @@ const AppLayout = memo(function AppLayout({ children }: AppLayoutProps) {
   const { sidebarCollapsed } = useAppContext()
 
   return (
-    <div className="min-h-screen" style={{ background: 'var(--background)' }}>
+    <div className="min-h-[100dvh]">
       {/* Desktop sidebar */}
       <div className="hidden lg:block">
         <Sidebar />
@@ -28,7 +28,7 @@ const AppLayout = memo(function AppLayout({ children }: AppLayoutProps) {
 
       {/* Main content — shifts right by sidebar width on desktop */}
       <DesktopContentOffset collapsed={sidebarCollapsed}>
-        {children}
+        <main id="main-content">{children}</main>
       </DesktopContentOffset>
     </div>
   )

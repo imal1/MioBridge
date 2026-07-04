@@ -21,9 +21,9 @@ import { Label } from '@/components/ui/label'
 import { Select } from '@/components/ui/select'
 import { Separator } from '@/components/ui/separator'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Textarea } from '@/components/ui/textarea'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
+import SignalPage from '@/components/shared/SignalPage'
 
 interface NodesPageProps {
   initialCluster: ClusterStatus | null
@@ -54,13 +54,6 @@ function agentLabel(node: NodeStatus) {
     case 'error': return '异常'
     default: return '未部署'
   }
-}
-
-function agentVariant(node: NodeStatus): 'default' | 'secondary' | 'destructive' | 'outline' {
-  if (node.nodeId === 'local') return 'secondary'
-  if (node.agent?.status === 'running') return 'secondary'
-  if (node.agent?.status === 'error') return 'destructive'
-  return 'outline'
 }
 
 function emptyNodeForm() {
@@ -136,23 +129,24 @@ export default function NodesPage({ initialCluster, initialError }: NodesPagePro
 
   return (
     <TooltipProvider>
-    <main className="mx-auto max-w-7xl space-y-6 px-4 py-6 sm:px-6 lg:px-8">
-      <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
-        <div>
-          <h1 className="text-2xl font-semibold tracking-normal text-foreground">节点</h1>
-          <p className="mt-1 text-sm text-muted-foreground">管理主节点和远端 Agent，按状态筛选并执行健康检查或部署。</p>
-        </div>
-        <div className="flex flex-wrap gap-2">
+    <SignalPage
+      crumb="Fleet topology"
+      title="节点"
+      description="管理主节点和远端 Agent，按生命周期状态执行健康检查、部署和恢复。"
+      status={`Agent 心跳 ${cluster?.lastUpdated ? new Date(cluster.lastUpdated).toLocaleTimeString('zh-CN') : '待同步'}`}
+      actions={(
+        <>
           <Button variant="outline" onClick={refresh}>
-            <Icon icon="ph:arrow-clockwise-bold" />
+            <Icon icon="ph:arrow-clockwise-light" />
             刷新
           </Button>
           <Button onClick={() => setAddOpen(true)}>
-            <Icon icon="ph:plus-bold" />
+            <Icon icon="ph:plus-light" />
             添加节点
           </Button>
-        </div>
-      </div>
+        </>
+      )}
+    >
 
       {error ? (
         <Alert variant="destructive" className="flex gap-3">
@@ -164,22 +158,22 @@ export default function NodesPage({ initialCluster, initialError }: NodesPagePro
         </Alert>
       ) : null}
 
-      <div className="grid gap-4 md:grid-cols-3">
+      <div className="grid gap-5 md:grid-cols-3">
         <Card variant="elevated">
-          <CardHeader className="pb-3"><CardDescription>节点总数</CardDescription><CardTitle className="text-3xl">{cluster?.totalNodes ?? 0}</CardTitle></CardHeader>
+          <CardHeader className="pb-3"><CardDescription>节点总数</CardDescription><CardTitle className="signal-value">{cluster?.totalNodes ?? 0}</CardTitle></CardHeader>
         </Card>
         <Card variant="elevated">
-          <CardHeader className="pb-3"><CardDescription>在线节点</CardDescription><CardTitle className="text-3xl">{cluster?.onlineNodes ?? 0}</CardTitle></CardHeader>
+          <CardHeader className="pb-3"><CardDescription>在线节点</CardDescription><CardTitle className="signal-value signal-success">{cluster?.onlineNodes ?? 0}</CardTitle></CardHeader>
         </Card>
         <Card variant="elevated">
-          <CardHeader className="pb-3"><CardDescription>代理总数</CardDescription><CardTitle className="text-3xl">{cluster?.totalProxies ?? 0}</CardTitle></CardHeader>
+          <CardHeader className="pb-3"><CardDescription>代理总数</CardDescription><CardTitle className="signal-value">{cluster?.totalProxies ?? 0}</CardTitle></CardHeader>
         </Card>
       </div>
 
-      <Card>
+      <Card className="mt-5">
         <CardHeader className="gap-4 md:flex-row md:items-center md:justify-between">
           <div>
-            <CardTitle className="text-base">节点列表</CardTitle>
+            <CardTitle className="text-xl">节点生命周期</CardTitle>
             <CardDescription className="flex items-center gap-1">
               子节点只暴露节点源，订阅文件由主节点统一生成。
               <Tooltip>
@@ -197,52 +191,49 @@ export default function NodesPage({ initialCluster, initialError }: NodesPagePro
           </Tabs>
         </CardHeader>
         <CardContent>
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>节点</TableHead>
-                <TableHead>状态</TableHead>
-                <TableHead>Agent</TableHead>
-                <TableHead>内核</TableHead>
-                <TableHead>代理</TableHead>
-                <TableHead>延迟</TableHead>
-                <TableHead className="text-right">操作</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {nodes.map(node => (
-                <TableRow key={node.nodeId}>
-                  <TableCell>
-                    <button className="text-left" onClick={() => setSelectedNode(node)}>
-                      <span className="block font-medium">{node.name}</span>
-                      <span className="block text-xs text-muted-foreground">{node.location} · {node.nodeId}</span>
-                    </button>
-                  </TableCell>
-                  <TableCell>
-                    <Badge variant={node.online ? 'secondary' : 'destructive'}>{node.online ? '在线' : '异常'}</Badge>
-                  </TableCell>
-                  <TableCell><Badge variant={agentVariant(node)}>{agentLabel(node)}</Badge></TableCell>
-                  <TableCell>{kernelLabels[node.kernel] || node.kernel}</TableCell>
-                  <TableCell className="font-mono">{node.nodesCount ?? '-'}</TableCell>
-                  <TableCell className="font-mono">{node.latency ? `${node.latency}ms` : '-'}</TableCell>
-                  <TableCell>
-                    <div className="flex justify-end gap-2">
-                      <Button size="sm" variant="outline" disabled={busyNode === node.nodeId} onClick={() => runNodeAction(node.nodeId, () => apiService.clusterHealthCheck(node.nodeId))}>检查</Button>
-                      {node.nodeId !== 'local' && !node.agent?.deployed ? (
-                        <Button size="sm" disabled={busyNode === node.nodeId} onClick={() => runNodeAction(node.nodeId, () => apiService.deployNode(node.nodeId))}>部署</Button>
-                      ) : null}
-                      {node.nodeId !== 'local' && node.agent?.status === 'running' ? (
-                        <Button size="sm" variant="outline" disabled={busyNode === node.nodeId} onClick={() => runNodeAction(node.nodeId, () => apiService.restartAgent(node.nodeId))}>重启</Button>
-                      ) : null}
+          <div className="grid gap-5 lg:grid-cols-2 2xl:grid-cols-3">
+            {nodes.map(node => (
+              <article key={node.nodeId} className="rounded-[24px] border border-[var(--border)] bg-[var(--surface-container)] p-5">
+                <button className="w-full text-left" onClick={() => setSelectedNode(node)}>
+                  <div className="flex items-start justify-between gap-4">
+                    <div className="flex min-w-0 items-start gap-4">
+                      <div className="grid h-12 w-12 shrink-0 place-items-center rounded-2xl border border-[var(--border)] bg-[var(--surface-container-lowest)] signal-mono">
+                        {node.location?.slice(0, 2).toUpperCase() || node.name.slice(0, 2).toUpperCase()}
+                      </div>
+                      <div className="min-w-0">
+                        <h2 className="truncate text-2xl font-semibold leading-tight">{node.name}</h2>
+                        <p className="text-sm text-muted-foreground">{kernelLabels[node.kernel] || node.kernel} · {node.nodeId}</p>
+                      </div>
                     </div>
-                  </TableCell>
-                </TableRow>
-              ))}
-              {nodes.length === 0 ? (
-                <TableRow><TableCell colSpan={7} className="py-10 text-center text-muted-foreground">没有匹配的节点</TableCell></TableRow>
-              ) : null}
-            </TableBody>
-          </Table>
+                    <Badge variant={node.online ? 'secondary' : 'destructive'}>{node.online ? '在线' : '异常'}</Badge>
+                  </div>
+                  <div className="mt-6 flex items-end justify-between gap-4">
+                    <div>
+                      <p className="signal-mono text-3xl text-primary">{node.latency ? `${node.latency}ms` : node.online ? 'live' : 'down'}</p>
+                      <p className="mt-2 text-sm text-muted-foreground">{node.nodesCount ?? '-'} 个代理 · {agentLabel(node)}</p>
+                    </div>
+                    <div className="flex items-end gap-1">
+                      {Array.from({ length: node.online ? 4 : 2 }).map((_, index) => (
+                        <span key={index} className="block w-1.5 rounded-full bg-primary" style={{ height: 8 + index * 6 }} />
+                      ))}
+                    </div>
+                  </div>
+                </button>
+                <div className="mt-5 flex flex-wrap gap-2">
+                  <Button size="sm" variant="outline" disabled={busyNode === node.nodeId} onClick={() => runNodeAction(node.nodeId, () => apiService.clusterHealthCheck(node.nodeId))}>检查</Button>
+                  {node.nodeId !== 'local' && !node.agent?.deployed ? (
+                    <Button size="sm" disabled={busyNode === node.nodeId} onClick={() => runNodeAction(node.nodeId, () => apiService.deployNode(node.nodeId))}>部署</Button>
+                  ) : null}
+                  {node.nodeId !== 'local' && node.agent?.status === 'running' ? (
+                    <Button size="sm" variant="outline" disabled={busyNode === node.nodeId} onClick={() => runNodeAction(node.nodeId, () => apiService.restartAgent(node.nodeId))}>重启</Button>
+                  ) : null}
+                </div>
+              </article>
+            ))}
+            {nodes.length === 0 ? (
+              <div className="rounded-[24px] border border-[var(--border)] bg-[var(--surface-container)] p-10 text-center text-muted-foreground">没有匹配的节点</div>
+            ) : null}
+          </div>
         </CardContent>
       </Card>
 
@@ -325,7 +316,7 @@ export default function NodesPage({ initialCluster, initialError }: NodesPagePro
           </form>
         </DialogContent>
       </Dialog>
-    </main>
+    </SignalPage>
     </TooltipProvider>
   )
 }

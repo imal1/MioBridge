@@ -5,7 +5,7 @@ import { motion } from "motion/react"
 import { cn } from "@/lib/utils"
 
 const badgeVariants = cva(
-  "inline-flex items-center rounded-md px-2.5 py-0.5 text-xs font-semibold transition-colors focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2",
+  "inline-flex items-center rounded-full px-3 py-1 text-xs font-semibold transition-[transform,background-color,color] duration-700 ease-[var(--motion)] focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2",
   {
     variants: {
       variant: {
@@ -33,7 +33,7 @@ function Badge({ className, variant, ...props }: BadgeProps) {
     <motion.div
       initial={{ opacity: 0, scale: 0.94 }}
       animate={{ opacity: 1, scale: 1 }}
-      transition={{ duration: 0.16, ease: "easeOut" }}
+      transition={{ duration: 0.62, ease: [0.32, 0.72, 0, 1] }}
       className={cn(badgeVariants({ variant }), className)}
       {...(props as any)}
     />

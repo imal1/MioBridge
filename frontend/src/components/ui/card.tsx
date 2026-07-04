@@ -13,13 +13,14 @@ const Card = React.forwardRef<
   <div
     ref={ref}
     className={cn(
-        "rounded-[28px] text-card-foreground",
-      variant === "filled" && "bg-card shadow-none",
-      variant === "elevated" && "bg-[var(--card-elevated)] shadow-[var(--shadow-card)]",
+      "signal-shell text-card-foreground",
+      variant === "filled" && "shadow-none",
+      variant === "elevated" && "",
       className
     )}
-    {...props}
-  />
+  >
+    <div className="signal-core h-full" {...props} />
+  </div>
 ))
 Card.displayName = "Card"
 

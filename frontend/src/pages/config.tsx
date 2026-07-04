@@ -11,6 +11,7 @@ import { Label } from '@/components/ui/label'
 import { Separator } from '@/components/ui/separator'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Textarea } from '@/components/ui/textarea'
+import SignalPage from '@/components/shared/SignalPage'
 
 interface ConfigPageProps {
   initialStatus: ApiStatus | null
@@ -59,17 +60,19 @@ export default function ConfigPage({ initialStatus, initialConfigs, frontendConf
   const protocols = frontendConfig?.protocols || {}
 
   return (
-    <main className="mx-auto max-w-6xl space-y-6 px-4 py-6 sm:px-6 lg:px-8">
-      <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
-        <div>
-          <h1 className="text-2xl font-semibold tracking-normal text-foreground">配置</h1>
-          <p className="mt-1 text-sm text-muted-foreground">管理常用运行配置；完整 YAML 仍由服务端配置文件负责。</p>
-        </div>
+    <SignalPage
+      crumb="Runtime vault"
+      title="配置"
+      description="管理常用运行配置；完整 YAML 仍由服务端配置文件负责。"
+      status="配置校验通过"
+      maxWidth="narrow"
+      actions={(
         <Button variant="outline" onClick={refreshStatus}>
-          <Icon icon="ph:arrow-clockwise-bold" />
+          <Icon icon="ph:arrow-clockwise-light" />
           刷新状态
         </Button>
-      </div>
+      )}
+    >
 
       {error ? (
         <Alert variant="destructive" className="flex gap-3">
@@ -90,16 +93,16 @@ export default function ConfigPage({ initialStatus, initialConfigs, frontendConf
         </Alert>
       ) : null}
 
-      <div className="grid gap-4 md:grid-cols-3">
+      <div className="grid gap-5 md:grid-cols-3">
         <Card variant="elevated"><CardHeader className="pb-3"><CardDescription>环境</CardDescription><CardTitle className="text-2xl">{app.environment || '-'}</CardTitle></CardHeader></Card>
-        <Card variant="elevated"><CardHeader className="pb-3"><CardDescription>Web 端口</CardDescription><CardTitle className="text-2xl">{network.nginx_port || '-'}</CardTitle></CardHeader></Card>
+        <Card variant="elevated"><CardHeader className="pb-3"><CardDescription>Web 端口</CardDescription><CardTitle className="signal-mono text-2xl">{network.nginx_port || '-'}</CardTitle></CardHeader></Card>
         <Card variant="elevated"><CardHeader className="pb-3"><CardDescription>版本</CardDescription><CardTitle className="truncate text-2xl">{status?.version || app.version || '-'}</CardTitle></CardHeader></Card>
       </div>
 
-      <Card>
+      <Card className="mt-5">
         <CardHeader className="gap-4 md:flex-row md:items-center md:justify-between">
           <div>
-            <CardTitle className="text-base">配置工作台</CardTitle>
+            <CardTitle className="text-xl">配置工作台</CardTitle>
             <CardDescription>常用配置可在页面调整，完整 YAML 仍由服务端配置文件管理。</CardDescription>
           </div>
         </CardHeader>
@@ -143,7 +146,7 @@ export default function ConfigPage({ initialStatus, initialConfigs, frontendConf
           </Tabs>
         </CardContent>
       </Card>
-    </main>
+    </SignalPage>
   )
 }
 

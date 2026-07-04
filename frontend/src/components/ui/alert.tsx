@@ -5,13 +5,13 @@ import { motion } from "motion/react"
 import { cn } from "@/lib/utils"
 
 const alertVariants = cva(
-  "relative w-full rounded-lg p-4 text-sm",
+  "relative w-full rounded-[24px] border p-4 text-sm shadow-[var(--shadow-card)]",
   {
     variants: {
       variant: {
-        default: "bg-card text-card-foreground",
-        destructive: "bg-[var(--danger-bg)] text-[var(--danger)]",
-        success: "bg-[var(--success-bg)] text-[var(--success)]",
+        default: "border-[var(--border)] bg-card text-card-foreground",
+        destructive: "border-[var(--danger-border)] bg-[var(--danger-bg)] text-[var(--danger)]",
+        success: "border-[var(--success-border)] bg-[var(--success-bg)] text-[var(--success)]",
       },
     },
     defaultVariants: {
@@ -29,7 +29,7 @@ const Alert = React.forwardRef<
     role="alert"
     initial={{ opacity: 0, y: -6, scale: 0.99 }}
     animate={{ opacity: 1, y: 0, scale: 1 }}
-    transition={{ duration: 0.18, ease: "easeOut" }}
+    transition={{ duration: 0.62, ease: [0.32, 0.72, 0, 1] }}
     className={cn(alertVariants({ variant }), className)}
     {...(props as any)}
   />

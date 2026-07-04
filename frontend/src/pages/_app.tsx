@@ -13,10 +13,10 @@ const ConvertModal = dynamic(() => import('@/components/ConvertModal'), {
 })
 
 const pageTransition = {
-  initial: { opacity: 0, y: 10, filter: 'blur(2px)' },
-  animate: { opacity: 1, y: 0, filter: 'blur(0px)' },
-  exit: { opacity: 0, y: -8, filter: 'blur(2px)' },
-  transition: { duration: 0.18, ease: 'easeOut' },
+  initial: { opacity: 0, y: 28 },
+  animate: { opacity: 1, y: 0 },
+  exit: { opacity: 0, y: -12 },
+  transition: { duration: 0.62, ease: [0.32, 0.72, 0, 1] },
 } as const
 
 function GlobalModals() {

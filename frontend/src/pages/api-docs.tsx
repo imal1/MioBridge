@@ -3,7 +3,8 @@ import { Icon } from '@iconify/react'
 import { apiService } from '@/lib/api'
 import { Button } from '@/components/ui/button'
 import MethodBadge from '@/components/shared/MethodBadge'
-import SectionHeading from '@/components/shared/SectionHeading'
+import SignalPage from '@/components/shared/SignalPage'
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 
 const ENDPOINTS = [
   { method: 'GET',  path: '/api/status',        desc: '获取服务状态',     action: 'test',     actionLabel: '测试' },
@@ -42,7 +43,13 @@ export default function ApiDocsPage() {
   }, [])
 
   return (
-    <div className="mx-auto max-w-4xl space-y-8 px-4 py-6 sm:px-6 sm:py-8">
+    <SignalPage
+      crumb="Endpoint ledger"
+      title="API 接口"
+      description="全部可用接口与快速操作。"
+      status="公共兼容路径可用"
+      maxWidth="narrow"
+    >
       {result && (
         <div className={`garden-alert ${result.startsWith('✓') ? 'garden-alert-success' : 'garden-alert-danger'}`}>
           <Icon icon={result.startsWith('✓') ? 'ph:check-circle-bold' : 'ph:x-circle-bold'} className="w-5 h-5 flex-shrink-0 mt-0.5" />
@@ -50,11 +57,14 @@ export default function ApiDocsPage() {
         </div>
       )}
 
-      <section>
-        <SectionHeading icon="ph:globe-bold" title="API 端点" desc="全部可用接口与快速操作" />
-        <div className="garden-card overflow-hidden">
+      <Card>
+        <CardHeader>
+          <CardDescription>Endpoint ledger</CardDescription>
+          <CardTitle className="text-xl">接口列表</CardTitle>
+        </CardHeader>
+        <CardContent>
           <div className="overflow-x-auto">
-            <table className="garden-table min-w-[560px]">
+            <table className="signal-table min-w-[640px]">
               <thead>
                 <tr>
                   <th>方法</th>
@@ -92,33 +102,36 @@ export default function ApiDocsPage() {
               </tbody>
             </table>
           </div>
-        </div>
-      </section>
+        </CardContent>
+      </Card>
 
-      <section>
-        <SectionHeading icon="ph:info-bold" title="说明" />
-        <div className="garden-card p-5 space-y-3">
+      <Card className="mt-5">
+        <CardHeader>
+          <CardDescription>兼容说明</CardDescription>
+          <CardTitle className="text-xl">说明</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3">
           <div className="flex items-start gap-3">
-            <Icon icon="ph:arrow-right" className="w-4 h-4 mt-0.5 flex-shrink-0" style={{ color: 'var(--fern)' }} />
+            <Icon icon="ph:arrow-right-light" className="w-4 h-4 mt-0.5 flex-shrink-0" style={{ color: 'var(--primary)' }} />
             <p className="text-sm" style={{ color: 'var(--muted-foreground)' }}>
               所有端点通过 nginx 反代，与当前域名同源，无需跨域配置。
             </p>
           </div>
           <div className="flex items-start gap-3">
-            <Icon icon="ph:arrow-right" className="w-4 h-4 mt-0.5 flex-shrink-0" style={{ color: 'var(--fern)' }} />
+            <Icon icon="ph:arrow-right-light" className="w-4 h-4 mt-0.5 flex-shrink-0" style={{ color: 'var(--primary)' }} />
             <p className="text-sm" style={{ color: 'var(--muted-foreground)' }}>
               订阅文件可直接用作代理客户端的订阅地址（如 Clash、Surge 等）。
             </p>
           </div>
           <div className="flex items-start gap-3">
-            <Icon icon="ph:arrow-right" className="w-4 h-4 mt-0.5 flex-shrink-0" style={{ color: 'var(--fern)' }} />
+            <Icon icon="ph:arrow-right-light" className="w-4 h-4 mt-0.5 flex-shrink-0" style={{ color: 'var(--primary)' }} />
             <p className="text-sm" style={{ color: 'var(--muted-foreground)' }}>
               <code className="text-xs px-1 py-0.5 rounded" style={{ fontFamily: 'var(--font-mono)', background: 'var(--muted)' }}>/api/update</code>{' '}
               执行时间较长（30s+），页面将等待完成后返回结果。
             </p>
           </div>
-        </div>
-      </section>
-    </div>
+        </CardContent>
+      </Card>
+    </SignalPage>
   )
 }
