@@ -99,3 +99,5 @@ agent/miobridge-agent
 
 # Nginx configuration files
 config/nginx.conf
+# Added by code-review-graph
+.code-review-graph/
