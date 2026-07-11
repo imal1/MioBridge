@@ -146,13 +146,19 @@ export interface NodesYaml {
 // ==================== v1.0 Agent 部署类型 ====================
 
 /** 节点 SSH 连接配置 */
+export type SshAuthMethod = 'password' | 'privateKey';
+
 export interface NodeSshConfig {
   user: string;
   /** SSH 端口，默认 22 */
   port?: number;
-  keyPath: string;
+  authMethod: SshAuthMethod;
+  /** StateStore 中独立保存的私钥引用 */
+  credentialRef?: string;
+  /** 旧版节点配置兼容字段，不再用于新部署 */
+  keyPath?: string;
   hostKey: string;
-  /** 密码认证（可选，优先使用 keyPath，keyPath 为空时使用密码） */
+  /** 仅 password 认证使用 */
   password?: string;
 }
 

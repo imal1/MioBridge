@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
-import { describe, it, expect } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { describe, it, expect, vi } from 'vitest';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import React from 'react';
 
 describe('AddNodeForm', () => {
@@ -14,6 +14,23 @@ describe('AddNodeForm', () => {
       })
     );
     expect(screen.getByText('SSH 连接信息')).toBeDefined();
+    expect(screen.getByRole('button', { name: '密码' })).toBeDefined();
+    expect(screen.queryByLabelText('SSH 私钥文件')).toBeNull();
+  });
+
+  it('uploads a private-key file instead of accepting private-key text', async () => {
+    const { AddNodeForm } = await import('@/components/cluster/AddNodeForm');
+    const onSubmit = vi.fn();
+    render(<AddNodeForm isOpen onClose={() => {}} onSubmit={onSubmit} />);
+
+    fireEvent.click(screen.getByRole('button', { name: '私钥' }));
+    const input = screen.getByLabelText('SSH 私钥文件');
+    const file = new File(['private-key-content'], 'id_ed25519');
+    fireEvent.change(input, { target: { files: [file] } });
+
+    await waitFor(() => expect(screen.getByText('id_ed25519')).toBeDefined());
+    expect(screen.queryByRole('textbox', { name: 'SSH 私钥' })).toBeNull();
+    expect(screen.queryByLabelText('SSH 密码')).toBeNull();
   });
 });
 

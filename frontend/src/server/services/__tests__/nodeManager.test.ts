@@ -5,6 +5,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { createServer, type IncomingMessage, type ServerResponse } from 'http';
 import * as crypto from 'crypto';
+import { utils as sshUtils } from 'ssh2';
 import type { NodeConfig, NodeStatus } from '../../types';
 
 const TEST_CONFIG_DIR = '/tmp/miobridge-node-manager-test-empty';
@@ -216,6 +217,58 @@ describe('Task 3: NodeManager Service', () => {
       expect(Array.isArray(nodes)).toBe(true);
       // In test environment without nodes.yaml, should be empty
       expect(nodes.length).toBe(0);
+    });
+  });
+
+  describe('SSH credential persistence', () => {
+    it('stores an uploaded private key separately from nodes.yaml', async () => {
+      const manager = await getTestNodeManager();
+      const privateKey = sshUtils.generateKeyPairSync('ed25519').private;
+      const saved = await manager.writeNodeWithPrivateKey({
+        id: '', name: 'Private key node', host: 'key.example.com', secret: '',
+        kernel: 'sing-box', location: 'test', enabled: true,
+        ssh: { user: 'root', authMethod: 'privateKey', hostKey: '' },
+      }, privateKey);
+      const { getStateStore } = await import('../stateStore');
+
+      expect(saved.ssh?.credentialRef).toBe(`ssh-keys/${saved.id}`);
+      expect(JSON.stringify(saved)).not.toContain(privateKey);
+      expect(await getStateStore().get(`ssh-keys/${saved.id}`)).toBe(privateKey);
+      expect(await getStateStore().get('nodes.yaml')).not.toContain(privateKey);
+    });
+
+    it('does not create a key record for password authentication', async () => {
+      const manager = await getTestNodeManager();
+      const saved = await manager.writeNodeWithPrivateKey({
+        id: '', name: 'Password node', host: 'password.example.com', secret: '',
+        kernel: 'xray', location: 'test', enabled: true,
+        ssh: { user: 'root', authMethod: 'password', hostKey: '', password: 'test-password' },
+      });
+      const { getStateStore } = await import('../stateStore');
+
+      expect(saved.ssh?.credentialRef).toBeUndefined();
+      expect(await getStateStore().listKeys('ssh-keys/')).toEqual([]);
+    });
+
+    it('restores an existing key when a duplicate node write fails', async () => {
+      const manager = await getTestNodeManager();
+      const originalKey = sshUtils.generateKeyPairSync('ed25519').private;
+      const replacementKey = sshUtils.generateKeyPairSync('ed25519').private;
+      const node = {
+        id: 'node-duplicate', name: 'Original', host: 'original.example.com', secret: '',
+        kernel: 'sing-box' as const, location: 'test', enabled: true,
+        ssh: { user: 'root', authMethod: 'privateKey' as const, hostKey: '' },
+      };
+      await manager.writeNodeWithPrivateKey(node, originalKey);
+
+      await expect(manager.writeNodeWithPrivateKey({
+        ...node,
+        name: 'Duplicate',
+        ssh: { user: 'root', authMethod: 'privateKey', hostKey: '' },
+      }, replacementKey)).rejects.toThrow('已存在');
+
+      const { getStateStore } = await import('../stateStore');
+      expect(await getStateStore().get('ssh-keys/node-duplicate')).toBe(originalKey);
     });
   });
 

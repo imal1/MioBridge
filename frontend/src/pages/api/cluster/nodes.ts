@@ -2,6 +2,7 @@ import type { NextApiRequest, NextApiResponse } from 'next';
 import { NodeManager } from '@/server/services/nodeManager';
 import { logger } from '@/server/utils/logger';
 import type { ApiResponse, NodeConfig } from '@/server/types';
+import { validateUploadedPrivateKey } from '@/server/services/sshCredential';
 
 export default async function handler(
   req: NextApiRequest,
@@ -12,10 +13,41 @@ export default async function handler(
   }
 
   try {
-    const { name, host, port, kernel, location, sshUser, sshKey, sshPassword } = req.body || {};
+    const {
+      name, host, port, kernel, location, sshUser,
+      sshAuthMethod, sshPassword, sshPrivateKey,
+    } = req.body || {};
 
     if (!name || !host) {
       return res.status(400).json({ success: false, error: '缺少必填字段 name 或 host', timestamp: new Date().toISOString() });
+    }
+
+    if (!sshUser?.trim()) {
+      return res.status(400).json({ success: false, error: 'SSH 用户名不能为空', timestamp: new Date().toISOString() });
+    }
+    if (sshAuthMethod !== 'password' && sshAuthMethod !== 'privateKey') {
+      return res.status(400).json({ success: false, error: 'SSH 认证方式无效', timestamp: new Date().toISOString() });
+    }
+    if ((sshAuthMethod === 'password' && sshPrivateKey) ||
+        (sshAuthMethod === 'privateKey' && sshPassword)) {
+      return res.status(400).json({ success: false, error: 'SSH 密码和私钥不能同时提交', timestamp: new Date().toISOString() });
+    }
+    if (sshAuthMethod === 'password' && !sshPassword?.trim()) {
+      return res.status(400).json({ success: false, error: 'SSH 密码不能为空', timestamp: new Date().toISOString() });
+    }
+    if (sshAuthMethod === 'privateKey') {
+      if (!sshPrivateKey) {
+        return res.status(400).json({ success: false, error: '请选择 SSH 私钥文件', timestamp: new Date().toISOString() });
+      }
+      try {
+        validateUploadedPrivateKey(sshPrivateKey);
+      } catch (error) {
+        return res.status(400).json({
+          success: false,
+          error: error instanceof Error ? error.message : '无效的 SSH 私钥文件',
+          timestamp: new Date().toISOString(),
+        });
+      }
     }
 
     const nodeManager = NodeManager.getInstance();
@@ -32,9 +64,9 @@ export default async function handler(
       enabled: true,
       ssh: {
         user: sshUser || 'root',
-        keyPath: sshKey || '',
+        authMethod: sshAuthMethod,
         hostKey: '',
-        password: sshPassword || '',
+        ...(sshAuthMethod === 'password' ? { password: sshPassword } : {}),
       },
       agent: {
         deployed: false,
@@ -45,11 +77,16 @@ export default async function handler(
       },
     };
 
-    const saved = await nodeManager.writeNodeToYaml(nodeConfig);
+    const saved = await nodeManager.writeNodeWithPrivateKey(nodeConfig, sshPrivateKey);
+    const safeSaved = { ...saved };
+    if (saved.ssh) {
+      safeSaved.ssh = { ...saved.ssh };
+      delete safeSaved.ssh.password;
+    }
 
     res.status(201).json({
       success: true,
-      data: saved,
+      data: safeSaved,
       message: `节点 ${saved.name} 已添加`,
       timestamp: new Date().toISOString(),
     });

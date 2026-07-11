@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { NodeManager } from '../nodeManager';
-import { DeployManager } from '../deployManager';
+import { buildSshConnectOptions, DeployManager } from '../deployManager';
 import type { NodeConfig } from '../../types';
 import * as fs from 'fs-extra';
 import * as path from 'path';
@@ -49,6 +49,44 @@ describe('Task 6: DeployManager.deployToNode + NodeManager deploy integration', 
   });
 
   describe('DeployManager.deployToNode', () => {
+    it('builds password authentication without private-key or agent fallback', () => {
+      const options = buildSshConnectOptions({
+        nodeId: 'password-node', secret: 'secret', kernel: 'sing-box',
+        ssh: {
+          host: '10.0.0.1', user: 'root', authMethod: 'password',
+          hostKey: '', password: 'login-password',
+        },
+      });
+
+      expect(options.password).toBe('login-password');
+      expect(options).not.toHaveProperty('privateKey');
+      expect(options).not.toHaveProperty('agent');
+    });
+
+    it('builds private-key authentication without password or agent fallback', () => {
+      const privateKey = '-----BEGIN OPENSSH PRIVATE KEY-----\ntest\n-----END OPENSSH PRIVATE KEY-----';
+      const options = buildSshConnectOptions({
+        nodeId: 'key-node', secret: 'secret', kernel: 'sing-box',
+        ssh: {
+          host: '10.0.0.2', user: 'root', authMethod: 'privateKey',
+          hostKey: '', privateKey,
+        },
+      });
+
+      expect(options.privateKey).toBe(privateKey);
+      expect(options).not.toHaveProperty('password');
+      expect(options).not.toHaveProperty('agent');
+    });
+
+    it('rejects a missing selected credential before connecting', () => {
+      expect(() => buildSshConnectOptions({
+        nodeId: 'missing-key', secret: 'secret', kernel: 'sing-box',
+        ssh: {
+          host: '10.0.0.3', user: 'root', authMethod: 'privateKey', hostKey: '',
+        },
+      })).toThrow('SSH 私钥文件不可用');
+    });
+
     it('should have deployToNode method', () => {
       expect(typeof deployManager.deployToNode).toBe('function');
     });

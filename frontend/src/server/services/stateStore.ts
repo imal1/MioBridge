@@ -69,7 +69,8 @@ class FileStateStore implements StateStore {
   async set(key: string, value: string): Promise<void> {
     const file = this.filePath(key);
     await fs.ensureDir(path.dirname(file));
-    await fs.writeFile(file, value);
+    await fs.writeFile(file, value, { mode: 0o600 });
+    await fs.chmod(file, 0o600);
   }
 
   async del(key: string): Promise<void> {

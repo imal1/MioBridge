@@ -5,7 +5,8 @@ import { logger } from '../utils/logger';
 import { MioBridgeService } from './mioBridgeService';
 import { getMioBridgeBaseDir } from '../runtimePaths';
 import { getStateStore } from './stateStore';
-import type { NodeConfig, NodeStatus, ClusterStatus, NodesYaml, NodeAgentInfo, LogsResult } from '../types';
+import { validateUploadedPrivateKey } from './sshCredential';
+import type { NodeConfig, NodeStatus, ClusterStatus, NodesYaml, NodeAgentInfo, LogsResult, SshAuthMethod } from '../types';
 
 const CONFIG_DIR = getMioBridgeBaseDir();
 /** StateStore key：文件后端下等价于 CONFIG_DIR/nodes.yaml，Redis 后端下跨实例共享 */
@@ -209,6 +210,53 @@ export class NodeManager {
   }
 
   /** 将节点写入 nodes.yaml（追加或创建） */
+  async writeNodeWithPrivateKey(node: NodeConfig, privateKey?: string): Promise<NodeConfig> {
+    if (!node.ssh) return this.writeNodeToYaml(node);
+
+    if (!node.ssh.user.trim()) {
+      throw new Error('SSH 用户名不能为空');
+    }
+
+    if (node.ssh.authMethod === 'password') {
+      if (!node.ssh.password?.trim()) throw new Error('SSH 密码不能为空');
+      if (privateKey) throw new Error('密码认证不能同时上传 SSH 私钥');
+      delete node.ssh.credentialRef;
+      delete node.ssh.keyPath;
+      return this.writeNodeToYaml(node);
+    }
+
+    if (node.ssh.password) throw new Error('私钥认证不能同时提交 SSH 密码');
+    if (!privateKey) throw new Error('请选择 SSH 私钥文件');
+    validateUploadedPrivateKey(privateKey);
+
+    if (!node.id) node.id = 'node-' + crypto.randomBytes(2).toString('hex');
+    const credentialRef = `ssh-keys/${encodeURIComponent(node.id)}`;
+    node.ssh.credentialRef = credentialRef;
+    delete node.ssh.keyPath;
+
+    const store = getStateStore();
+    const previousPrivateKey = await store.get(credentialRef);
+    await store.set(credentialRef, privateKey);
+    try {
+      return await this.writeNodeToYaml(node);
+    } catch (error) {
+      if (previousPrivateKey === null) await store.del(credentialRef);
+      else await store.set(credentialRef, previousPrivateKey);
+      throw error;
+    }
+  }
+
+  async getNodePrivateKey(node: NodeConfig): Promise<string> {
+    if (node.ssh?.authMethod !== 'privateKey' || !node.ssh.credentialRef) {
+      throw new Error('节点未配置可用的 SSH 私钥文件');
+    }
+
+    const privateKey = await getStateStore().get(node.ssh.credentialRef);
+    if (!privateKey) throw new Error('节点的 SSH 私钥文件不存在，请重新上传');
+    validateUploadedPrivateKey(privateKey);
+    return privateKey;
+  }
+
   async writeNodeToYaml(node: NodeConfig): Promise<NodeConfig> {
     return getStateStore().withLock(NODES_KEY, () => this.writeNodeToYamlUnlocked(node));
   }
@@ -258,9 +306,10 @@ export class NodeManager {
       lines.push(`    ssh:`);
       lines.push(`      user: "${node.ssh.user}"`);
       if (node.ssh.port) lines.push(`      port: ${node.ssh.port}`);
-      if (node.ssh.keyPath) lines.push(`      keyPath: "${node.ssh.keyPath}"`);
+      lines.push(`      authMethod: "${node.ssh.authMethod}"`);
+      if (node.ssh.credentialRef) lines.push(`      credentialRef: "${node.ssh.credentialRef}"`);
       if (node.ssh.hostKey) lines.push(`      hostKey: "${node.ssh.hostKey}"`);
-      if (node.ssh.password) lines.push(`      password: "${node.ssh.password}"`);
+      if (node.ssh.authMethod === 'password' && node.ssh.password) lines.push(`      password: "${node.ssh.password}"`);
     }
 
     if (node.agent) {
@@ -389,7 +438,7 @@ export class NodeManager {
         subSection = '';
       } else if (trimmed === 'ssh:') {
         subSection = 'ssh';
-        current.ssh = { user: 'root', keyPath: '', hostKey: '', password: '' };
+        current.ssh = { user: 'root', authMethod: 'password', hostKey: '' };
       } else if (trimmed === 'agent:') {
         subSection = 'agent';
         current.agent = { deployed: false, version: '', status: 'not_deployed', lastDeploy: '' };
@@ -399,7 +448,12 @@ export class NodeManager {
       } else if (subSection === 'ssh') {
         if (trimmed.startsWith('user:')) current.ssh!.user = this.extractYamlValue(trimmed, 'user');
         else if (trimmed.startsWith('port:')) current.ssh!.port = parseInt(this.extractYamlValue(trimmed, 'port'), 10) || 22;
-        else if (trimmed.startsWith('keyPath:')) current.ssh!.keyPath = this.extractYamlValue(trimmed, 'keyPath');
+        else if (trimmed.startsWith('authMethod:')) current.ssh!.authMethod = this.extractYamlValue(trimmed, 'authMethod') as SshAuthMethod;
+        else if (trimmed.startsWith('credentialRef:')) current.ssh!.credentialRef = this.extractYamlValue(trimmed, 'credentialRef');
+        else if (trimmed.startsWith('keyPath:')) {
+          current.ssh!.keyPath = this.extractYamlValue(trimmed, 'keyPath');
+          current.ssh!.authMethod = 'privateKey';
+        }
         else if (trimmed.startsWith('hostKey:')) current.ssh!.hostKey = this.extractYamlValue(trimmed, 'hostKey');
         else if (trimmed.startsWith('password:')) current.ssh!.password = this.extractYamlValue(trimmed, 'password');
       } else if (subSection === 'agent') {

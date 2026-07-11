@@ -167,11 +167,12 @@ describe('Task 1: Type Definitions', () => {
 });
 
 describe('v1.0 Agent types', () => {
-  it('NodeSshConfig should have user, port, keyPath, hostKey', () => {
+  it('NodeSshConfig should have an explicit auth method and credential reference', () => {
     const ssh: NodeSshConfig = {
       user: 'root',
       port: 22,
-      keyPath: '~/.ssh/id_ed25519',
+      authMethod: 'privateKey',
+      credentialRef: 'ssh-keys/node-test',
       hostKey: 'ssh-ed25519 AAA...',
     };
     expect(ssh.user).toBe('root');
@@ -201,7 +202,7 @@ describe('v1.0 Agent types', () => {
     const cfg: NodeConfig = {
       id: 'test', name: 'Test', host: 'example.com', port: 443,
       secret: '', kernel: 'sing-box', location: 'test', enabled: true,
-      ssh: { user: 'root', port: 22, keyPath: '/key', hostKey: '' },
+      ssh: { user: 'root', port: 22, authMethod: 'password', hostKey: '', password: 'test-password' },
       agent: { deployed: false, version: '', status: 'not_deployed', lastDeploy: '' },
       kernelInfo: { installed: false, version: '', installScript: '' },
     };

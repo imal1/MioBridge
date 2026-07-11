@@ -21,7 +21,6 @@ import { Label } from '@/components/ui/label'
 import { Select } from '@/components/ui/select'
 import { Separator } from '@/components/ui/separator'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { Textarea } from '@/components/ui/textarea'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import SignalPage from '@/components/shared/SignalPage'
 
@@ -62,8 +61,10 @@ function emptyNodeForm() {
     kernel: 'sing-box' as KernelType,
     location: '',
     sshUser: 'root',
-    sshKey: '',
+    sshAuthMethod: 'password' as 'password' | 'privateKey',
     sshPassword: '',
+    sshPrivateKey: '',
+    sshPrivateKeyName: '',
   }
 }
 
@@ -111,7 +112,17 @@ export default function NodesPage({ initialCluster, initialError }: NodesPagePro
     setSubmitting(true)
     setError(null)
     try {
-      const result = await apiService.addNode(form)
+      const result = await apiService.addNode({
+        name: form.name,
+        host: form.host,
+        kernel: form.kernel,
+        location: form.location,
+        sshUser: form.sshUser,
+        sshAuthMethod: form.sshAuthMethod,
+        ...(form.sshAuthMethod === 'password'
+          ? { sshPassword: form.sshPassword }
+          : { sshPrivateKey: form.sshPrivateKey, sshPrivateKeyName: form.sshPrivateKeyName }),
+      })
       if (!result.success) throw new Error(result.error || '添加节点失败')
       setAddOpen(false)
       setForm(emptyNodeForm())
@@ -125,6 +136,45 @@ export default function NodesPage({ initialCluster, initialError }: NodesPagePro
       setSubmitting(false)
     }
   }, [form, refresh])
+
+  const selectSshAuthMethod = useCallback((value: string) => {
+    if (value !== 'password' && value !== 'privateKey') return
+    setForm(prev => ({
+      ...prev,
+      sshAuthMethod: value,
+      sshPassword: '',
+      sshPrivateKey: '',
+      sshPrivateKeyName: '',
+    }))
+  }, [])
+
+  const uploadPrivateKey = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
+    const input = event.currentTarget
+    const file = input.files?.[0]
+    if (!file) {
+      setForm(prev => ({ ...prev, sshPrivateKey: '', sshPrivateKeyName: '' }))
+      return
+    }
+    if (file.size > 64 * 1024) {
+      input.value = ''
+      toast.error('私钥文件不能超过 64 KiB')
+      return
+    }
+
+    const reader = new FileReader()
+    reader.onload = () => {
+      setForm(prev => ({
+        ...prev,
+        sshPrivateKey: typeof reader.result === 'string' ? reader.result : '',
+        sshPrivateKeyName: file.name,
+      }))
+    }
+    reader.onerror = () => {
+      input.value = ''
+      toast.error('无法读取 SSH 私钥文件')
+    }
+    reader.readAsText(file)
+  }, [])
 
   return (
     <TooltipProvider>
@@ -298,13 +348,31 @@ export default function NodesPage({ initialCluster, initialError }: NodesPagePro
                 <Input id="ssh-user" name="sshUser" value={form.sshUser} onChange={event => setForm(prev => ({ ...prev, sshUser: event.target.value }))} autoComplete="off" />
               </div>
               <div className="grid gap-2">
-                <Label htmlFor="ssh-key">SSH 私钥</Label>
-                <Textarea id="ssh-key" name="sshKey" value={form.sshKey} onChange={event => setForm(prev => ({ ...prev, sshKey: event.target.value }))} placeholder="-----BEGIN OPENSSH PRIVATE KEY-----…" className="font-mono" />
+                <Label>SSH 认证</Label>
+                <Tabs value={form.sshAuthMethod} onValueChange={selectSshAuthMethod}>
+                  <TabsList aria-label="SSH 认证方式" className="h-10">
+                    <TabsTrigger value="password">密码</TabsTrigger>
+                    <TabsTrigger value="privateKey">私钥</TabsTrigger>
+                  </TabsList>
+                </Tabs>
               </div>
-              <div className="grid gap-2">
-                <Label htmlFor="ssh-password">SSH 密码</Label>
-                <Input id="ssh-password" name="sshPassword" type="password" value={form.sshPassword} onChange={event => setForm(prev => ({ ...prev, sshPassword: event.target.value }))} placeholder="密钥为空时使用密码…" autoComplete="off" />
-              </div>
+              {form.sshAuthMethod === 'password' ? (
+                <div className="grid gap-2">
+                  <Label htmlFor="ssh-password">SSH 密码</Label>
+                  <Input id="ssh-password" name="sshPassword" type="password" value={form.sshPassword} onChange={event => setForm(prev => ({ ...prev, sshPassword: event.target.value }))} placeholder="SSH 登录密码…" autoComplete="off" required />
+                </div>
+              ) : (
+                <div className="grid gap-2">
+                  <Label htmlFor="ssh-private-key">SSH 私钥文件</Label>
+                  <Input id="ssh-private-key" name="sshPrivateKey" type="file" onChange={uploadPrivateKey} required />
+                  {form.sshPrivateKeyName ? (
+                    <p className="flex items-center gap-2 text-sm text-muted-foreground">
+                      <Icon icon="ph:file-key-bold" />
+                      {form.sshPrivateKeyName}
+                    </p>
+                  ) : null}
+                </div>
+              )}
             </div>
             <DialogFooter>
               <Button type="button" variant="outline" onClick={() => setAddOpen(false)}>取消</Button>

@@ -15,3 +15,6 @@ metadata:
 - Binary lookup order is configured path, `~/.config/miobridge/bin/`, repo
   `bin/`, then PATH.
 - `PORT` can override the app port for systemd/Next startup.
+- Uploaded SSH private keys use StateStore keys `ssh-keys/<nodeId>`; nodes.yaml
+  stores only `authMethod` and `credentialRef`. Password and private-key SSH
+  authentication are mutually exclusive.

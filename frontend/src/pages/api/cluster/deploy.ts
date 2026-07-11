@@ -3,7 +3,45 @@ import { NodeManager } from '@/server/services/nodeManager';
 import { DeployManager } from '@/server/services/deployManager';
 import { getDeployStatus, setDeployStatus } from '@/server/services/deployProgressStore';
 import { logger } from '@/server/utils/logger';
-import type { ApiResponse, DeployStatus } from '@/server/types';
+import type { ApiResponse, DeployStatus, NodeConfig } from '@/server/types';
+import type { DeployTarget } from '@/server/services/deployManager';
+
+interface PrivateKeyResolver {
+  getNodePrivateKey(node: NodeConfig): Promise<string>;
+}
+
+export async function createDeployTarget(
+  node: NodeConfig,
+  privateKeyResolver: PrivateKeyResolver,
+): Promise<DeployTarget> {
+  if (!node.ssh) throw new Error('节点未配置 SSH 信息');
+
+  const base = {
+    nodeId: node.id,
+    secret: node.secret,
+    agentPort: node.port || node.agent?.port || 3001,
+    kernel: node.kernel || 'sing-box',
+  };
+  const sshBase = {
+    host: node.host,
+    user: node.ssh.user,
+    port: node.ssh.port,
+    authMethod: node.ssh.authMethod,
+    hostKey: node.ssh.hostKey,
+  };
+
+  if (node.ssh.authMethod === 'privateKey') {
+    return {
+      ...base,
+      ssh: { ...sshBase, privateKey: await privateKeyResolver.getNodePrivateKey(node) },
+    };
+  }
+
+  return {
+    ...base,
+    ssh: { ...sshBase, password: node.ssh.password },
+  };
+}
 
 export default async function handler(
   req: NextApiRequest,
@@ -45,20 +83,7 @@ export default async function handler(
     await setDeployStatus(nodeId, initialStatus);
 
     // Start deploy asynchronously
-    const deployTarget = {
-      nodeId: node.id,
-      secret: node.secret,
-      agentPort: node.port || node.agent?.port || 3001,
-      ssh: {
-        host: node.host,
-        user: node.ssh.user,
-        port: node.ssh.port,
-        keyPath: node.ssh.keyPath,
-        hostKey: node.ssh.hostKey,
-        password: node.ssh.password,
-      },
-      kernel: node.kernel || 'sing-box',
-    };
+    const deployTarget = await createDeployTarget(node, nodeManager);
     const persistRecordedHostKey = async () => {
       if (!node.ssh?.hostKey && deployTarget.ssh.hostKey) {
         await nodeManager.updateNodeSshHostKey(node.id, deployTarget.ssh.hostKey);

@@ -3,7 +3,7 @@ import * as path from 'path';
 import * as fs from 'fs-extra';
 import { Client, type ClientChannel } from 'ssh2';
 import { logger } from '../utils/logger';
-import type { NodeAgentInfo } from '../types';
+import type { NodeAgentInfo, SshAuthMethod } from '../types';
 
 const KERNEL_INSTALL_SCRIPTS: Record<string, string> = {
   'sing-box': "bash <(wget -qO- -o- https://github.com/233boy/sing-box/raw/main/install.sh)",
@@ -40,9 +40,10 @@ export interface DeployTarget {
     host: string;
     user: string;
     port?: number;
-    keyPath: string;
+    authMethod: SshAuthMethod;
     hostKey: string;
     password?: string;
+    privateKey?: string;
   };
   /** 代理内核类型（从 nodes.yaml 传入，不再硬编码） */
   kernel: string;
@@ -54,6 +55,42 @@ export interface DeployResult {
 }
 
 export type DeployProgressCallback = (step: DeployStep) => void;
+
+export function buildSshConnectOptions(target: DeployTarget): Record<string, any> {
+  const connectOpts: Record<string, any> = {
+    host: target.ssh.host,
+    port: target.ssh.port || 22,
+    username: target.ssh.user || 'root',
+    readyTimeout: 15000,
+    algorithms: {
+      serverHostKey: ['ssh-rsa', 'ssh-dss', 'ecdsa-sha2-nistp256', 'ssh-ed25519'],
+    },
+  };
+
+  if (target.ssh.authMethod === 'password') {
+    if (!target.ssh.password) throw new Error('SSH 密码不可用');
+    connectOpts.password = target.ssh.password;
+  } else if (target.ssh.authMethod === 'privateKey') {
+    if (!target.ssh.privateKey) throw new Error('SSH 私钥文件不可用');
+    connectOpts.privateKey = target.ssh.privateKey;
+  } else {
+    throw new Error('SSH 认证方式无效');
+  }
+
+  if (target.ssh.hostKey) {
+    connectOpts.hostHash = 'sha256';
+    connectOpts.hostVerifier = (hashedKey: Buffer) => hashedKey.toString('base64') === target.ssh.hostKey;
+  } else {
+    connectOpts.hostHash = 'sha256';
+    connectOpts.hostVerifier = (hashedKey: Buffer) => {
+      target.ssh.hostKey = hashedKey.toString('base64');
+      logger.info(`DeployManager: 首次连接 ${target.ssh.host}，已记录 host key`);
+      return true;
+    };
+  }
+
+  return connectOpts;
+}
 
 export class DeployManager {
   private static instance: DeployManager;
@@ -163,66 +200,8 @@ export class DeployManager {
       conn.on('ready', () => resolve(conn));
       conn.on('error', (err: Error) => reject(new Error(`SSH 连接失败: ${err.message}`)));
 
-      const connectOpts: any = {
-        host: target.ssh.host,
-        port: target.ssh.port || 22,
-        username: target.ssh.user || 'root',
-        readyTimeout: 15000,
-        algorithms: {
-          serverHostKey: ['ssh-rsa', 'ssh-dss', 'ecdsa-sha2-nistp256', 'ssh-ed25519'],
-        },
-      };
-
-      // Auth: prefer key, fallback to password
-      if (target.ssh.keyPath) {
-        connectOpts.privateKey = this.resolvePrivateKey(target.ssh.keyPath);
-        if (target.ssh.password) {
-          connectOpts.passphrase = target.ssh.password;
-        }
-      } else if (target.ssh.password) {
-        connectOpts.password = target.ssh.password;
-      } else {
-        // Try agent-based auth
-        connectOpts.agent = process.env.SSH_AUTH_SOCK || undefined;
-      }
-
-      // Add host key verification if provided
-      if (target.ssh.hostKey) {
-        connectOpts.hostHash = 'sha256';
-        connectOpts.hostVerifier = (hashedKey: Buffer) => {
-          return hashedKey.toString('base64') === target.ssh.hostKey;
-        };
-      } else {
-        // First-time connection: accept key but DO NOT skip verification entirely.
-        // The host key will be captured and persisted back to nodes.yaml for future verification.
-        connectOpts.hostHash = 'sha256';
-        connectOpts.hostVerifier = (hashedKey: Buffer) => {
-          const hostKey = hashedKey.toString('base64');
-          target.ssh.hostKey = hostKey;
-          logger.info(`DeployManager: 首次连接 ${target.ssh.host}，已记录 host key`);
-          return true;
-        };
-      }
-
-      conn.connect(connectOpts);
+      conn.connect(buildSshConnectOptions(target));
     });
-  }
-
-  private resolvePrivateKey(keyOrPath: string): string {
-    const trimmed = keyOrPath.trim();
-    if (trimmed.includes('BEGIN ') || trimmed.includes('\n')) {
-      return keyOrPath;
-    }
-
-    const expandedPath = trimmed.startsWith('~/')
-      ? path.join(process.env.HOME || '', trimmed.slice(2))
-      : trimmed;
-
-    if (fs.existsSync(expandedPath)) {
-      return fs.readFileSync(expandedPath, 'utf8');
-    }
-
-    return keyOrPath;
   }
 
   private execSsh(ssh: Client, command: string): Promise<{ stdout: string; stderr: string; code: number }> {

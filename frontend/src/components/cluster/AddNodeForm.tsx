@@ -15,15 +15,18 @@ export interface NodeFormData {
   kernel: 'sing-box' | 'xray' | 'v2ray';
   location: string;
   sshUser: string;
-  sshKey: string;
-  sshPassword: string;
+  sshAuthMethod: 'password' | 'privateKey';
+  sshPassword?: string;
+  sshPrivateKey?: string;
+  sshPrivateKeyName?: string;
 }
 
 export function AddNodeForm({ isOpen, onClose, onSubmit }: AddNodeFormProps) {
   const [form, setForm] = useState<NodeFormData>({
     name: '', host: '',
     kernel: 'sing-box', location: '',
-    sshUser: 'root', sshKey: '', sshPassword: '',
+    sshUser: 'root', sshAuthMethod: 'password', sshPassword: '',
+    sshPrivateKey: '', sshPrivateKeyName: '',
   });
   const [submitting, setSubmitting] = useState(false);
 
@@ -37,10 +40,41 @@ export function AddNodeForm({ isOpen, onClose, onSubmit }: AddNodeFormProps) {
     e.preventDefault();
     setSubmitting(true);
     try {
-      onSubmit(form);
+      onSubmit({
+        name: form.name,
+        host: form.host,
+        kernel: form.kernel,
+        location: form.location,
+        sshUser: form.sshUser,
+        sshAuthMethod: form.sshAuthMethod,
+        ...(form.sshAuthMethod === 'password'
+          ? { sshPassword: form.sshPassword }
+          : { sshPrivateKey: form.sshPrivateKey, sshPrivateKeyName: form.sshPrivateKeyName }),
+      });
     } finally {
       setSubmitting(false);
     }
+  };
+
+  const selectAuthMethod = (sshAuthMethod: NodeFormData['sshAuthMethod']) => {
+    setForm(prev => ({
+      ...prev,
+      sshAuthMethod,
+      sshPassword: '',
+      sshPrivateKey: '',
+      sshPrivateKeyName: '',
+    }));
+  };
+
+  const uploadPrivateKey = (file?: File) => {
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => setForm(prev => ({
+      ...prev,
+      sshPrivateKey: typeof reader.result === 'string' ? reader.result : '',
+      sshPrivateKeyName: file.name,
+    }));
+    reader.readAsText(file);
   };
 
   return (
@@ -100,6 +134,19 @@ export function AddNodeForm({ isOpen, onClose, onSubmit }: AddNodeFormProps) {
           {/* SSH info */}
           <h4 className="text-sm font-semibold" style={{ color: 'var(--muted-foreground)' }}>SSH 连接信息</h4>
 
+          <div className="flex gap-2" aria-label="SSH 认证方式">
+            <button type="button" onClick={() => selectAuthMethod('password')}
+              className="px-3 py-2 rounded-lg text-sm font-medium"
+              style={{ backgroundColor: form.sshAuthMethod === 'password' ? 'var(--primary)' : 'var(--secondary)', color: form.sshAuthMethod === 'password' ? 'var(--primary-foreground)' : 'var(--secondary-foreground)' }}>
+              密码
+            </button>
+            <button type="button" onClick={() => selectAuthMethod('privateKey')}
+              className="px-3 py-2 rounded-lg text-sm font-medium"
+              style={{ backgroundColor: form.sshAuthMethod === 'privateKey' ? 'var(--primary)' : 'var(--secondary)', color: form.sshAuthMethod === 'privateKey' ? 'var(--primary-foreground)' : 'var(--secondary-foreground)' }}>
+              私钥
+            </button>
+          </div>
+
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="text-sm font-medium" style={{ color: 'var(--muted-foreground)' }}>SSH 用户</label>
@@ -109,26 +156,23 @@ export function AddNodeForm({ isOpen, onClose, onSubmit }: AddNodeFormProps) {
             </div>
           </div>
 
-          <div>
-            <label className="text-sm font-medium" style={{ color: 'var(--muted-foreground)' }}>
-              SSH 私钥 <span className="text-xs opacity-70">(粘贴内容或路径)</span>
-            </label>
-            <textarea value={form.sshKey} onChange={e => update('sshKey', e.target.value)}
-              rows={3}
-              className="w-full mt-1 px-3 py-2 rounded-2xl text-sm font-mono"
-              style={{ backgroundColor: 'var(--surface-container-lowest)', color: 'var(--foreground)' }}
-              placeholder="-----BEGIN OPENSSH PRIVATE KEY-----" />
-          </div>
-
-          <div>
-            <label className="text-sm font-medium" style={{ color: 'var(--muted-foreground)' }}>
-              SSH 密码 <span className="text-xs opacity-70">(密钥为空时使用密码认证)</span>
-            </label>
-            <input type="password" value={form.sshPassword} onChange={e => update('sshPassword', e.target.value)}
-              className="w-full mt-1 px-3 py-2 rounded-2xl text-sm"
-              style={{ backgroundColor: 'var(--surface-container-lowest)', color: 'var(--foreground)' }}
-              placeholder="SSH 登录密码" />
-          </div>
+          {form.sshAuthMethod === 'password' ? (
+            <div>
+              <label htmlFor="legacy-ssh-password" className="text-sm font-medium" style={{ color: 'var(--muted-foreground)' }}>SSH 密码</label>
+              <input id="legacy-ssh-password" type="password" value={form.sshPassword} onChange={e => update('sshPassword', e.target.value)}
+                className="w-full mt-1 px-3 py-2 rounded-lg text-sm"
+                style={{ backgroundColor: 'var(--surface-container-lowest)', color: 'var(--foreground)' }}
+                placeholder="SSH 登录密码" required />
+            </div>
+          ) : (
+            <div>
+              <label htmlFor="legacy-ssh-private-key" className="text-sm font-medium" style={{ color: 'var(--muted-foreground)' }}>SSH 私钥文件</label>
+              <input id="legacy-ssh-private-key" type="file" onChange={e => uploadPrivateKey(e.target.files?.[0])}
+                className="w-full mt-1 px-3 py-2 rounded-lg text-sm"
+                style={{ backgroundColor: 'var(--surface-container-lowest)', color: 'var(--foreground)' }} required />
+              {form.sshPrivateKeyName ? <p className="mt-2 text-sm" style={{ color: 'var(--muted-foreground)' }}>{form.sshPrivateKeyName}</p> : null}
+            </div>
+          )}
 
           <div className="flex gap-3 pt-2">
             <button type="submit" disabled={submitting}

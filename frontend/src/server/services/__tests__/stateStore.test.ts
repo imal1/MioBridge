@@ -61,6 +61,14 @@ describe('FileStateStore', () => {
     expect(await store.get('nodes.yaml')).toBeNull();
   });
 
+  it('writes nested secret files with owner-only permissions', async () => {
+    const store = getStateStore();
+    await store.set('ssh-keys/node-test', 'private-key');
+
+    const stat = await fs.stat(path.join(tmpDir, 'ssh-keys', 'node-test'));
+    expect(stat.mode & 0o777).toBe(0o600);
+  });
+
   it('lists keys by prefix, including nested ones', async () => {
     const store = getStateStore();
     await store.set('deploy-progress/node-a', '{}');

@@ -252,8 +252,10 @@ class ApiService {
     kernel: string;
     location: string;
     sshUser: string;
-    sshKey: string;
+    sshAuthMethod: 'password' | 'privateKey';
     sshPassword?: string;
+    sshPrivateKey?: string;
+    sshPrivateKeyName?: string;
   }): Promise<ApiResponse> {
     try {
       return await apiClient.post('api/cluster/nodes', { json: data }).json<ApiResponse>();

@@ -7,6 +7,10 @@ metadata:
 
 # Bug Fixes
 
+- 2026-07-11: Child-node SSH authentication is now explicit password-or-key.
+  Private keys are selected as files, validated as unencrypted SSH keys, stored
+  separately in StateStore, and never returned by the node API or written into
+  nodes.yaml. SSH deployment no longer falls back across credential methods.
 - 2026-07-11: Node registry and deploy progress no longer vanish between Vercel
   function instances. nodes.yaml IO and deployProgressStore now go through the
   `StateStore` abstraction — file backend by default, Redis (Upstash/Vercel KV
@@ -41,7 +45,7 @@ metadata:
   checks use the configured port.
 - 2026-07-01: Agent deployment always restarts the service and reuses the node
   secret from `nodes.yaml`.
-- 2026-07-01: SSH deploy records first-use host keys and accepts pasted private
-  keys or local key paths.
+- 2026-07-01: SSH deploy records first-use host keys. The former pasted-key and
+  local-path credential flow was replaced by uploaded StateStore key records.
 - 2026-07-01: Non-root Agent deployment runs privileged remote steps through
   sudo and stages binaries through `/tmp`.
