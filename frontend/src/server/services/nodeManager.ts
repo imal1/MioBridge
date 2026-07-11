@@ -4,10 +4,13 @@ import * as crypto from 'crypto';
 import { logger } from '../utils/logger';
 import { MioBridgeService } from './mioBridgeService';
 import { getMioBridgeBaseDir } from '../runtimePaths';
+import { getStateStore } from './stateStore';
 import type { NodeConfig, NodeStatus, ClusterStatus, NodesYaml, NodeAgentInfo, LogsResult } from '../types';
 
 const CONFIG_DIR = getMioBridgeBaseDir();
-const NODES_YAML_PATH = path.join(CONFIG_DIR, 'nodes.yaml');
+/** StateStore key：文件后端下等价于 CONFIG_DIR/nodes.yaml，Redis 后端下跨实例共享 */
+const NODES_KEY = 'nodes.yaml';
+const NODES_YAML_PATH = path.join(CONFIG_DIR, NODES_KEY);
 const REMOTE_TIMEOUT_MS = 10_000;
 /** fs.watch 去抖延迟：文件可能连续触发多次 change 事件 */
 const WATCH_DEBOUNCE_MS = 500;
@@ -39,11 +42,22 @@ export class NodeManager {
     this.deployDelegate = delegate;
   }
 
+  /** 读取 nodes.yaml 原文（文件或 Redis 后端） */
+  private readNodesRaw(): Promise<string | null> {
+    return getStateStore().get(NODES_KEY);
+  }
+
+  /** 写回 nodes.yaml 原文（文件或 Redis 后端） */
+  private writeNodesRaw(text: string): Promise<void> {
+    return getStateStore().set(NODES_KEY, text);
+  }
+
   /** 持久化首次 SSH 连接记录到的 host key */
   async updateNodeSshHostKey(nodeId: string, hostKey: string): Promise<void> {
-    if (!hostKey || !(await fs.pathExists(NODES_YAML_PATH))) return;
+    if (!hostKey) return;
+    const raw = await this.readNodesRaw();
+    if (raw === null) return;
 
-    const raw = await fs.readFile(NODES_YAML_PATH, 'utf8');
     const lines = raw.split('\n');
     let inTargetNode = false;
     let inSsh = false;
@@ -99,16 +113,16 @@ export class NodeManager {
 
     if (!hostKeyUpdated) return;
 
-    await fs.writeFile(NODES_YAML_PATH, lines.join('\n').replace(/\n*$/, '\n'));
+    await this.writeNodesRaw(lines.join('\n').replace(/\n*$/, '\n'));
     logger.info(`NodeManager: 节点 ${nodeId} SSH host key 已写入 nodes.yaml`);
     await this.loadNodes();
   }
 
   /** 持久化 Agent 部署状态 */
   async updateNodeAgentInfo(nodeId: string, agent: Partial<NodeAgentInfo>): Promise<void> {
-    if (!(await fs.pathExists(NODES_YAML_PATH))) return;
+    const raw = await this.readNodesRaw();
+    if (raw === null) return;
 
-    const raw = await fs.readFile(NODES_YAML_PATH, 'utf8');
     const lines = raw.split('\n');
     let inTargetNode = false;
     let inAgent = false;
@@ -180,17 +194,13 @@ export class NodeManager {
       insertMissing(lines.length);
     }
 
-    await fs.writeFile(NODES_YAML_PATH, lines.join('\n').replace(/\n*$/, '\n'));
+    await this.writeNodesRaw(lines.join('\n').replace(/\n*$/, '\n'));
     logger.info(`NodeManager: 节点 ${nodeId} Agent 状态已写入 nodes.yaml`);
     await this.loadNodes({ triggerDeploy: false });
   }
 
   /** 将节点写入 nodes.yaml（追加或创建） */
   async writeNodeToYaml(node: NodeConfig): Promise<NodeConfig> {
-    // 确保目录存在
-    const dir = path.dirname(NODES_YAML_PATH);
-    await fs.ensureDir(dir);
-
     // 重新加载现有节点以检查重复
     await this.loadNodes();
     if (this.nodes.find(n => n.id === node.id)) {
@@ -211,11 +221,10 @@ export class NodeManager {
 
     // 序列化为 YAML
     const lines: string[] = [];
-    const fileExists = await fs.pathExists(NODES_YAML_PATH);
+    const existing = await this.readNodesRaw();
 
-    if (fileExists) {
-      // Append to existing file
-      const existing = await fs.readFile(NODES_YAML_PATH, 'utf8');
+    if (existing !== null) {
+      // Append to existing document
       lines.push(existing.trimEnd());
       if (!existing.endsWith('\n')) lines.push('');
     } else {
@@ -257,7 +266,7 @@ export class NodeManager {
       if (node.kernelInfo.installScript) lines.push(`      installScript: "${node.kernelInfo.installScript}"`);
     }
 
-    await fs.writeFile(NODES_YAML_PATH, lines.join('\n') + '\n');
+    await this.writeNodesRaw(lines.join('\n') + '\n');
     logger.info(`NodeManager: 节点 ${node.id} 已写入 nodes.yaml`);
 
     // 重新加载节点
@@ -274,9 +283,13 @@ export class NodeManager {
     return node;
   }
 
-  /** 启动 nodes.yaml 文件监听（热加载） */
+  /** 启动 nodes.yaml 文件监听（热加载，仅文件后端有意义） */
   startWatch(): void {
     if (this.watcher) return; // 防止重复启动
+    if (getStateStore().kind !== 'file') {
+      logger.info('NodeManager: 非文件后端，跳过 nodes.yaml 监听');
+      return;
+    }
 
     try {
       // 确保父目录存在后再监听（目录不存在时 watch 会失败）
@@ -317,12 +330,12 @@ export class NodeManager {
   /** 读取 nodes.yaml */
   async loadNodes(options: { triggerDeploy?: boolean } = { triggerDeploy: true }): Promise<NodeConfig[]> {
     try {
-      if (!(await fs.pathExists(NODES_YAML_PATH))) {
+      const raw = await this.readNodesRaw();
+      if (raw === null) {
         this.nodes = [];
         logger.info('NodeManager: nodes.yaml 不存在，运行在单机模式');
         return [];
       }
-      const raw = await fs.readFile(NODES_YAML_PATH, 'utf8');
       const parsed = this.parseNodesYaml(raw);
       this.nodes = parsed.nodes.filter(n => n.enabled);
       logger.info(`NodeManager: 加载了 ${this.nodes.length} 个节点`);

@@ -37,13 +37,13 @@ export default async function handler(
     if (requestedNodes.length > 0) {
       deployments = {};
       for (const nodeId of requestedNodes) {
-        const status = getDeployStatus(nodeId);
+        const status = await getDeployStatus(nodeId);
         if (status) {
           deployments[nodeId] = status;
         }
       }
     } else {
-      const allStatuses = getAllDeployStatuses();
+      const allStatuses = await getAllDeployStatuses();
       deployments = {};
       for (const status of allStatuses) {
         deployments[status.nodeId] = status;

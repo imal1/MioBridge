@@ -7,6 +7,11 @@ metadata:
 
 # Bug Fixes
 
+- 2026-07-11: Node registry and deploy progress no longer vanish between Vercel
+  function instances. nodes.yaml IO and deployProgressStore now go through the
+  `StateStore` abstraction — file backend by default, Redis (Upstash/Vercel KV
+  REST, plain fetch) when the REST env vars are configured. Without Redis env
+  vars on Vercel the old ephemeral behavior remains, with a startup warning.
 - 2026-07-11: Agent deploy no longer requires the ~100MB compiled binary in the
   control plane bundle. When `agent/miobridge-agent` is missing locally (Vercel),
   the target host downloads the repo tarball pinned to the control plane's

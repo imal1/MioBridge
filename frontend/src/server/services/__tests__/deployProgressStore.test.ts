@@ -21,17 +21,17 @@ function status(overrides: Partial<DeployStatus>): DeployStatus {
 }
 
 describe('deployProgressStore', () => {
-  it('keeps long-running deployments past the completed-status TTL', () => {
-    setDeployStatus('node-progress-test', status({ status: 'running' }));
+  it('keeps long-running deployments past the completed-status TTL', async () => {
+    await setDeployStatus('node-progress-test', status({ status: 'running' }));
 
-    expect(getDeployStatus('node-progress-test')?.status).toBe('running');
+    expect((await getDeployStatus('node-progress-test'))?.status).toBe('running');
 
-    clearDeployStatus('node-progress-test');
+    await clearDeployStatus('node-progress-test');
   });
 
-  it('expires stale terminal deployments', () => {
-    setDeployStatus('node-progress-test', status({ status: 'success' }));
+  it('expires stale terminal deployments', async () => {
+    await setDeployStatus('node-progress-test', status({ status: 'success' }));
 
-    expect(getDeployStatus('node-progress-test')).toBeNull();
+    expect(await getDeployStatus('node-progress-test')).toBeNull();
   });
 });

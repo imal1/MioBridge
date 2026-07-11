@@ -42,7 +42,7 @@ export default async function handler(
       progress: 0,
       startedAt,
     };
-    setDeployStatus(nodeId, initialStatus);
+    await setDeployStatus(nodeId, initialStatus);
 
     // Start deploy asynchronously
     const deployTarget = {
@@ -77,7 +77,8 @@ export default async function handler(
           progress: step.progress,
           startedAt,
         };
-        setDeployStatus(nodeId, status);
+        // 进度回调是同步的；写入顺序由 store 内部写链保证
+        void setDeployStatus(nodeId, status);
       },
     );
 
@@ -98,7 +99,7 @@ export default async function handler(
         port: deployTarget.agentPort,
       });
       logger.info(`Deploy API: 节点 ${nodeId} 部署完成: ${result.success ? '成功' : '失败'} - ${result.message}`);
-      const currentStatus = getDeployStatus(nodeId);
+      const currentStatus = await getDeployStatus(nodeId);
       const finalStatus: DeployStatus = {
         nodeId,
         step: result.success ? 'done' : (currentStatus?.step || 'connect'),
@@ -107,7 +108,7 @@ export default async function handler(
         progress: result.success ? 100 : (currentStatus?.progress || 0),
         startedAt: Date.now(),
       };
-      setDeployStatus(nodeId, finalStatus);
+      await setDeployStatus(nodeId, finalStatus);
     }).catch(async (err) => {
       await persistRecordedHostKey();
       await nodeManager.updateNodeAgentInfo(node.id, {
@@ -117,7 +118,7 @@ export default async function handler(
         port: deployTarget.agentPort,
       });
       logger.error(`Deploy API: 节点 ${nodeId} 部署异常: ${err.message}`);
-      const currentStatus = getDeployStatus(nodeId);
+      const currentStatus = await getDeployStatus(nodeId);
       const errorStatus: DeployStatus = {
         nodeId,
         step: currentStatus?.step || 'connect',
@@ -126,7 +127,7 @@ export default async function handler(
         progress: currentStatus?.progress || 0,
         startedAt: Date.now(),
       };
-      setDeployStatus(nodeId, errorStatus);
+      await setDeployStatus(nodeId, errorStatus);
     });
   } catch (error: any) {
     logger.error('部署失败:', error);

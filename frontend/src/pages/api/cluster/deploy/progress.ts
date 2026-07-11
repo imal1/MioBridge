@@ -30,7 +30,7 @@ export default async function handler(
       });
     }
 
-    const status = getDeployStatus(nodeId);
+    const status = await getDeployStatus(nodeId);
     if (!status) {
       return res.json({
         success: true,

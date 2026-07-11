@@ -227,7 +227,7 @@ export const getServerSideProps: GetServerSideProps<DeployPageProps> = async () 
     const { getAllDeployStatuses } = await import('@/server/services/deployProgressStore')
     const cluster = await NodeManager.getInstance().getClusterStatus()
     const deployments: Record<string, DeployStatus> = {}
-    for (const status of getAllDeployStatuses()) deployments[status.nodeId] = status
+    for (const status of await getAllDeployStatuses()) deployments[status.nodeId] = status
     return { props: { initialCluster: JSON.parse(JSON.stringify(cluster)), initialDeployments: JSON.parse(JSON.stringify(deployments)), initialError: null } }
   } catch (error) {
     return { props: { initialCluster: null, initialDeployments: {}, initialError: error instanceof Error ? error.message : '获取部署状态失败' } }
