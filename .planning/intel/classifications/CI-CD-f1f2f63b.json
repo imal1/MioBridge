@@ -1,0 +1,24 @@
+{
+  "source_path": "/Users/imali/Projects/MioBridge/docs/CI-CD.md",
+  "type": "DOC",
+  "confidence": "high",
+  "manifest_override": false,
+  "title": "CI/CD",
+  "summary": "Documents the repository's CI workflow, local verification commands, Vercel deployment ownership, and deployment-secret policy.",
+  "scope": [
+    "GitHub Actions",
+    "ci.yml",
+    "frontend typecheck",
+    "production build",
+    "Vercel Git Integration",
+    "deployment secrets"
+  ],
+  "cross_refs": [
+    "ci.yml",
+    "deploy.yml",
+    "health-check.yml"
+  ],
+  "locked": false,
+  "precedence": null,
+  "notes": ""
+}

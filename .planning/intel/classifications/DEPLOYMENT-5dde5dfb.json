@@ -1,0 +1,23 @@
+{
+  "source_path": "/Users/imali/Projects/MioBridge/docs/DEPLOYMENT.md",
+  "type": "DOC",
+  "confidence": "high",
+  "manifest_override": false,
+  "title": "Deployment",
+  "summary": "Documents the Vercel production deployment flow, runtime, local verification, health checks, and retirement of the old systemd/Nginx flow.",
+  "scope": [
+    "Vercel deployment",
+    "Next.js frontend",
+    "Git integration",
+    "health checks",
+    "local verification",
+    "systemd",
+    "Nginx"
+  ],
+  "cross_refs": [
+    ".vercel/project.json"
+  ],
+  "locked": false,
+  "precedence": null,
+  "notes": ""
+}
