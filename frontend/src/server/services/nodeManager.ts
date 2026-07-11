@@ -55,6 +55,11 @@ export class NodeManager {
   /** 持久化首次 SSH 连接记录到的 host key */
   async updateNodeSshHostKey(nodeId: string, hostKey: string): Promise<void> {
     if (!hostKey) return;
+    // nodes.yaml 是"读-改-写"整体覆盖，必须持锁防止并发更新互相丢失
+    await getStateStore().withLock(NODES_KEY, () => this.updateNodeSshHostKeyUnlocked(nodeId, hostKey));
+  }
+
+  private async updateNodeSshHostKeyUnlocked(nodeId: string, hostKey: string): Promise<void> {
     const raw = await this.readNodesRaw();
     if (raw === null) return;
 
@@ -120,6 +125,10 @@ export class NodeManager {
 
   /** 持久化 Agent 部署状态 */
   async updateNodeAgentInfo(nodeId: string, agent: Partial<NodeAgentInfo>): Promise<void> {
+    await getStateStore().withLock(NODES_KEY, () => this.updateNodeAgentInfoUnlocked(nodeId, agent));
+  }
+
+  private async updateNodeAgentInfoUnlocked(nodeId: string, agent: Partial<NodeAgentInfo>): Promise<void> {
     const raw = await this.readNodesRaw();
     if (raw === null) return;
 
@@ -201,6 +210,10 @@ export class NodeManager {
 
   /** 将节点写入 nodes.yaml（追加或创建） */
   async writeNodeToYaml(node: NodeConfig): Promise<NodeConfig> {
+    return getStateStore().withLock(NODES_KEY, () => this.writeNodeToYamlUnlocked(node));
+  }
+
+  private async writeNodeToYamlUnlocked(node: NodeConfig): Promise<NodeConfig> {
     // 重新加载现有节点以检查重复
     await this.loadNodes();
     if (this.nodes.find(n => n.id === node.id)) {

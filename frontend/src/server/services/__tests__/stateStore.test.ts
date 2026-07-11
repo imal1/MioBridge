@@ -75,6 +75,33 @@ describe('FileStateStore', () => {
     const store = getStateStore();
     await expect(store.get('../outside')).rejects.toThrow('非法的 state key');
   });
+
+  it('serializes withLock sections per key', async () => {
+    const store = getStateStore();
+    const order: string[] = [];
+
+    const first = store.withLock('nodes.yaml', async () => {
+      order.push('first-start');
+      await new Promise(resolve => setTimeout(resolve, 30));
+      order.push('first-end');
+    });
+    const second = store.withLock('nodes.yaml', async () => {
+      order.push('second-start');
+    });
+
+    await Promise.all([first, second]);
+    expect(order).toEqual(['first-start', 'first-end', 'second-start']);
+  });
+
+  it('keeps locking after a failed section', async () => {
+    const store = getStateStore();
+
+    await expect(store.withLock('nodes.yaml', async () => {
+      throw new Error('boom');
+    })).rejects.toThrow('boom');
+
+    await expect(store.withLock('nodes.yaml', async () => 'ok')).resolves.toBe('ok');
+  });
 });
 
 describe('RedisStateStore', () => {
@@ -130,5 +157,27 @@ describe('RedisStateStore', () => {
     const store = getStateStore();
 
     await expect(store.get('nodes.yaml')).rejects.toThrow('WRONGPASS');
+  });
+
+  it('wraps withLock sections in a distributed lock and releases it', async () => {
+    const commands: (string | number)[][] = [];
+    vi.stubGlobal('fetch', vi.fn().mockImplementation(async (_url, init) => {
+      const cmd = JSON.parse((init as RequestInit).body as string) as (string | number)[];
+      commands.push(cmd);
+      const result = cmd[0] === 'SET' && cmd.includes('NX') ? 'OK' : 1;
+      return { ok: true, json: async () => ({ result }) };
+    }));
+    const store = getStateStore();
+
+    const value = await store.withLock('nodes.yaml', async () => 'done');
+
+    expect(value).toBe('done');
+    expect(commands[0].slice(0, 2)).toEqual(['SET', 'miobridge:lock:nodes.yaml']);
+    expect(commands[0].slice(3)).toEqual(['NX', 'EX', 10]);
+    const release = commands[commands.length - 1];
+    expect(release[0]).toBe('EVAL');
+    expect(release[3]).toBe('miobridge:lock:nodes.yaml');
+    // 释放时携带自己的锁 token，避免误删他人的锁
+    expect(release[4]).toBe(commands[0][2]);
   });
 });
