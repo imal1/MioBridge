@@ -7,6 +7,18 @@ metadata:
 
 # Bug Fixes
 
+- 2026-07-12: Agent config and systemd unit deployment now uses checked,
+  same-directory temporary files plus atomic rename; sudo passwords travel over
+  SSH stdin, node YAML strings use JSON-compatible quoting, and proxy logs omit
+  credentials and complete URLs.
+- 2026-07-12: FileStateStore normalizes its configured base directory before
+  path-containment checks, so trailing separators no longer reject valid keys.
+- 2026-07-12: Offline node status and kernel UI now preserve a fixed
+  sing-box/Xray/V2Ray shape. Missing runtime entries render as unknown while
+  desired kernel configuration remains authoritative for monitoring totals.
+- 2026-07-12: NodeManager now initializes MioBridge/config before importing the
+  shared logger. This avoids Bun leaving `config` in a TDZ while preserving the
+  configured logging level and directory.
 - 2026-07-11: Child-node SSH authentication is now explicit password-or-key.
   Private keys are selected as files, validated as unencrypted SSH keys, stored
   separately in StateStore, and never returned by the node API or written into

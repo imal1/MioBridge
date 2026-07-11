@@ -15,6 +15,7 @@ MioBridge 是一个单体 Next.js 全栈服务。仪表盘、API 路由、定时
 - **多协议聚合**：支持 vless、vmess、trojan、hysteria2、tuic、shadowsocks
 - **Clash 兼容输出**：生成 `raw.txt`、`subscription.txt` 和 `clash.yaml`
 - **分布式节点**：远程节点通过轻量 Agent 暴露节点源 URL
+- **多内核 Agent**：一个子节点可同时监听 sing-box、Xray 和 V2Ray
 - **HMAC 控制面**：主节点通过签名 HTTP 请求访问远程 Agent
 - **SSR 仪表盘**：Next.js Pages Router 页面，使用 Botanical Garden 主题
 - **定时刷新**：支持自动更新，也可通过 API 或页面手动触发
@@ -79,6 +80,31 @@ cd agent && bun test
 cd agent
 bun build src/server.ts --compile --target=bun-linux-x64 --outfile miobridge-agent
 ```
+
+## 多内核 Agent
+
+新增或编辑子节点时，MioBridge 会先通过 SSH 检测 sing-box、Xray 和 V2Ray。
+选择对话框会分别显示各内核的已安装版本与默认配置路径。至少选择一个内核；
+已选择但缺失的内核会在部署阶段安装，已安装但未选择的内核仍会显示为“未监听”。
+
+Agent 配置使用有序的 `kernels` 列表，因此同一个子节点可以发布多个运行时的
+结构化来源：
+
+```yaml
+kernels:
+  - type: xray
+    configPath: /usr/local/etc/xray/config.json
+  - type: v2ray
+    configPath: /etc/v2ray/config.json
+```
+
+“检测到”“监听中”和“健康”是相互独立的状态：检测到表示找到了可执行文件；
+监听中表示该内核已写入 Agent 配置；健康表示配置文件可读取且能提取节点源。
+仪表盘会按内核分别展示这些状态、配置路径、错误和代理数量。
+
+聚合时，原始 URL 保留原名称；用于 Clash 订阅的名称会加上子节点 `location`
+地区前缀。如果多个来源加前缀后仍然重名，MioBridge 会在方括号中追加来源
+URL，保证生成的代理名称唯一。
 
 ## 公共端点
 

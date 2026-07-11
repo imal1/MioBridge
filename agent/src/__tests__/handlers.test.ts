@@ -1,14 +1,84 @@
-import { describe, it, expect } from 'bun:test';
+import { afterEach, describe, it, expect } from 'bun:test';
 import { handleStatus } from '../handlers/status';
+import { handleUrls } from '../handlers/urls';
 import { handleUpdate } from '../handlers/update';
 import { handleHealth } from '../handlers/health';
 import { handleLogs } from '../handlers/logs';
 import type { AgentConfig } from '../config';
 import * as crypto from 'crypto';
+import * as fs from 'fs';
+import * as os from 'os';
+import * as path from 'path';
+
+const TEMP_DIRS: string[] = [];
+const ORIGINAL_PATH = process.env.PATH;
+
+afterEach(() => {
+  if (ORIGINAL_PATH === undefined) delete process.env.PATH;
+  else process.env.PATH = ORIGINAL_PATH;
+  for (const dir of TEMP_DIRS.splice(0)) {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+function fixture(contents: unknown, raw = false): string {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'miobridge-handler-test-'));
+  TEMP_DIRS.push(dir);
+  const file = path.join(dir, 'config.json');
+  fs.writeFileSync(file, raw ? String(contents) : JSON.stringify(contents));
+  return file;
+}
+
+function isolatedBinDir(): string {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'miobridge-handler-bin-test-'));
+  TEMP_DIRS.push(dir);
+  process.env.PATH = dir;
+  return dir;
+}
+
+function singBoxFixture(port = 443): string {
+  const inbound = {
+    type: 'vless',
+    tag: 'sing',
+    listen_port: port,
+    users: [{ uuid: '11111111-1111-4111-8111-111111111111' }],
+  };
+  return fixture({ inbounds: [inbound, inbound] });
+}
+
+function xrayFixture(port = 8443): string {
+  const inbound = {
+    protocol: 'vless',
+    tag: 'xray',
+    port,
+    settings: { clients: [{ id: '22222222-2222-4222-8222-222222222222' }] },
+  };
+  return fixture({ inbounds: [inbound, inbound] });
+}
+
+function v2rayFixture(port = 9443, includeXrayDuplicate = false): string {
+  const inbound = {
+    protocol: 'vless',
+    tag: 'v2ray',
+    port,
+    settings: { clients: [{ id: '33333333-3333-4333-8333-333333333333' }] },
+  };
+  const xrayDuplicate = {
+    protocol: 'vless',
+    tag: 'xray',
+    port: 8443,
+    settings: { clients: [{ id: '22222222-2222-4222-8222-222222222222' }] },
+  };
+  return fixture({
+    inbounds: includeXrayDuplicate
+      ? [inbound, inbound, xrayDuplicate]
+      : [inbound, inbound],
+  });
+}
 
 const MOCK_CONFIG: AgentConfig = {
   node: { id: 'node-sg', name: '新加坡', secret: 'test-secret' },
-  kernel: { type: 'xray', configPath: '/nonexistent/xray.json' },
+  kernels: [{ type: 'xray', configPath: '/nonexistent/xray.json' }],
   mihomo: { path: '/nonexistent/mihomo' },
   port: 3001,
 };
@@ -31,7 +101,19 @@ describe('handleStatus', () => {
     expect(body.success).toBe(true);
     expect(body.data).toBeDefined();
     expect(typeof body.data.nodesCount).toBe('number');
-    expect(typeof body.data.mihomoAvailable).toBe('boolean');
+    expect(body.data.kernels).toHaveLength(3);
+    expect(body.data.kernels.map((item: any) => item.type)).toEqual([
+      'sing-box', 'xray', 'v2ray',
+    ]);
+    expect(body.data.kernels.find((item: any) => item.type === 'sing-box')).toMatchObject({
+      monitored: false,
+      accessible: false,
+      nodesCount: 0,
+    });
+    expect(body.data).not.toHaveProperty('subscriptionExists');
+    expect(body.data).not.toHaveProperty('clashExists');
+    expect(body.data).not.toHaveProperty('rawExists');
+    expect(body.data).not.toHaveProperty('mihomoAvailable');
   });
 
   it('should reject unauthenticated remote request', async () => {
@@ -72,6 +154,120 @@ describe('handleStatus', () => {
       node: { ...MOCK_CONFIG.node, secret },
     });
     expect(res.status).not.toBe(401);
+  });
+
+  it('reports an accessible configured kernel as undetected when its binary is absent', async () => {
+    isolatedBinDir();
+    const config: AgentConfig = {
+      ...MOCK_CONFIG,
+      node: { ...MOCK_CONFIG.node, secret: '' },
+      kernels: [{ type: 'xray', configPath: xrayFixture() }],
+    };
+
+    const res = await handleStatus(mockReq({ headers: { host: 'agent.example' } }), config);
+    const body = await res.json();
+
+    expect(body.data.kernels.find((item: any) => item.type === 'xray')).toMatchObject({
+      detected: false,
+      monitored: true,
+      accessible: true,
+    });
+  });
+
+  it('detects an executable unmonitored kernel without discovering its config', async () => {
+    const binDir = isolatedBinDir();
+    const xrayBin = path.join(binDir, 'xray');
+    fs.writeFileSync(xrayBin, '#!/bin/sh\nexit 0\n');
+    fs.chmodSync(xrayBin, 0o755);
+    const config: AgentConfig = {
+      ...MOCK_CONFIG,
+      node: { ...MOCK_CONFIG.node, secret: '' },
+      kernels: [{ type: 'sing-box', configPath: singBoxFixture() }],
+    };
+
+    const res = await handleStatus(mockReq({ headers: { host: 'agent.example' } }), config);
+    const body = await res.json();
+
+    expect(body.data.kernels.find((item: any) => item.type === 'xray')).toMatchObject({
+      detected: true,
+      monitored: false,
+      accessible: false,
+      nodesCount: 0,
+      configPaths: [],
+    });
+  });
+
+  it('does not detect a searchable directory named after a kernel as its binary', async () => {
+    const binDir = isolatedBinDir();
+    const xrayDir = path.join(binDir, 'xray');
+    fs.mkdirSync(xrayDir);
+    fs.chmodSync(xrayDir, 0o755);
+    const config: AgentConfig = {
+      ...MOCK_CONFIG,
+      node: { ...MOCK_CONFIG.node, secret: '' },
+      kernels: [{ type: 'sing-box', configPath: singBoxFixture() }],
+    };
+
+    const res = await handleStatus(mockReq({ headers: { host: 'agent.example' } }), config);
+    const body = await res.json();
+
+    expect(body.data.kernels.find((item: any) => item.type === 'xray')).toMatchObject({
+      detected: false,
+      monitored: false,
+    });
+  });
+});
+
+describe('handleUrls', () => {
+  it('returns structured sources for all kernels in stable order and removes exact duplicates', async () => {
+    const config: AgentConfig = {
+      ...MOCK_CONFIG,
+      node: { ...MOCK_CONFIG.node, secret: '' },
+      kernels: [
+        { type: 'v2ray', configPath: v2rayFixture(9443, true) },
+        { type: 'sing-box', configPath: singBoxFixture() },
+        { type: 'xray', configPath: xrayFixture() },
+      ],
+    };
+
+    const res = handleUrls(mockReq({ url: '/api/urls', headers: { host: 'agent.example:3001' } }), config);
+    const body = await res.json();
+
+    expect(body.data.sources.map((item: any) => item.kernel)).toEqual([
+      'sing-box', 'xray', 'v2ray',
+    ]);
+    expect(new Set(body.data.sources.map((item: any) => item.url)).size).toBe(3);
+    expect(body.data.kernels).toHaveLength(3);
+    expect(body.data.kernels.every((item: any) => item.accessible)).toBe(true);
+    expect(body.data).not.toHaveProperty('urls');
+  });
+
+  it('isolates malformed Xray JSON while other kernels remain accessible', async () => {
+    const config: AgentConfig = {
+      ...MOCK_CONFIG,
+      node: { ...MOCK_CONFIG.node, secret: '' },
+      kernels: [
+        { type: 'sing-box', configPath: singBoxFixture() },
+        { type: 'xray', configPath: fixture('{malformed', true) },
+        { type: 'v2ray', configPath: v2rayFixture() },
+      ],
+    };
+
+    const res = handleUrls(mockReq({ url: '/api/urls', headers: { host: 'agent.example' } }), config);
+    const body = await res.json();
+    const xray = body.data.kernels.find((item: any) => item.type === 'xray');
+
+    expect(body.data.sources.map((item: any) => item.kernel)).toEqual(['sing-box', 'v2ray']);
+    expect(xray).toMatchObject({ monitored: true, accessible: false, nodesCount: 0 });
+    expect(xray.error).toBeString();
+    expect(body.data.kernels.find((item: any) => item.type === 'sing-box')).toMatchObject({
+      accessible: true,
+      nodesCount: 1,
+    });
+    expect(body.data.kernels.find((item: any) => item.type === 'v2ray')).toMatchObject({
+      accessible: true,
+      nodesCount: 1,
+    });
   });
 });
 

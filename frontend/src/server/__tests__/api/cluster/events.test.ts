@@ -1,7 +1,19 @@
 // TDD RED phase for Phase C: SSE Cluster Events endpoint
 // Tests verify the /api/cluster/events SSE endpoint
 
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
+
+const getClusterStatus = vi.hoisted(() => vi.fn(async () => ({
+  totalNodes: 0,
+  onlineNodes: 0,
+  totalProxies: 0,
+  nodes: [],
+  lastUpdated: new Date(0).toISOString(),
+})));
+
+vi.mock('@/server/services/nodeManager', () => ({
+  NodeManager: { getInstance: () => ({ getClusterStatus }) },
+}));
 
 // The module doesn't exist yet — import will fail until GREEN phase
 let eventsHandler: any;

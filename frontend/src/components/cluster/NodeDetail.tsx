@@ -11,6 +11,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import type { NodeStatus } from '@/server/types';
+import { KernelRuntimeDetails } from './KernelStatus';
 
 interface NodeDetailProps {
   node: NodeStatus;
@@ -128,12 +129,6 @@ export function NodeDetail({
               </span>
             </InfoRow>
           )}
-          <InfoRow label={isLocal ? '内核可访问' : '节点源'}>
-            <StatusBadge
-              label={node.kernelAccessible ? '可用' : '不可用'}
-              status={node.kernelAccessible ? 'success' : 'danger'}
-            />
-          </InfoRow>
           <InfoRow label="代理数">
             <span className="font-mono text-sm" style={{ color: 'var(--foreground)' }}>
               {node.nodesCount ?? '-'}
@@ -158,6 +153,20 @@ export function NodeDetail({
           )}
         </div>
       )}
+
+      <div className="mt-4">
+        <h3
+          className="mb-2 text-xs font-semibold uppercase tracking-widest"
+          style={{ color: 'var(--muted-foreground)', fontFamily: 'var(--font-display)' }}
+        >
+          内核运行状态
+        </h3>
+        <KernelRuntimeDetails
+          online={node.online}
+          kernels={node.kernels}
+          configuredKernels={node.configuredKernels}
+        />
+      </div>
 
       {/* Agent deployment info — only for remote nodes */}
       {node.nodeId !== 'local' && node.agent && (

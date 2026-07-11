@@ -11,18 +11,18 @@ import type { NodeConfig } from '../../../types';
 const sampleNodes: NodeConfig[] = [
   {
     id: 'node-1', name: 'US East', host: '10.0.0.1', port: 443, secret: 'k1',
-    kernel: 'sing-box', location: 'us', enabled: true,
+    kernels: [{ type: 'sing-box' }], location: 'us', enabled: true,
     agent: { deployed: true, version: 'deploy-agent-v1.2.0', status: 'running', lastDeploy: '' },
     ssh: { user: 'root', port: 22, keyPath: '/key', hostKey: '' },
   },
   {
     id: 'node-2', name: 'EU West', host: '10.0.0.2', port: 443, secret: 'k2',
-    kernel: 'xray', location: 'eu', enabled: true,
+    kernels: [{ type: 'xray' }], location: 'eu', enabled: true,
     agent: { deployed: false, version: '', status: 'not_deployed', lastDeploy: '' },
     ssh: { user: 'root', port: 22, keyPath: '/key', hostKey: '' },
   },
   {
-    id: 'node-3', name: 'Local', host: 'localhost', port: 3001, secret: '', kernel: 'sing-box', location: 'local', enabled: true,
+    id: 'node-3', name: 'Local', host: 'localhost', port: 3001, secret: '', kernels: [{ type: 'sing-box' }], location: 'local', enabled: true,
     agent: undefined,
   },
 ];

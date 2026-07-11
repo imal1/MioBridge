@@ -84,11 +84,15 @@ export default function Dashboard({ initialCluster = null, initialStatus = null,
   const missingFiles = status ? FILES.filter(file => !status[file.key]) : FILES
   const remoteNodes = cluster?.nodes.filter(node => node.nodeId !== 'local') || []
   const undeployedNodes = remoteNodes.filter(node => !node.agent?.deployed)
-  const kernelReadyNodes = remoteNodes.filter(node => node.online && node.kernelAccessible)
+  const configuredKernels = remoteNodes.flatMap(node => node.configuredKernels.map(config => ({ node, config })))
+  const healthyKernels = configuredKernels.filter(({ node, config }) => {
+    const runtime = node.kernels.find(kernel => kernel.type === config.type)
+    return node.online && runtime?.monitored && runtime.accessible
+  })
   const remoteAgentReady = remoteNodes.length > 0 && undeployedNodes.length === 0
   const readiness = [
     { label: '远端 Agent', ok: remoteAgentReady, desc: remoteNodes.length === 0 ? '尚未添加子节点' : undeployedNodes.length ? `${undeployedNodes.length} 个节点待部署` : '子节点 Agent 已部署' },
-    { label: '子节点内核', ok: remoteNodes.length > 0 && kernelReadyNodes.length === remoteNodes.length, desc: remoteNodes.length === 0 ? '等待子节点上报' : `${kernelReadyNodes.length}/${remoteNodes.length} 可用` },
+    { label: '子节点内核', ok: configuredKernels.length > 0 && healthyKernels.length === configuredKernels.length, desc: configuredKernels.length === 0 ? '等待子节点上报' : `${healthyKernels.length}/${configuredKernels.length} 可用` },
     { label: 'mihomo 转换', ok: Boolean(status?.mihomoAvailable), desc: status?.mihomoVersion || '未检测到版本' },
     { label: '文件写入', ok: missingFiles.length === 0, desc: missingFiles.length ? `缺少 ${missingFiles.map(file => file.name).join('、')}` : '输出产物可用' },
   ]

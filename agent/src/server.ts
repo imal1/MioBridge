@@ -14,7 +14,7 @@ const CONFIG_PATH = process.env.MIOBRIDGE_AGENT_CONFIG ||
 async function main() {
   console.log('MioBridge Agent starting...');
   const config = await loadConfig(CONFIG_PATH);
-  console.log(`Config loaded: node=${config.node.id}, kernel=${config.kernel.type}, port=${config.port}`);
+  console.log(`Config loaded: node=${config.node.id}, kernels=${config.kernels.map(item => item.type).join(',')}, port=${config.port}`);
 
   const server = createServer(async (req: IncomingMessage, res: ServerResponse) => {
     const url = req.url || '/';

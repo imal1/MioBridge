@@ -118,13 +118,29 @@ NODE
     }],
   }, null, 2));
 
+  writeFileSync(join(agentDir, 'v2ray.json'), JSON.stringify({
+    inbounds: [{
+      tag: 'browser-v2ray',
+      protocol: 'vless',
+      port: 8443,
+      settings: { clients: [{ id: '00000000-0000-4000-8000-000000000004' }] },
+      streamSettings: {
+        network: 'tcp',
+        security: 'tls',
+        tlsSettings: { serverName: 'v2ray.browser.example.com' },
+      },
+    }],
+  }, null, 2));
+
   writeFileSync(join(agentDir, 'agent.yaml'), `node:
   id: "browser-agent"
   name: "Browser Agent"
   secret: "${secret}"
-kernel:
-  type: "xray"
-  configPath: "${join(agentDir, 'xray.json')}"
+kernels:
+  - type: "xray"
+    configPath: "${join(agentDir, 'xray.json')}"
+  - type: "v2ray"
+    configPath: "${join(agentDir, 'v2ray.json')}"
 mihomo:
   path: "${mihomoPath}"
 port: ${agentPort}
@@ -136,7 +152,9 @@ port: ${agentPort}
     host: "0.0.0.0"
     port: ${agentPort}
     secret: "${secret}"
-    kernel: "xray"
+    kernels:
+      - type: "xray"
+      - type: "v2ray"
     location: "browser-e2e"
     enabled: true
 `);
@@ -263,23 +281,6 @@ async function clickText(cdp, sessionId, text) {
   await cdp.send('Input.dispatchMouseEvent', { type: 'mouseReleased', button: 'left', buttons: 0, clickCount: 1, x: point.x, y: point.y }, sessionId);
 }
 
-async function clickSelector(cdp, sessionId, selector) {
-  const result = await cdp.send('Runtime.evaluate', {
-    expression: `(() => {
-      const el = document.querySelector(${JSON.stringify(selector)});
-      if (!el) return null;
-      const rect = el.getBoundingClientRect();
-      return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
-    })()`,
-    returnByValue: true,
-  }, sessionId);
-  const point = result.result.value;
-  assert(point, `Clickable selector not found: ${selector}`);
-  await cdp.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: point.x, y: point.y }, sessionId);
-  await cdp.send('Input.dispatchMouseEvent', { type: 'mousePressed', button: 'left', buttons: 1, clickCount: 1, x: point.x, y: point.y }, sessionId);
-  await cdp.send('Input.dispatchMouseEvent', { type: 'mouseReleased', button: 'left', buttons: 0, clickCount: 1, x: point.x, y: point.y }, sessionId);
-}
-
 async function run() {
   setupRuntimeFiles();
   assert(existsSync(join(rootDir, 'frontend/.next/standalone/frontend/server.js')), 'standalone build is missing; run bun run build');
@@ -299,6 +300,13 @@ async function run() {
   await waitForHttp(`http://127.0.0.1:${agentPort}/api/health`);
   await waitForHttp(`http://127.0.0.1:${mainPort}/health`);
 
+  const agentUrls = await fetch(`http://127.0.0.1:${agentPort}/api/urls`).then((response) => response.json());
+  assert.deepEqual(agentUrls.data.sources.map((source) => source.kernel), ['xray', 'v2ray']);
+  assert.deepEqual(
+    agentUrls.data.kernels.filter((kernel) => kernel.monitored).map((kernel) => kernel.type),
+    ['xray', 'v2ray'],
+  );
+
   const { cdp } = await connectChrome();
   const { targetId } = await cdp.send('Target.createTarget', { url: 'about:blank' });
   const { sessionId } = await cdp.send('Target.attachToTarget', { targetId, flatten: true });
@@ -312,23 +320,30 @@ async function run() {
   }, sessionId);
   await cdp.send('Page.navigate', { url: `http://127.0.0.1:${mainPort}/` }, sessionId);
 
-  await waitForText(cdp, sessionId, '集群总览');
+  await waitForText(cdp, sessionId, '总览');
+  await waitForText(cdp, sessionId, '子节点内核');
+  await waitForText(cdp, sessionId, '2/2 可用');
+
+  await clickText(cdp, sessionId, '节点');
   await waitForText(cdp, sessionId, 'Browser Agent');
-  await waitForText(cdp, sessionId, '批量操作');
+  await waitForText(cdp, sessionId, '节点生命周期');
 
   await clickText(cdp, sessionId, 'Browser Agent');
-  await waitForText(cdp, sessionId, '节点角色');
-  await waitForText(cdp, sessionId, '节点源');
+  await waitForText(cdp, sessionId, '在线状态');
+  await waitForText(cdp, sessionId, '代理数量');
+  await waitForText(cdp, sessionId, 'Xray');
+  await waitForText(cdp, sessionId, 'V2Ray');
+  await waitForText(cdp, sessionId, '1 个代理');
 
   await clickText(cdp, sessionId, 'Close');
-  await waitForText(cdp, sessionId, '节点列表');
+  await waitForText(cdp, sessionId, '节点生命周期');
 
-  await clickSelector(cdp, sessionId, 'button.fixed.bottom-6.right-6');
+  await clickText(cdp, sessionId, '添加节点');
   await waitForText(cdp, sessionId, '添加节点');
   await clickText(cdp, sessionId, '取消');
 
-  await clickText(cdp, sessionId, '全部健康检查');
-  await waitForText(cdp, sessionId, '已对 2 个节点执行健康检查');
+  await clickText(cdp, sessionId, '检查');
+  await waitForText(cdp, sessionId, 'Browser Agent');
 
   console.log('browser e2e passed');
   cleanup(0);

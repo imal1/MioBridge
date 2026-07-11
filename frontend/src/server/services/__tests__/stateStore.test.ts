@@ -61,6 +61,16 @@ describe('FileStateStore', () => {
     expect(await store.get('nodes.yaml')).toBeNull();
   });
 
+  it('accepts a config dir with trailing separators', async () => {
+    process.env.MIOBRIDGE_CONFIG_DIR = `${tmpDir}${path.sep}`;
+    resetStateStoreForTests();
+
+    const store = getStateStore();
+    await store.set('nodes.yaml', 'nodes:\n');
+
+    expect(await store.get('nodes.yaml')).toBe('nodes:\n');
+  });
+
   it('writes nested secret files with owner-only permissions', async () => {
     const store = getStateStore();
     await store.set('ssh-keys/node-test', 'private-key');

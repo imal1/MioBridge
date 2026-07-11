@@ -3,7 +3,7 @@
 // Tests verify Dashboard renders cluster view with SSE updates
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import React from 'react';
 
 // Mock EventSource for SSE
@@ -50,7 +50,6 @@ const mockStatusData = {
   subscriptionExists: true,
   clashExists: true,
   mihomoAvailable: true,
-  singBoxAccessible: false,
   nodesCount: 12,
   uptime: 120,
   version: '0.2.0',
@@ -63,15 +62,21 @@ const mockClusterData = {
   totalProxies: 12,
   nodes: [
     {
-      nodeId: 'node-sg', name: '新加坡', kernel: 'xray' as const, location: '新加坡',
+      nodeId: 'node-sg', name: '新加坡', location: '新加坡',
+      configuredKernels: [{ type: 'sing-box' as const }, { type: 'xray' as const }],
+      kernels: [
+        { type: 'sing-box' as const, detected: true, monitored: true, accessible: true, nodesCount: 8, version: '1.11.0', configPaths: ['/etc/sing-box/config.json'] },
+      ],
       online: true, latency: 45, nodesCount: 12,
       subscriptionExists: true, clashExists: true,
-      mihomoAvailable: true, kernelAccessible: true,
+      mihomoAvailable: true,
       version: '0.2.0', uptime: 3600,
       agent: { deployed: true, version: '0.2.0', status: 'running' as const, lastDeploy: '' },
     },
     {
-      nodeId: 'node-jp', name: '东京', kernel: 'sing-box' as const, location: '东京',
+      nodeId: 'node-jp', name: '东京', location: '东京',
+      configuredKernels: [{ type: 'xray' as const }, { type: 'v2ray' as const }],
+      kernels: [],
       online: false, error: '连接超时',
       agent: { deployed: true, version: '0.2.0', status: 'running' as const, lastDeploy: '' },
     },
@@ -99,6 +104,28 @@ describe('Phase C: Cluster Dashboard Page', () => {
     expect(screen.getByText('12')).toBeDefined();
     expect(screen.getByText('子节点在线')).toBeDefined();
     expect(screen.getByText('1/2')).toBeDefined();
+  });
+
+  it('counts ready kernels against desired configured kernels', async () => {
+    const Dashboard = (await import('@/components/Dashboard')).default;
+    render(<Dashboard initialCluster={mockClusterData} initialStatus={mockStatusData} initialError={null} />);
+    expect(screen.getByText('子节点内核')).toBeDefined();
+    expect(screen.getByText('1/4 可用')).toBeDefined();
+  });
+
+  it('shows healthy/configured capability counts per kernel type', async () => {
+    const ConfigPage = (await import('@/pages/config')).default;
+    render(<ConfigPage
+      initialCluster={mockClusterData}
+      initialStatus={mockStatusData}
+      initialConfigs={['default']}
+      frontendConfig={{}}
+      initialError={null}
+    />);
+    fireEvent.mouseDown(screen.getByRole('tab', { name: '运行能力' }), { button: 0, ctrlKey: false });
+    expect(screen.getByText('1/1 可用')).toBeDefined();
+    expect(screen.getByText('0/2 可用')).toBeDefined();
+    expect(screen.getByText('0/1 可用')).toBeDefined();
   });
 
   it('should show no-node remote Agent state as actionable', async () => {

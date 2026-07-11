@@ -74,8 +74,11 @@ export default function ConfigPage({ initialStatus, initialCluster, initialConfi
   const protocols = frontendConfig?.protocols || {}
   const childNodes = cluster?.nodes || []
   const kernelCapabilities = (Object.keys(kernelLabels) as KernelType[]).map((kernel) => {
-    const nodes = childNodes.filter(node => node.kernel === kernel)
-    const accessible = nodes.filter(node => node.online && node.kernelAccessible).length
+    const nodes = childNodes.filter(node => node.configuredKernels.some(config => config.type === kernel))
+    const accessible = nodes.filter(node => {
+      const runtime = node.kernels.find(status => status.type === kernel)
+      return node.online && runtime?.monitored && runtime.accessible
+    }).length
     return {
       label: `${kernelLabels[kernel]} 子节点`,
       ok: nodes.length > 0 && accessible === nodes.length,

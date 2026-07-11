@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { Icon } from '@iconify/react';
 import type { NodeStatus } from '@/server/types';
 import { NodeDetail } from './NodeDetail';
+import { KernelStatusPills } from './KernelStatus';
 
 interface NodeCardProps {
   node: NodeStatus;
@@ -25,24 +26,6 @@ export function NodeCard({
   onUninstallAgent,
 }: NodeCardProps) {
   const [expanded, setExpanded] = useState(false);
-
-  const kernelLabel = (k: string) => {
-    switch (k) {
-      case 'sing-box': return 'Sing-Box';
-      case 'xray': return 'Xray';
-      case 'v2ray': return 'V2Ray';
-      default: return k;
-    }
-  };
-
-  const kernelColor = (k: string) => {
-    switch (k) {
-      case 'sing-box': return { bg: 'var(--fern)', color: '#fff' };
-      case 'xray': return { bg: 'var(--marigold)', color: '#1a1d1a' };
-      case 'v2ray': return { bg: 'var(--info)', color: '#fff' };
-      default: return { bg: 'var(--muted)', color: 'var(--muted-foreground)' };
-    }
-  };
 
   const needsDeploy = node.nodeId !== 'local' && !node.agent?.deployed;
   const isRunning = node.agent?.status === 'running';
@@ -78,21 +61,20 @@ export function NodeCard({
             )}
           </div>
           <div className="flex items-center gap-2">
-            <span
-              className="text-[10px] px-2 py-0.5 rounded-full font-medium"
-              style={{
-                backgroundColor: kernelColor(node.kernel).bg,
-                color: kernelColor(node.kernel).color,
-              }}
-            >
-              {kernelLabel(node.kernel)}
-            </span>
             <Icon
               icon="ph:info-bold"
               className="w-4 h-4"
               style={{ color: 'var(--muted-foreground)' }}
             />
           </div>
+        </div>
+
+        <div className="mb-3 flex flex-wrap gap-2">
+          <KernelStatusPills
+            online={node.online}
+            kernels={node.kernels}
+            configuredKernels={node.configuredKernels}
+          />
         </div>
 
         <div className="flex items-center gap-4 text-sm" style={{ color: 'var(--muted-foreground)' }}>

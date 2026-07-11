@@ -1,7 +1,7 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { DeployManager } from '@/server/services/deployManager';
 import { logger } from '@/server/utils/logger';
-import type { ApiResponse } from '@/server/types';
+import { KERNEL_TYPES, type ApiResponse, type KernelType } from '@/server/types';
 
 export default async function handler(
   req: NextApiRequest,
@@ -15,6 +15,9 @@ export default async function handler(
     const { kernelType } = req.body || {};
     if (!kernelType) {
       return res.status(400).json({ success: false, error: '缺少 kernelType', timestamp: new Date().toISOString() });
+    }
+    if (!KERNEL_TYPES.includes(kernelType as KernelType)) {
+      return res.status(400).json({ success: false, error: `不支持的内核类型: ${kernelType}`, timestamp: new Date().toISOString() });
     }
 
     const cmd = DeployManager.getInstance().getKernelInstallCmd(kernelType);

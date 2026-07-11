@@ -6,9 +6,11 @@ node:
   name: "新加坡"          # Dashboard 显示名称
   secret: ""             # HMAC 共享密钥（部署时自动填入）
 
-kernel:
-  type: "xray"           # sing-box | xray | v2ray
-  configPath: "/usr/local/etc/xray/config.json"
+kernels:
+  - type: "sing-box"
+    configPath: "/etc/sing-box/config.json"
+  - type: "xray"
+    configPath: "/usr/local/etc/xray/config.json"
 
 mihomo:
   path: "/usr/local/bin/mihomo"

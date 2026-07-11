@@ -49,11 +49,11 @@ class KeyedMutex {
 
 class FileStateStore implements StateStore {
   readonly kind = 'file' as const;
-  private readonly baseDir = getMioBridgeBaseDir();
+  private readonly baseDir = path.resolve(getMioBridgeBaseDir());
   private readonly mutex = new KeyedMutex();
 
   private filePath(key: string): string {
-    const resolved = path.join(this.baseDir, key);
+    const resolved = path.resolve(this.baseDir, key);
     if (!resolved.startsWith(this.baseDir + path.sep)) {
       throw new Error(`非法的 state key: ${key}`);
     }

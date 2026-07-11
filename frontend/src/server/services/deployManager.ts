@@ -3,9 +3,16 @@ import * as path from 'path';
 import * as fs from 'fs-extra';
 import { Client, type ClientChannel } from 'ssh2';
 import { logger } from '../utils/logger';
-import type { NodeAgentInfo, SshAuthMethod } from '../types';
+import {
+  KERNEL_TYPES,
+  type KernelType,
+  type NodeAgentInfo,
+  type NodeKernelConfig,
+  type SshAuthMethod,
+  validateKernelConfigs,
+} from '../types';
 
-const KERNEL_INSTALL_SCRIPTS: Record<string, string> = {
+const KERNEL_INSTALL_SCRIPTS: Record<KernelType, string> = {
   'sing-box': "bash <(wget -qO- -o- https://github.com/233boy/sing-box/raw/main/install.sh)",
   'xray': "bash <(wget -qO- -o- https://github.com/233boy/Xray/raw/main/install.sh)",
   'v2ray': "bash <(wget -qO- -o- https://github.com/233boy/v2ray/raw/master/install.sh)",
@@ -45,13 +52,28 @@ export interface DeployTarget {
     password?: string;
     privateKey?: string;
   };
-  /** 代理内核类型（从 nodes.yaml 传入，不再硬编码） */
-  kernel: string;
+  kernels: NodeKernelConfig[];
+}
+
+export interface KernelDetection {
+  type: KernelType;
+  installed: boolean;
+  version?: string;
+  defaultConfigPath: string;
+  error?: string;
+}
+
+export interface KernelDeployResult extends KernelDetection {
+  selected: boolean;
+  monitored: boolean;
+  installedNow: boolean;
 }
 
 export interface DeployResult {
+  outcome: 'success' | 'partial' | 'error';
   success: boolean;
   message: string;
+  kernels: KernelDeployResult[];
 }
 
 export type DeployProgressCallback = (step: DeployStep) => void;
@@ -104,6 +126,16 @@ export class DeployManager {
 
   private constructor() {}
 
+  async detectKernels(target: DeployTarget): Promise<KernelDetection[]> {
+    let ssh: Client | undefined;
+    try {
+      ssh = await this.connectSsh(target);
+      return await Promise.all(KERNEL_TYPES.map(type => this.detectKernel(ssh!, type)));
+    } finally {
+      ssh?.end();
+    }
+  }
+
   /** 部署 Agent 到远程节点 */
   async deployToNode(
     target: DeployTarget,
@@ -114,11 +146,21 @@ export class DeployManager {
       onProgress?.(step);
     };
 
+    let ssh: Client | undefined;
+    const kernelResults: KernelDeployResult[] = KERNEL_TYPES.map(type => ({
+      type,
+      installed: false,
+      defaultConfigPath: this.getDefaultConfigPath(type),
+      selected: target.kernels.some(kernel => kernel.type === type),
+      monitored: false,
+      installedNow: false,
+    }));
+
     try {
       // Step 1: connect
       emit({ step: 'connect', status: 'running', message: '正在建立 SSH 连接...', progress: 5 });
 
-      const ssh = await this.connectSsh(target);
+      ssh = await this.connectSsh(target);
 
       emit({ step: 'connect', status: 'success', message: 'SSH 连接成功', progress: 15 });
 
@@ -127,23 +169,43 @@ export class DeployManager {
 
       const bunOk = await this.ensureBun(ssh, emit);
       if (!bunOk) {
-        return { success: false, message: 'Bun 安装失败' };
+        return { outcome: 'error', success: false, message: 'Bun 安装失败', kernels: kernelResults };
       }
 
       emit({ step: 'bun', status: 'success', message: 'Bun 已就绪', progress: 35 });
 
       // Step 3: kernel
-      emit({ step: 'kernel', status: 'running', message: '检查内核...', progress: 40 });
+      const selected = [...target.kernels].sort(
+        (a, b) => KERNEL_TYPES.indexOf(a.type) - KERNEL_TYPES.indexOf(b.type),
+      );
+      const successfulConfigs: NodeKernelConfig[] = [];
+      for (const config of selected) {
+        emit({ step: 'kernel', status: 'running', message: `检查 ${config.type} 内核...`, progress: 40 });
+        const index = KERNEL_TYPES.indexOf(config.type);
+        try {
+          const ensured = await this.ensureKernel(ssh, target, config, emit);
+          kernelResults[index] = { ...ensured, selected: true, monitored: false };
+          successfulConfigs.push(config);
+          emit({ step: 'kernel', status: 'success', message: `${config.type} 内核已就绪`, progress: 55 });
+        } catch (error: any) {
+          kernelResults[index] = {
+            ...kernelResults[index],
+            selected: true,
+            error: error.message,
+          };
+        }
+      }
 
-      const kernelType = target.kernel || 'sing-box';
-      await this.ensureKernel(ssh, target, kernelType, emit);
-
-      emit({ step: 'kernel', status: 'success', message: '内核已就绪', progress: 55 });
+      if (successfulConfigs.length === 0) {
+        const message = '所选内核均不可用，已中止 Agent 部署';
+        emit({ step: 'kernel', status: 'error', message, progress: 55 });
+        return { outcome: 'error', success: false, message, kernels: kernelResults };
+      }
 
       // Step 4: agent
       emit({ step: 'agent', status: 'running', message: '上传 Agent 二进制...', progress: 60 });
 
-      await this.uploadAgent(ssh, target, emit);
+      await this.uploadAgent(ssh, target, emit, successfulConfigs);
 
       emit({ step: 'agent', status: 'success', message: 'Agent 部署完成', progress: 80 });
 
@@ -164,11 +226,20 @@ export class DeployManager {
       // Done
       emit({ step: 'done', status: 'success', message: '部署完成', progress: 100 });
 
-      ssh.end();
-      return { success: true, message: `Agent 部署到节点 ${target.nodeId} 成功` };
+      for (const result of kernelResults) {
+        if (result.selected && result.installed && !result.error) result.monitored = true;
+      }
+      const failedCount = kernelResults.filter(result => result.selected && !result.monitored).length;
+      const outcome = failedCount > 0 ? 'partial' : 'success';
+      const message = outcome === 'partial'
+        ? `Agent 部署到节点 ${target.nodeId} 成功，但 ${failedCount} 个内核未能启用监控`
+        : `Agent 部署到节点 ${target.nodeId} 成功`;
+      return { outcome, success: true, message, kernels: kernelResults };
     } catch (error: any) {
       logger.error(`DeployManager: 部署到节点 ${target.nodeId} 失败: ${error.message}`);
-      return { success: false, message: error.message };
+      return { outcome: 'error', success: false, message: error.message, kernels: kernelResults };
+    } finally {
+      ssh?.end();
     }
   }
 
@@ -204,7 +275,11 @@ export class DeployManager {
     });
   }
 
-  private execSsh(ssh: Client, command: string): Promise<{ stdout: string; stderr: string; code: number }> {
+  private execSsh(
+    ssh: Client,
+    command: string,
+    input?: string,
+  ): Promise<{ stdout: string; stderr: string; code: number }> {
     return new Promise((resolve, reject) => {
       ssh.exec(command, (err: Error | undefined, channel: ClientChannel) => {
         if (err) return reject(err);
@@ -218,6 +293,8 @@ export class DeployManager {
         channel.on('close', (code: number) => {
           resolve({ stdout, stderr, code: code ?? -1 });
         });
+
+        if (input !== undefined) channel.end(input);
       });
     });
   }
@@ -232,10 +309,14 @@ export class DeployManager {
     }
 
     const rootCommand = target.ssh.password
-      ? `printf ${this.shellQuote(`${target.ssh.password}\n`)} | sudo -S -p '' bash -lc ${this.shellQuote(command)}`
+      ? `sudo -S -p '' bash -lc ${this.shellQuote(command)}`
       : `sudo -n bash -lc ${this.shellQuote(command)}`;
 
-    return this.execSsh(ssh, rootCommand);
+    return this.execSsh(
+      ssh,
+      rootCommand,
+      target.ssh.password ? `${target.ssh.password}\n` : undefined,
+    );
   }
 
   private shellQuote(value: string): string {
@@ -282,19 +363,15 @@ export class DeployManager {
   private async ensureKernel(
     ssh: Client,
     target: DeployTarget,
-    kernelType: string,
+    config: NodeKernelConfig,
     emit: (s: DeployStep) => void,
-  ): Promise<void> {
-    // Check if kernel is already installed
-    const kernelBin = kernelType === 'xray' ? 'xray' : (kernelType === 'v2ray' ? 'v2ray' : 'sing-box');
-    const check = await this.execSsh(ssh, `which ${kernelBin} 2>/dev/null && echo "FOUND" || echo "NOT_FOUND"`);
+  ): Promise<KernelDetection & { installedNow: boolean }> {
+    const kernelType = config.type;
+    const before = await this.detectKernel(ssh, kernelType);
+    let installedNow = false;
 
-    if (check.stdout.includes('NOT_FOUND')) {
+    if (!before.installed) {
       const installCmd = KERNEL_INSTALL_SCRIPTS[kernelType];
-      if (!installCmd) {
-        emit({ step: 'kernel', status: 'error', message: `不支持的内核: ${kernelType}`, progress: 50 });
-        throw new Error(`不支持的内核类型: ${kernelType}`);
-      }
 
       emit({ step: 'kernel', status: 'running', message: `正在安装 ${kernelType} 内核...`, progress: 45 });
 
@@ -305,9 +382,41 @@ export class DeployManager {
         throw new Error(`内核安装失败: ${install.stderr || install.stdout}`);
       }
 
+      installedNow = true;
       logger.info(`DeployManager: ${kernelType} 内核安装完成`);
     } else {
       logger.info(`DeployManager: ${kernelType} 内核已安装`);
+      return { ...before, installedNow };
+    }
+
+    const after = await this.detectKernel(ssh, kernelType);
+    if (!after.installed) {
+      throw new Error(`${kernelType} 安装后检测失败: ${after.error || '未找到可执行文件'}`);
+    }
+    return { ...after, installedNow };
+  }
+
+  private async detectKernel(ssh: Client, type: KernelType): Promise<KernelDetection> {
+    const defaultConfigPath = this.getDefaultConfigPath(type);
+    try {
+      const result = await this.execSsh(ssh, `${type} version 2>&1`);
+      const output = (result.stdout || result.stderr).trim();
+      if (result.code !== 0) {
+        return {
+          type,
+          installed: false,
+          defaultConfigPath,
+          ...(output ? { error: output } : {}),
+        };
+      }
+      return {
+        type,
+        installed: true,
+        version: output.split(/\r?\n/, 1)[0],
+        defaultConfigPath,
+      };
+    } catch (error: any) {
+      return { type, installed: false, defaultConfigPath, error: error.message };
     }
   }
 
@@ -325,10 +434,14 @@ export class DeployManager {
     ssh: Client,
     target: DeployTarget,
     emit: (s: DeployStep) => void,
+    kernels: NodeKernelConfig[],
   ): Promise<void> {
     const tmpAgentPath = `/tmp/miobridge-agent-${target.nodeId}`;
 
-    await this.execRoot(ssh, target, `mkdir -p ${AGENT_CONFIG_DIR} /usr/local/bin 2>&1`);
+    const prepare = await this.execRoot(ssh, target, `mkdir -p ${AGENT_CONFIG_DIR} /usr/local/bin 2>&1`);
+    if (prepare.code !== 0) {
+      throw new Error(`Agent 目录创建失败: ${(prepare.stderr || prepare.stdout).trim()}`);
+    }
 
     if (fs.existsSync(AGENT_LOCAL_BINARY)) {
       // 控制面本地有编译好的二进制（自托管模式）：直接 SFTP 上传。
@@ -356,16 +469,49 @@ export class DeployManager {
       target.nodeId,
       target.nodeId,
       target.secret,
-      target.kernel || 'sing-box',
+      kernels,
       target.agentPort || 3001,
     );
-    await this.execRoot(ssh, target, `cat > ${AGENT_CONFIG_PATH} << 'YAML_EOF'\n${agentYaml}YAML_EOF\n`);
+    await this.writeRemoteFileAtomically(ssh, target, AGENT_CONFIG_PATH, agentYaml, 0o600);
 
     // Write systemd unit
     const systemdUnit = this.generateSystemdUnit(target.secret);
-    await this.execRoot(ssh, target, `cat > /etc/systemd/system/miobridge-agent.service << 'UNIT_EOF'\n${systemdUnit}UNIT_EOF\n`);
+    await this.writeRemoteFileAtomically(
+      ssh,
+      target,
+      '/etc/systemd/system/miobridge-agent.service',
+      systemdUnit,
+      0o644,
+    );
 
     logger.info('DeployManager: agent.yaml 和 systemd unit 已写入');
+  }
+
+  private async writeRemoteFileAtomically(
+    ssh: Client,
+    target: DeployTarget,
+    targetPath: string,
+    content: string,
+    mode: number,
+  ): Promise<void> {
+    const directory = path.posix.dirname(targetPath);
+    const basename = path.posix.basename(targetPath);
+    const tempTemplate = path.posix.join(directory, `.${basename}.tmp.XXXXXX`);
+    const encoded = Buffer.from(content, 'utf8').toString('base64');
+    const script = [
+      'set -e',
+      `tmp=$(mktemp ${this.shellQuote(tempTemplate)})`,
+      `trap 'rm -f -- "$tmp"' EXIT`,
+      `printf %s ${this.shellQuote(encoded)} | base64 -d > "$tmp"`,
+      `chmod ${mode.toString(8)} "$tmp"`,
+      `mv -- "$tmp" ${this.shellQuote(targetPath)}`,
+      'trap - EXIT',
+    ].join('\n');
+    const result = await this.execRoot(ssh, target, `bash -c ${this.shellQuote(script)}`);
+    if (result.code !== 0) {
+      const detail = (result.stderr || result.stdout).trim();
+      throw new Error(`写入 ${targetPath} 失败: ${detail || `退出码 ${result.code}`}`);
+    }
   }
 
   /** SFTP 上传本地二进制到 /tmp（非 root 用户无法直接写 /usr/local/bin） */
@@ -488,11 +634,10 @@ export class DeployManager {
 
   /** 获取内核安装命令 */
   getKernelInstallCmd(kernelType: string): string {
-    const cmd = KERNEL_INSTALL_SCRIPTS[kernelType];
-    if (!cmd) {
+    if (!KERNEL_TYPES.includes(kernelType as KernelType)) {
       throw new Error(`不支持的内核类型: ${kernelType}`);
     }
-    return cmd;
+    return KERNEL_INSTALL_SCRIPTS[kernelType as KernelType];
   }
 
   /** 生成 agent.yaml 内容 */
@@ -500,20 +645,22 @@ export class DeployManager {
     nodeId: string,
     nodeName: string,
     secret: string,
-    kernelType: string,
+    kernels: NodeKernelConfig[],
     port = 3001,
-    kernelConfigPath?: string,
   ): string {
-    const configPath = kernelConfigPath || this.getDefaultConfigPath(kernelType);
+    const normalized = validateKernelConfigs(kernels);
+    const kernelYaml = normalized.map(kernel => [
+      `  - type: ${JSON.stringify(kernel.type)}`,
+      `    configPath: ${JSON.stringify(kernel.configPath || this.getDefaultConfigPath(kernel.type))}`,
+    ].join('\n')).join('\n');
     return `# MioBridge Agent 配置 — 由控制面自动生成
 node:
   id: "${nodeId}"
   name: "${nodeName}"
   secret: "${secret}"
 
-kernel:
-  type: "${kernelType}"
-  configPath: "${configPath}"
+kernels:
+${kernelYaml}
 
 mihomo:
   path: "/usr/local/bin/mihomo"

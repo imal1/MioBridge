@@ -18,3 +18,6 @@ metadata:
 - Uploaded SSH private keys use StateStore keys `ssh-keys/<nodeId>`; nodes.yaml
   stores only `authMethod` and `credentialRef`. Password and private-key SSH
   authentication are mutually exclusive.
+- Agent configs use a non-empty, duplicate-free `kernels` list of sing-box,
+  Xray, and/or V2Ray entries, each with an optional config path. A node config
+  may use the exact `kernels: []` draft form until its first successful deploy.

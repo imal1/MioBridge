@@ -10,7 +10,6 @@ import { logger } from '../utils/logger';
  */
 const globalState = globalThis as typeof globalThis & {
   __MIOBRIDGE_DEPLOY_PROGRESS__?: Map<string, DeployStatus>;
-  __MIOBRIDGE_DEPLOY_WRITE_CHAIN__?: Promise<void>;
 };
 const deployProgress = globalState.__MIOBRIDGE_DEPLOY_PROGRESS__ ?? new Map<string, DeployStatus>();
 globalState.__MIOBRIDGE_DEPLOY_PROGRESS__ = deployProgress;
@@ -34,17 +33,6 @@ function cleanup(): void {
 function isExpired(status: DeployStatus): boolean {
   const isTerminal = status.status === 'success' || status.status === 'error';
   return isTerminal && Date.now() - status.startedAt > TTL_MS;
-}
-
-/** 进度回调是同步触发的，用写链保证 Redis 写入顺序与回调顺序一致 */
-function chainWrite(write: () => Promise<void>): Promise<void> {
-  const chain = (globalState.__MIOBRIDGE_DEPLOY_WRITE_CHAIN__ ?? Promise.resolve())
-    .then(write)
-    .catch((error: any) => {
-      logger.warn(`DeployProgressStore: Redis 写入失败: ${error.message}`);
-    });
-  globalState.__MIOBRIDGE_DEPLOY_WRITE_CHAIN__ = chain;
-  return chain;
 }
 
 export async function getDeployStatus(nodeId: string): Promise<DeployStatus | null> {
@@ -87,18 +75,48 @@ export async function getAllDeployStatuses(): Promise<DeployStatus[]> {
   return Array.from(deployProgress.values());
 }
 
-export function setDeployStatus(nodeId: string, status: DeployStatus): Promise<void> {
+async function writeStatus(nodeId: string, status: DeployStatus): Promise<void> {
   deployProgress.set(nodeId, status);
-
   const store = getStateStore();
-  if (store.kind !== 'redis') return Promise.resolve();
-  return chainWrite(() => store.set(KEY_PREFIX + nodeId, JSON.stringify(status), REDIS_TTL_SECONDS));
+  if (store.kind === 'redis') {
+    await store.set(KEY_PREFIX + nodeId, JSON.stringify(status), REDIS_TTL_SECONDS);
+  }
+}
+
+/** 新部署取得该节点的进度写权限。 */
+export function beginDeployStatus(nodeId: string, status: DeployStatus): Promise<void> {
+  const store = getStateStore();
+  return store.withLock(KEY_PREFIX + nodeId, () => writeStatus(nodeId, status));
+}
+
+/** 只有仍为当前 generation 的部署可以更新进度。 */
+export function setDeployStatusIfCurrent(
+  nodeId: string,
+  deploymentId: string,
+  status: DeployStatus,
+): Promise<boolean> {
+  const store = getStateStore();
+  return store.withLock(KEY_PREFIX + nodeId, async () => {
+    let current = deployProgress.get(nodeId) || null;
+    if (store.kind === 'redis') {
+      const raw = await store.get(KEY_PREFIX + nodeId);
+      current = raw ? JSON.parse(raw) as DeployStatus : null;
+    }
+    if (current?.deploymentId !== deploymentId) return false;
+    await writeStatus(nodeId, status);
+    return true;
+  });
+}
+
+/** 兼容内部测试/调用：无条件开始一条新的状态。 */
+export function setDeployStatus(nodeId: string, status: DeployStatus): Promise<void> {
+  return beginDeployStatus(nodeId, status);
 }
 
 export function clearDeployStatus(nodeId: string): Promise<void> {
-  deployProgress.delete(nodeId);
-
   const store = getStateStore();
-  if (store.kind !== 'redis') return Promise.resolve();
-  return chainWrite(() => store.del(KEY_PREFIX + nodeId));
+  return store.withLock(KEY_PREFIX + nodeId, async () => {
+    deployProgress.delete(nodeId);
+    if (store.kind === 'redis') await store.del(KEY_PREFIX + nodeId);
+  });
 }

@@ -1,7 +1,7 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { NodeManager } from '@/server/services/nodeManager';
 import { logger } from '@/server/utils/logger';
-import type { ApiResponse, NodeConfig } from '@/server/types';
+import { validateKernelConfigs, type ApiResponse, type NodeConfig } from '@/server/types';
 import { validateUploadedPrivateKey } from '@/server/services/sshCredential';
 
 export default async function handler(
@@ -13,13 +13,24 @@ export default async function handler(
   }
 
   try {
+    const nodeManager = NodeManager.getInstance();
     const {
-      name, host, port, kernel, location, sshUser,
+      name, host, port, kernels, location, sshUser,
       sshAuthMethod, sshPassword, sshPrivateKey,
     } = req.body || {};
 
     if (!name || !host) {
       return res.status(400).json({ success: false, error: '缺少必填字段 name 或 host', timestamp: new Date().toISOString() });
+    }
+
+    try {
+      validateKernelConfigs(kernels);
+    } catch (error) {
+      return res.status(400).json({
+        success: false,
+        error: error instanceof Error ? error.message : '内核配置无效',
+        timestamp: new Date().toISOString(),
+      });
     }
 
     if (!sshUser?.trim()) {
@@ -50,8 +61,6 @@ export default async function handler(
       }
     }
 
-    const nodeManager = NodeManager.getInstance();
-
     // Build NodeConfig from form data
     const nodeConfig: NodeConfig = {
       id: '', // will be auto-generated
@@ -59,7 +68,8 @@ export default async function handler(
       host,
       port: parseInt(port, 10) || 3001,
       secret: '', // will be auto-generated
-      kernel: kernel || 'sing-box',
+      // 选择由紧随其后的 deploy 请求携带；仅成功监听的内核才会提交到节点配置。
+      kernels: [],
       location: location || '',
       enabled: true,
       ssh: {

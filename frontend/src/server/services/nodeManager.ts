@@ -1,12 +1,25 @@
 import * as fs from 'fs-extra';
 import * as path from 'path';
 import * as crypto from 'crypto';
-import { logger } from '../utils/logger';
 import { MioBridgeService } from './mioBridgeService';
+import { logger } from '../utils/logger';
 import { getMioBridgeBaseDir } from '../runtimePaths';
 import { getStateStore } from './stateStore';
 import { validateUploadedPrivateKey } from './sshCredential';
-import type { NodeConfig, NodeStatus, ClusterStatus, NodesYaml, NodeAgentInfo, LogsResult, SshAuthMethod } from '../types';
+import { dedupeProxySources, type CollectedProxySource } from './proxySources';
+import {
+  KERNEL_TYPES,
+  validateKernelConfigs,
+  type NodeConfig,
+  type NodeStatus,
+  type ClusterStatus,
+  type NodesYaml,
+  type NodeAgentInfo,
+  type LogsResult,
+  type SshAuthMethod,
+  type KernelRuntimeStatus,
+  type NodeKernelConfig,
+} from '../types';
 
 const CONFIG_DIR = getMioBridgeBaseDir();
 /** StateStore key：文件后端下等价于 CONFIG_DIR/nodes.yaml，Redis 后端下跨实例共享 */
@@ -16,10 +29,25 @@ const REMOTE_TIMEOUT_MS = 10_000;
 /** fs.watch 去抖延迟：文件可能连续触发多次 change 事件 */
 const WATCH_DEBOUNCE_MS = 500;
 
+function createUnavailableKernelStatuses(configuredKernels: NodeKernelConfig[]): KernelRuntimeStatus[] {
+  const configuredByType = new Map(configuredKernels.map(kernel => [kernel.type, kernel]));
+  return KERNEL_TYPES.map(type => {
+    const configured = configuredByType.get(type);
+    return {
+      type,
+      detected: false,
+      monitored: configured !== undefined,
+      accessible: false,
+      nodesCount: 0,
+      configPaths: configured?.configPath ? [configured.configPath] : [],
+    };
+  });
+}
+
 export class NodeManager {
   private static instance: NodeManager;
   private nodes: NodeConfig[] = [];
-  private localService: MioBridgeService;
+  private localService: Pick<MioBridgeService, 'updateSubscription'>;
   /** In-memory cache of last known remote node statuses */
   private nodeCache: Map<string, NodeStatus> = new Map();
   private watcher: fs.FSWatcher | null = null;
@@ -51,6 +79,90 @@ export class NodeManager {
   /** 写回 nodes.yaml 原文（文件或 Redis 后端） */
   private writeNodesRaw(text: string): Promise<void> {
     return getStateStore().set(NODES_KEY, text);
+  }
+
+  private serializeNodesYaml(nodes: NodeConfig[]): string {
+    const lines = ['nodes:'];
+    for (const node of nodes) {
+      lines.push(`  - id: ${this.quoteYamlValue(node.id)}`);
+      lines.push(`    name: ${this.quoteYamlValue(node.name)}`);
+      lines.push(`    host: ${this.quoteYamlValue(node.host)}`);
+      lines.push(`    port: ${node.port ?? node.agent?.port ?? 3001}`);
+      lines.push(`    secret: ${this.quoteYamlValue(node.secret)}`);
+      if (node.kernels.length === 0) lines.push('    kernels: []');
+      else {
+        lines.push('    kernels:');
+        for (const kernel of node.kernels) {
+          lines.push(`      - type: ${this.quoteYamlValue(kernel.type)}`);
+          if (kernel.configPath) lines.push(`        configPath: ${this.quoteYamlValue(kernel.configPath)}`);
+        }
+      }
+      lines.push(`    location: ${this.quoteYamlValue(node.location)}`);
+      lines.push(`    enabled: ${node.enabled}`);
+      if (node.ssh) {
+        lines.push('    ssh:');
+        lines.push(`      user: ${this.quoteYamlValue(node.ssh.user)}`);
+        if (node.ssh.port) lines.push(`      port: ${node.ssh.port}`);
+        lines.push(`      authMethod: ${this.quoteYamlValue(node.ssh.authMethod)}`);
+        if (node.ssh.credentialRef) lines.push(`      credentialRef: ${this.quoteYamlValue(node.ssh.credentialRef)}`);
+        if (node.ssh.hostKey) lines.push(`      hostKey: ${this.quoteYamlValue(node.ssh.hostKey)}`);
+        if (node.ssh.authMethod === 'password' && node.ssh.password) lines.push(`      password: ${this.quoteYamlValue(node.ssh.password)}`);
+      }
+      if (node.agent) {
+        lines.push('    agent:');
+        lines.push(`      deployed: ${node.agent.deployed}`);
+        if (node.agent.version) lines.push(`      version: ${this.quoteYamlValue(node.agent.version)}`);
+        lines.push(`      status: ${this.quoteYamlValue(node.agent.status)}`);
+        if (node.agent.lastDeploy) lines.push(`      lastDeploy: ${this.quoteYamlValue(node.agent.lastDeploy)}`);
+        if (node.agent.port) lines.push(`      port: ${node.agent.port}`);
+        if (node.agent.deploymentId) lines.push(`      deploymentId: ${this.quoteYamlValue(node.agent.deploymentId)}`);
+      }
+    }
+    return `${lines.join('\n')}\n`;
+  }
+
+  async beginDeployment(nodeId: string, deploymentId: string): Promise<void> {
+    await getStateStore().withLock(NODES_KEY, async () => {
+      const raw = await this.readNodesRaw();
+      if (raw === null) throw new Error(`节点 ${nodeId} 不存在`);
+      const parsed = this.parseNodesYaml(raw);
+      const node = parsed.nodes.find(item => item.id === nodeId);
+      if (!node) throw new Error(`节点 ${nodeId} 不存在`);
+      node.agent = {
+        deployed: node.agent?.deployed ?? false,
+        version: node.agent?.version ?? '',
+        status: 'deploying',
+        lastDeploy: node.agent?.lastDeploy ?? '',
+        port: node.agent?.port ?? node.port ?? 3001,
+        deploymentId,
+      };
+      await this.writeNodesRaw(this.serializeNodesYaml(parsed.nodes));
+      await this.loadNodes({ triggerDeploy: false });
+    });
+  }
+
+  async completeDeploymentIfCurrent(
+    nodeId: string,
+    deploymentId: string,
+    completion: {
+      kernels?: NodeKernelConfig[];
+      agent: Partial<NodeAgentInfo>;
+      hostKey?: string;
+    },
+  ): Promise<boolean> {
+    return getStateStore().withLock(NODES_KEY, async () => {
+      const raw = await this.readNodesRaw();
+      if (raw === null) return false;
+      const parsed = this.parseNodesYaml(raw);
+      const node = parsed.nodes.find(item => item.id === nodeId);
+      if (!node || node.agent?.deploymentId !== deploymentId) return false;
+      if (completion.kernels) node.kernels = validateKernelConfigs(completion.kernels);
+      node.agent = { ...node.agent, ...completion.agent, deploymentId };
+      if (completion.hostKey && node.ssh && !node.ssh.hostKey) node.ssh.hostKey = completion.hostKey;
+      await this.writeNodesRaw(this.serializeNodesYaml(parsed.nodes));
+      await this.loadNodes({ triggerDeploy: false });
+      return true;
+    });
   }
 
   /** 持久化首次 SSH 连接记录到的 host key */
@@ -127,6 +239,66 @@ export class NodeManager {
   /** 持久化 Agent 部署状态 */
   async updateNodeAgentInfo(nodeId: string, agent: Partial<NodeAgentInfo>): Promise<void> {
     await getStateStore().withLock(NODES_KEY, () => this.updateNodeAgentInfoUnlocked(nodeId, agent));
+  }
+
+  /** 原子替换目标节点的内核列表，并保留节点的其他持久化字段。 */
+  async updateNodeKernels(nodeId: string, kernels: NodeKernelConfig[]): Promise<NodeConfig> {
+    const normalized = validateKernelConfigs(kernels);
+    return getStateStore().withLock(NODES_KEY, async () => {
+      const raw = await this.readNodesRaw();
+      if (raw === null) throw new Error(`节点 ${nodeId} 不存在`);
+
+      const parsed = this.parseNodesYaml(raw);
+      if (!parsed.nodes.some(node => node.id === nodeId)) {
+        throw new Error(`节点 ${nodeId} 不存在`);
+      }
+
+      const lines = raw.split('\n');
+      let nodeStart = -1;
+      let nodeEnd = lines.length;
+      for (let index = 0; index < lines.length; index++) {
+        const trimmed = lines[index].trim();
+        const indent = lines[index].length - lines[index].trimStart().length;
+        if (indent !== 2 || !trimmed.startsWith('- id:')) continue;
+        if (nodeStart !== -1) {
+          nodeEnd = index;
+          break;
+        }
+        if (this.extractYamlValue(trimmed, 'id') === nodeId) nodeStart = index;
+      }
+
+      if (nodeStart === -1) throw new Error(`节点 ${nodeId} 不存在`);
+      let kernelsStart = -1;
+      let kernelsEnd = nodeEnd;
+      for (let index = nodeStart + 1; index < nodeEnd; index++) {
+        const trimmed = lines[index].trim();
+        const indent = lines[index].length - lines[index].trimStart().length;
+        if (indent === 4 && trimmed === 'kernels:') {
+          kernelsStart = index;
+          continue;
+        }
+        if (kernelsStart !== -1 && trimmed && indent <= 4) {
+          kernelsEnd = index;
+          break;
+        }
+      }
+      if (kernelsStart === -1) throw new Error(`节点 ${nodeId} 缺少 kernels`);
+
+      const replacement = ['    kernels:'];
+      for (const kernel of normalized) {
+        replacement.push(`      - type: ${this.quoteYamlValue(kernel.type)}`);
+        if (kernel.configPath) {
+          replacement.push(`        configPath: ${this.quoteYamlValue(kernel.configPath)}`);
+        }
+      }
+      lines.splice(kernelsStart, kernelsEnd - kernelsStart, ...replacement);
+      const updatedRaw = lines.join('\n').replace(/\n*$/, '\n');
+      await this.writeNodesRaw(updatedRaw);
+      const updated = this.parseNodesYaml(updatedRaw).nodes.find(node => node.id === nodeId);
+      if (!updated) throw new Error(`节点 ${nodeId} 不存在`);
+      await this.loadNodes({ triggerDeploy: false });
+      return updated;
+    });
   }
 
   private async updateNodeAgentInfoUnlocked(nodeId: string, agent: Partial<NodeAgentInfo>): Promise<void> {
@@ -262,8 +434,9 @@ export class NodeManager {
   }
 
   private async writeNodeToYamlUnlocked(node: NodeConfig): Promise<NodeConfig> {
+    node.kernels = validateKernelConfigs(node.kernels, { allowEmpty: true });
     // 重新加载现有节点以检查重复
-    await this.loadNodes();
+    await this.loadNodes({ triggerDeploy: false });
     if (this.nodes.find(n => n.id === node.id)) {
       throw new Error(`节点 ${node.id} 已存在`);
     }
@@ -293,49 +466,52 @@ export class NodeManager {
     }
 
     // Build node entry
-    lines.push(`  - id: "${node.id}"`);
-    if (node.name) lines.push(`    name: "${node.name}"`);
-    if (node.host) lines.push(`    host: "${node.host}"`);
+    lines.push(`  - id: ${this.quoteYamlValue(node.id)}`);
+    if (node.name) lines.push(`    name: ${this.quoteYamlValue(node.name)}`);
+    if (node.host) lines.push(`    host: ${this.quoteYamlValue(node.host)}`);
     lines.push(`    port: ${node.port ?? node.agent?.port ?? 3001}`);
-    if (node.secret) lines.push(`    secret: "${node.secret}"`);
-    if (node.kernel) lines.push(`    kernel: "${node.kernel}"`);
-    if (node.location) lines.push(`    location: "${node.location}"`);
+    if (node.secret) lines.push(`    secret: ${this.quoteYamlValue(node.secret)}`);
+    if (node.kernels.length === 0) lines.push('    kernels: []');
+    else {
+      lines.push('    kernels:');
+      for (const kernel of node.kernels) {
+        lines.push(`      - type: ${this.quoteYamlValue(kernel.type)}`);
+        if (kernel.configPath) lines.push(`        configPath: ${this.quoteYamlValue(kernel.configPath)}`);
+      }
+    }
+    if (node.location) lines.push(`    location: ${this.quoteYamlValue(node.location)}`);
     lines.push(`    enabled: ${node.enabled}`);
 
     if (node.ssh) {
       lines.push(`    ssh:`);
-      lines.push(`      user: "${node.ssh.user}"`);
+      lines.push(`      user: ${this.quoteYamlValue(node.ssh.user)}`);
       if (node.ssh.port) lines.push(`      port: ${node.ssh.port}`);
-      lines.push(`      authMethod: "${node.ssh.authMethod}"`);
-      if (node.ssh.credentialRef) lines.push(`      credentialRef: "${node.ssh.credentialRef}"`);
-      if (node.ssh.hostKey) lines.push(`      hostKey: "${node.ssh.hostKey}"`);
-      if (node.ssh.authMethod === 'password' && node.ssh.password) lines.push(`      password: "${node.ssh.password}"`);
+      lines.push(`      authMethod: ${this.quoteYamlValue(node.ssh.authMethod)}`);
+      if (node.ssh.credentialRef) lines.push(`      credentialRef: ${this.quoteYamlValue(node.ssh.credentialRef)}`);
+      if (node.ssh.hostKey) lines.push(`      hostKey: ${this.quoteYamlValue(node.ssh.hostKey)}`);
+      if (node.ssh.authMethod === 'password' && node.ssh.password) {
+        lines.push(`      password: ${this.quoteYamlValue(node.ssh.password)}`);
+      }
     }
 
     if (node.agent) {
       lines.push(`    agent:`);
       lines.push(`      deployed: ${node.agent.deployed}`);
-      if (node.agent.version) lines.push(`      version: "${node.agent.version}"`);
-      lines.push(`      status: "${node.agent.status}"`);
-      if (node.agent.lastDeploy) lines.push(`      lastDeploy: "${node.agent.lastDeploy}"`);
+      if (node.agent.version) lines.push(`      version: ${this.quoteYamlValue(node.agent.version)}`);
+      lines.push(`      status: ${this.quoteYamlValue(node.agent.status)}`);
+      if (node.agent.lastDeploy) lines.push(`      lastDeploy: ${this.quoteYamlValue(node.agent.lastDeploy)}`);
       if (node.agent.port) lines.push(`      port: ${node.agent.port}`);
-    }
-
-    if (node.kernelInfo) {
-      lines.push(`    kernelInfo:`);
-      lines.push(`      installed: ${node.kernelInfo.installed}`);
-      if (node.kernelInfo.version) lines.push(`      version: "${node.kernelInfo.version}"`);
-      if (node.kernelInfo.installScript) lines.push(`      installScript: "${node.kernelInfo.installScript}"`);
+      if (node.agent.deploymentId) lines.push(`      deploymentId: ${this.quoteYamlValue(node.agent.deploymentId)}`);
     }
 
     await this.writeNodesRaw(lines.join('\n') + '\n');
     logger.info(`NodeManager: 节点 ${node.id} 已写入 nodes.yaml`);
 
     // 重新加载节点
-    await this.loadNodes();
+    await this.loadNodes({ triggerDeploy: false });
 
     // 如果有 SSH 配置且 agent 未部署，触发自动部署
-    if (this.deployDelegate && node.ssh && node.agent?.status === 'not_deployed') {
+    if (this.deployDelegate && node.kernels.length > 0 && node.ssh && node.agent?.status === 'not_deployed') {
       logger.info(`NodeManager: 触发自动部署节点 ${node.id}`);
       this.deployDelegate(node).catch(err => {
         logger.error(`NodeManager: 自动部署节点 ${node.id} 失败: ${err.message}`);
@@ -367,7 +543,13 @@ export class NodeManager {
         if (this.watchDebounceTimer) clearTimeout(this.watchDebounceTimer);
         this.watchDebounceTimer = setTimeout(async () => {
           logger.info('NodeManager: 检测到 nodes.yaml 变更，重新加载节点...');
-          await this.loadNodes();
+          try {
+            await this.loadNodes();
+          } catch (error) {
+            logger.error(
+              `NodeManager: nodes.yaml 热加载失败，保留上次节点状态: ${error instanceof Error ? error.message : String(error)}`,
+            );
+          }
         }, WATCH_DEBOUNCE_MS);
       });
 
@@ -391,34 +573,39 @@ export class NodeManager {
 
   /** 读取 nodes.yaml */
   async loadNodes(options: { triggerDeploy?: boolean } = { triggerDeploy: true }): Promise<NodeConfig[]> {
-    try {
-      const raw = await this.readNodesRaw();
-      if (raw === null) {
-        this.nodes = [];
-        logger.info('NodeManager: nodes.yaml 不存在，运行在单机模式');
-        return [];
-      }
-      const parsed = this.parseNodesYaml(raw);
-      this.nodes = parsed.nodes.filter(n => n.enabled);
-      logger.info(`NodeManager: 加载了 ${this.nodes.length} 个节点`);
-
-      // 自动部署：对已配置 SSH 但 agent 未部署的节点触发部署
-      if (options.triggerDeploy !== false && this.deployDelegate) {
-        const deployable = this.nodes.filter(n => n.ssh && n.agent?.status === 'not_deployed');
-        for (const node of deployable) {
-          logger.info(`NodeManager: 触发自动部署节点 ${node.id}`);
-          this.deployDelegate(node).catch(err => {
-            logger.error(`NodeManager: 自动部署节点 ${node.id} 失败: ${err.message}`);
-          });
-        }
-      }
-
-      return this.nodes;
-    } catch (error: any) {
-      logger.error(`NodeManager: 加载 nodes.yaml 失败: ${error.message}`);
+    const raw = await this.readNodesRaw();
+    if (raw === null) {
       this.nodes = [];
+      logger.info('NodeManager: nodes.yaml 不存在，运行在单机模式');
       return [];
     }
+
+    let parsed: NodesYaml;
+    try {
+      parsed = this.parseNodesYaml(raw);
+    } catch (error) {
+      logger.error(`NodeManager: 加载 nodes.yaml 失败: ${error instanceof Error ? error.message : String(error)}`);
+      throw error;
+    }
+
+    const loadedNodes = parsed.nodes.filter(n => n.enabled);
+    this.nodes = loadedNodes;
+    logger.info(`NodeManager: 加载了 ${this.nodes.length} 个节点`);
+
+    // 自动部署：对已配置 SSH 但 agent 未部署的节点触发部署
+    if (options.triggerDeploy !== false && this.deployDelegate) {
+      const deployable = this.nodes.filter(
+        n => n.kernels.length > 0 && n.ssh && n.agent?.status === 'not_deployed',
+      );
+      for (const node of deployable) {
+        logger.info(`NodeManager: 触发自动部署节点 ${node.id}`);
+        this.deployDelegate(node).catch(err => {
+          logger.error(`NodeManager: 自动部署节点 ${node.id} 失败: ${err.message}`);
+        });
+      }
+    }
+
+    return this.nodes;
   }
 
   /** 简易 YAML 解析（只解析 nodes 数组） */
@@ -426,26 +613,72 @@ export class NodeManager {
     const nodes: NodeConfig[] = [];
     let current: Partial<NodeConfig> = {};
     let subSection = '';
+    let currentKernel: Record<string, unknown> | null = null;
+    let kernelsSectionSeen = false;
+    let kernelsExplicitEmpty = false;
     const lines = raw.split('\n');
+
+    const finishNode = () => {
+      if (!current.id) return;
+      if (Array.isArray(current.kernels) && current.kernels.length === 0 && !kernelsExplicitEmpty) {
+        throw new Error('至少选择一个内核');
+      }
+      current.kernels = validateKernelConfigs(current.kernels, { allowEmpty: true });
+      nodes.push(current as NodeConfig);
+    };
 
     for (const line of lines) {
       const trimmed = line.trim();
       if (trimmed.startsWith('#') || trimmed === '') continue;
+      const indent = line.length - line.trimStart().length;
 
-      if (trimmed.startsWith('- id:')) {
-        if (current.id) { nodes.push(current as NodeConfig); }
+      if (indent === 2 && trimmed.startsWith('- id:')) {
+        finishNode();
         current = { id: this.extractYamlValue(trimmed, 'id') };
         subSection = '';
-      } else if (trimmed === 'ssh:') {
+        currentKernel = null;
+        kernelsSectionSeen = false;
+        kernelsExplicitEmpty = false;
+      } else if (indent === 4 && trimmed === 'kernels: []') {
+        if (kernelsSectionSeen) throw new Error('kernels 字段重复');
+        kernelsSectionSeen = true;
+        kernelsExplicitEmpty = true;
+        subSection = '';
+        current.kernels = [];
+        currentKernel = null;
+      } else if (indent === 4 && trimmed.startsWith('kernels:') && trimmed !== 'kernels:') {
+        throw new Error('kernels 必须是 YAML 序列');
+      } else if (indent === 4 && trimmed === 'kernels:') {
+        if (kernelsSectionSeen) throw new Error('kernels 字段重复');
+        kernelsSectionSeen = true;
+        subSection = 'kernels';
+        current.kernels = [];
+        currentKernel = null;
+      } else if (indent === 4 && trimmed === 'ssh:') {
         subSection = 'ssh';
         current.ssh = { user: 'root', authMethod: 'password', hostKey: '' };
-      } else if (trimmed === 'agent:') {
+      } else if (indent === 4 && trimmed === 'agent:') {
         subSection = 'agent';
         current.agent = { deployed: false, version: '', status: 'not_deployed', lastDeploy: '' };
-      } else if (trimmed === 'kernelInfo:') {
-        subSection = 'kernelInfo';
-        current.kernelInfo = { installed: false, version: '', installScript: '' };
-      } else if (subSection === 'ssh') {
+      } else if (subSection === 'kernels' && indent === 6 && /^- type:\s+.+$/.test(trimmed)) {
+        const rawType = trimmed.slice(trimmed.indexOf(':') + 1).trim();
+        if (/^[[{!&*]/.test(rawType)) {
+          throw new Error('内核类型必须是标量');
+        }
+        currentKernel = { type: this.extractYamlValue(trimmed, 'type') };
+        (current.kernels as unknown[]).push(currentKernel);
+      } else if (subSection === 'kernels' && indent === 8 && /^configPath:\s+.+$/.test(trimmed) && currentKernel) {
+        if (Object.prototype.hasOwnProperty.call(currentKernel, 'configPath')) {
+          throw new Error('内核配置字段重复: configPath');
+        }
+        const rawConfigPath = trimmed.slice(trimmed.indexOf(':') + 1).trim();
+        if (/^[[{!&*]/.test(rawConfigPath)) {
+          throw new Error('内核配置路径必须是标量');
+        }
+        currentKernel.configPath = this.extractYamlValue(trimmed, 'configPath');
+      } else if (subSection === 'kernels' && indent > 4) {
+        throw new Error(`无效的 kernels YAML: ${trimmed}`);
+      } else if (subSection === 'ssh' && indent === 6) {
         if (trimmed.startsWith('user:')) current.ssh!.user = this.extractYamlValue(trimmed, 'user');
         else if (trimmed.startsWith('port:')) current.ssh!.port = parseInt(this.extractYamlValue(trimmed, 'port'), 10) || 22;
         else if (trimmed.startsWith('authMethod:')) current.ssh!.authMethod = this.extractYamlValue(trimmed, 'authMethod') as SshAuthMethod;
@@ -456,49 +689,58 @@ export class NodeManager {
         }
         else if (trimmed.startsWith('hostKey:')) current.ssh!.hostKey = this.extractYamlValue(trimmed, 'hostKey');
         else if (trimmed.startsWith('password:')) current.ssh!.password = this.extractYamlValue(trimmed, 'password');
-      } else if (subSection === 'agent') {
+      } else if (subSection === 'agent' && indent === 6) {
         if (trimmed.startsWith('deployed:')) current.agent!.deployed = this.extractYamlValue(trimmed, 'deployed') === 'true';
         else if (trimmed.startsWith('version:')) current.agent!.version = this.extractYamlValue(trimmed, 'version');
         else if (trimmed.startsWith('status:')) current.agent!.status = this.extractYamlValue(trimmed, 'status') as NodeAgentInfo['status'];
         else if (trimmed.startsWith('lastDeploy:')) current.agent!.lastDeploy = this.extractYamlValue(trimmed, 'lastDeploy');
         else if (trimmed.startsWith('port:')) current.agent!.port = parseInt(this.extractYamlValue(trimmed, 'port'), 10) || 3001;
-      } else if (subSection === 'kernelInfo') {
-        if (trimmed.startsWith('installed:')) current.kernelInfo!.installed = this.extractYamlValue(trimmed, 'installed') === 'true';
-        else if (trimmed.startsWith('version:')) current.kernelInfo!.version = this.extractYamlValue(trimmed, 'version');
-        else if (trimmed.startsWith('installScript:')) current.kernelInfo!.installScript = this.extractYamlValue(trimmed, 'installScript');
-      } else if (trimmed.startsWith('name:')) {
+        else if (trimmed.startsWith('deploymentId:')) current.agent!.deploymentId = this.extractYamlValue(trimmed, 'deploymentId');
+      } else if (indent === 4 && trimmed.startsWith('name:')) {
+        subSection = '';
         current.name = this.extractYamlValue(trimmed, 'name');
-      } else if (trimmed.startsWith('host:')) {
+      } else if (indent === 4 && trimmed.startsWith('host:')) {
+        subSection = '';
         current.host = this.extractYamlValue(trimmed, 'host');
-      } else if (trimmed.startsWith('port:')) {
+      } else if (indent === 4 && trimmed.startsWith('port:')) {
+        subSection = '';
         current.port = parseInt(this.extractYamlValue(trimmed, 'port'), 10) || 3001;
-      } else if (trimmed.startsWith('secret:')) {
+      } else if (indent === 4 && trimmed.startsWith('secret:')) {
+        subSection = '';
         current.secret = this.extractYamlValue(trimmed, 'secret');
-      } else if (trimmed.startsWith('kernel:')) {
-        current.kernel = this.extractYamlValue(trimmed, 'kernel') as NodeConfig['kernel'];
-      } else if (trimmed.startsWith('location:')) {
+      } else if (indent === 4 && trimmed.startsWith('location:')) {
+        subSection = '';
         current.location = this.extractYamlValue(trimmed, 'location');
-      } else if (trimmed.startsWith('enabled:')) {
+      } else if (indent === 4 && trimmed.startsWith('enabled:')) {
+        subSection = '';
         current.enabled = this.extractYamlValue(trimmed, 'enabled') !== 'false';
       }
     }
-    if (current.id) { nodes.push(current as NodeConfig); }
+    finishNode();
     return { nodes };
   }
 
   private extractYamlValue(line: string, _key: string): string {
     const colonIdx = line.indexOf(':');
     if (colonIdx === -1) return '';
-    let val = line.substring(colonIdx + 1).trim();
-    if ((val.startsWith('"') && val.endsWith('"')) ||
-        (val.startsWith("'") && val.endsWith("'"))) {
-      val = val.slice(1, -1);
+    const val = line.substring(colonIdx + 1).trim();
+    if (val.startsWith('"')) {
+      try {
+        const decoded: unknown = JSON.parse(val);
+        if (typeof decoded !== 'string') throw new Error('值不是字符串');
+        return decoded;
+      } catch {
+        throw new Error(`无效的 YAML 双引号字符串: ${_key}`);
+      }
+    }
+    if (val.startsWith("'") && val.endsWith("'")) {
+      return val.slice(1, -1).replace(/''/g, "'");
     }
     return val;
   }
 
   private quoteYamlValue(value: string): string {
-    return `"${value.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`;
+    return JSON.stringify(value);
   }
 
   private getRemoteBaseUrl(node: NodeConfig): string {
@@ -530,30 +772,110 @@ export class NodeManager {
     }
   }
 
-  async collectRemoteNodeUrls(): Promise<{ urls: string[]; errors: string[] }> {
+  async collectRemoteNodeSources(): Promise<{ sources: CollectedProxySource[]; errors: string[] }> {
     await this.loadNodes({ triggerDeploy: false });
 
-    const urls: string[] = [];
+    return this.collectRemoteNodeSourcesFrom(this.nodes);
+  }
+
+  private async collectRemoteNodeSourcesFrom(
+    nodes: NodeConfig[],
+  ): Promise<{ sources: CollectedProxySource[]; errors: string[] }> {
+    const sources: CollectedProxySource[] = [];
     const errors: string[] = [];
     const results = await Promise.allSettled(
-      this.nodes
+      nodes
         .filter(node => node.enabled !== false)
         .map(async (node) => {
-          const json = await this.fetchRemoteJson(node, '/api/urls');
-          const data = json.data || json;
-          return { node, urls: Array.isArray(data.urls) ? data.urls : [] };
+          try {
+            const json = await this.fetchRemoteJson(node, '/api/urls');
+            const data = json.data || json;
+            const kernels = this.validateRemoteKernelStatuses(data.kernels);
+            const remoteSources = this.validateRemoteSources(data.sources);
+            this.validateRemoteSourceConsistency(remoteSources, kernels);
+            const availableKernels = new Set(
+              kernels
+                .filter(kernel => kernel.monitored && kernel.accessible)
+                .map(kernel => kernel.type),
+            );
+            const orderedSources = remoteSources
+              .filter(source => availableKernels.has(source.kernel))
+              .sort((a, b) => KERNEL_TYPES.indexOf(a.kernel) - KERNEL_TYPES.indexOf(b.kernel));
+            const kernelErrors = kernels
+              .filter(kernel => (kernel.monitored && !kernel.accessible) || kernel.error)
+              .map(kernel => this.formatRemoteSourceError(
+                node,
+                `内核 ${kernel.type}: ${kernel.error || '已监控但不可访问'}`,
+              ));
+            return {
+              sources: orderedSources.map(source => ({
+                ...source,
+                nodeId: node.id,
+                location: node.location,
+              })),
+              errors: kernelErrors,
+            };
+          } catch (error) {
+            const message = error instanceof Error ? error.message : String(error);
+            return { sources: [], errors: [this.formatRemoteSourceError(node, message)] };
+          }
         }),
     );
 
     for (const result of results) {
       if (result.status === 'fulfilled') {
-        urls.push(...result.value.urls);
+        sources.push(...result.value.sources);
+        errors.push(...result.value.errors);
       } else {
         errors.push(result.reason?.message || String(result.reason));
       }
     }
 
-    return { urls: Array.from(new Set(urls)), errors };
+    return { sources, errors };
+  }
+
+  private validateRemoteSources(value: unknown): Array<{ kernel: typeof KERNEL_TYPES[number]; url: string }> {
+    if (!Array.isArray(value)) throw new Error('Agent 返回了无效的代理来源');
+    return value.map(item => {
+      if (typeof item !== 'object' || item === null || Array.isArray(item)) {
+        throw new Error('Agent 返回了无效的代理来源');
+      }
+      const source = item as Record<string, unknown>;
+      if (Object.keys(source).some(key => key !== 'kernel' && key !== 'url') ||
+          typeof source.kernel !== 'string' || !KERNEL_TYPES.includes(source.kernel as typeof KERNEL_TYPES[number]) ||
+          typeof source.url !== 'string' || source.url.length === 0) {
+        throw new Error('Agent 返回了无效的代理来源');
+      }
+      return {
+        kernel: source.kernel as typeof KERNEL_TYPES[number],
+        url: source.url,
+      };
+    });
+  }
+
+  private validateRemoteSourceConsistency(
+    sources: Array<{ kernel: typeof KERNEL_TYPES[number]; url: string }>,
+    kernels: KernelRuntimeStatus[],
+  ): void {
+    if (new Set(sources.map(source => source.url)).size !== sources.length) {
+      throw new Error('Agent 返回了重复的代理来源');
+    }
+    for (const kernel of kernels) {
+      const sourceCount = sources.filter(source => source.kernel === kernel.type).length;
+      if (sourceCount !== kernel.nodesCount) {
+        throw new Error(`Agent 内核 ${kernel.type} 的来源数量与 nodesCount 不一致`);
+      }
+    }
+    for (const source of sources) {
+      const status = kernels.find(kernel => kernel.type === source.kernel);
+      if (!status || !status.monitored || !status.accessible) {
+        throw new Error(`Agent 来源 ${source.kernel} 没有匹配的可用内核状态`);
+      }
+    }
+  }
+
+  private formatRemoteSourceError(node: NodeConfig, message: string): string {
+    return `节点 ${node.name} (${node.id}): ${message}`;
   }
 
   /** 检查是否有远程节点 */
@@ -597,7 +919,11 @@ export class NodeManager {
     const baseStatus: NodeStatus = {
       nodeId: node.id,
       name: node.name,
-      kernel: node.kernel,
+      configuredKernels: node.kernels.map(kernel => ({
+        type: kernel.type,
+        ...(kernel.configPath ? { configPath: kernel.configPath } : {}),
+      })),
+      kernels: createUnavailableKernelStatuses(node.kernels),
       location: node.location,
       online: false,
     };
@@ -605,16 +931,17 @@ export class NodeManager {
     try {
       const json = await this.fetchRemoteJson(node, '/api/status');
       const data = json.data || json;
+      const kernels = this.validateRemoteKernelStatuses(data.kernels);
 
       const status: NodeStatus = {
         ...baseStatus,
         online: true,
         latency: 0, // will be set by health check
-        nodesCount: data.nodesCount,
+        kernels,
+        nodesCount: kernels.reduce((sum, kernel) => sum + kernel.nodesCount, 0),
         subscriptionExists: data.subscriptionExists,
         clashExists: data.clashExists,
         mihomoAvailable: data.mihomoAvailable,
-        kernelAccessible: data.kernelAccessible ?? data.singBoxAccessible,
         version: data.version,
         uptime: data.uptime,
         agent: node.agent,
@@ -630,6 +957,38 @@ export class NodeManager {
       this.nodeCache.set(node.id, status);
       return status;
     }
+  }
+
+  private validateRemoteKernelStatuses(value: unknown): KernelRuntimeStatus[] {
+    if (!Array.isArray(value) || value.length !== KERNEL_TYPES.length) {
+      throw new Error('Agent 返回了无效的内核状态');
+    }
+    const seen = new Set<string>();
+    const allowedKeys = new Set([
+      'type', 'detected', 'monitored', 'accessible', 'nodesCount',
+      'version', 'configPaths', 'error',
+    ]);
+    for (const item of value) {
+      if (typeof item !== 'object' || item === null || Array.isArray(item)) {
+        throw new Error('Agent 返回了无效的内核状态');
+      }
+      const status = item as Record<string, unknown>;
+      if (Object.keys(status).some(key => !allowedKeys.has(key)) ||
+          typeof status.type !== 'string' || !KERNEL_TYPES.includes(status.type as typeof KERNEL_TYPES[number]) ||
+          seen.has(status.type) || typeof status.detected !== 'boolean' ||
+          typeof status.monitored !== 'boolean' || typeof status.accessible !== 'boolean' ||
+          typeof status.nodesCount !== 'number' || !Number.isInteger(status.nodesCount) || status.nodesCount < 0 ||
+          !Array.isArray(status.configPaths) || !status.configPaths.every(path => typeof path === 'string') ||
+          (status.version !== undefined && typeof status.version !== 'string') ||
+          (status.error !== undefined && typeof status.error !== 'string')) {
+        throw new Error('Agent 返回了无效的内核状态');
+      }
+      seen.add(status.type);
+    }
+    if (KERNEL_TYPES.some(type => !seen.has(type))) {
+      throw new Error('Agent 返回了无效的内核状态');
+    }
+    return value as KernelRuntimeStatus[];
   }
 
   /** 触发远程节点更新 */
@@ -709,11 +1068,13 @@ export class NodeManager {
   async getClusterStatus(): Promise<ClusterStatus> {
     await this.loadNodes({ triggerDeploy: false });
 
+    const nodes = [...this.nodes];
     const allStatuses: NodeStatus[] = [];
+    const sourcePromise = this.collectRemoteNodeSourcesFrom(nodes);
 
-    if (this.nodes.length > 0) {
+    if (nodes.length > 0) {
       const remoteResults = await Promise.allSettled(
-        this.nodes.map(node => this.fetchRemoteStatus(node))
+        nodes.map(node => this.fetchRemoteStatus(node))
       );
 
       for (const result of remoteResults) {
@@ -724,13 +1085,13 @@ export class NodeManager {
       }
     }
 
-    return this.buildClusterStatus(allStatuses);
+    const { sources } = await sourcePromise;
+    return this.buildClusterStatus(allStatuses, dedupeProxySources(sources).length);
   }
 
   /** 构建 ClusterStatus */
-  private buildClusterStatus(allStatuses: NodeStatus[]): ClusterStatus {
+  private buildClusterStatus(allStatuses: NodeStatus[], totalProxies: number): ClusterStatus {
     const onlineNodes = allStatuses.filter(n => n.online);
-    const totalProxies = allStatuses.reduce((sum, n) => sum + (n.nodesCount || 0), 0);
     return {
       totalNodes: allStatuses.length,
       onlineNodes: onlineNodes.length,

@@ -20,3 +20,7 @@ metadata:
   self-hosted, Upstash/Vercel-KV Redis REST backend when
   `UPSTASH_REDIS_REST_URL/TOKEN` or `KV_REST_API_URL/TOKEN` are set (required
   on Vercel, where function instances share no filesystem).
+- A child Agent can monitor multiple kernels and returns structured, kernel-tagged
+  sources plus per-kernel runtime status to the main node.
+- Cluster proxy totals and generated artifacts use exact-URL global deduplication;
+  Clash-only naming prefixes region and appends the source URL on name conflicts.

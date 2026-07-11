@@ -1,4 +1,9 @@
-import type { AgentConfig } from '../config';
+import {
+  SUPPORTED_KERNELS,
+  type AgentConfig,
+  type AgentKernelConfig,
+  type KernelType,
+} from '../config';
 import * as fs from 'fs';
 import * as path from 'path';
 import { hmacVerify } from '../hmac';
@@ -40,13 +45,44 @@ const V2RAY_CONF_DIRS = [
   '/usr/local/etc/v2ray/conf',
 ];
 
-export function discoverKernelConfigFiles(config: AgentConfig): string[] {
-  const files = new Set<string>();
-  if (config.kernel.configPath) files.add(config.kernel.configPath);
+export interface KernelRuntimeStatus {
+  type: KernelType;
+  detected: boolean;
+  monitored: boolean;
+  accessible: boolean;
+  nodesCount: number;
+  version?: string;
+  configPaths: string[];
+  error?: string;
+}
 
-  const pathGroups = config.kernel.type === 'xray'
+export interface KernelNodeSource {
+  kernel: KernelType;
+  url: string;
+}
+
+function isKernelBinaryDetected(type: KernelType): boolean {
+  for (const dir of (process.env.PATH || '').split(path.delimiter)) {
+    if (!dir) continue;
+    try {
+      const candidate = path.join(dir, type);
+      if (!fs.statSync(candidate).isFile()) continue;
+      fs.accessSync(candidate, fs.constants.X_OK);
+      return true;
+    } catch {
+      // Continue searching the remaining PATH entries.
+    }
+  }
+  return false;
+}
+
+export function discoverKernelConfigFiles(kernel: AgentKernelConfig): string[] {
+  const files = new Set<string>();
+  if (kernel.configPath) files.add(kernel.configPath);
+
+  const pathGroups = kernel.type === 'xray'
     ? { files: XRAY_CONFIG_PATHS, dirs: XRAY_CONF_DIRS }
-    : config.kernel.type === 'v2ray'
+    : kernel.type === 'v2ray'
       ? { files: V2RAY_CONFIG_PATHS, dirs: V2RAY_CONF_DIRS }
       : { files: SING_BOX_CONFIG_PATHS, dirs: SING_BOX_CONF_DIRS };
 
@@ -166,23 +202,65 @@ function xrayInboundToUrl(inbound: any, host: string): string | null {
   return null;
 }
 
-export function extractNodeUrls(config: AgentConfig, host: string): string[] {
+function extractKernelNodeUrls(kernel: AgentKernelConfig, configPaths: string[], host: string): string[] {
   const urls: string[] = [];
-  for (const file of discoverKernelConfigFiles(config)) {
-    try {
-      const parsed = JSON.parse(fs.readFileSync(file, 'utf8'));
-      const publicKey = publicKeyFromOutbounds(parsed.outbounds);
-      for (const inbound of parsed.inbounds || []) {
-        const url = config.kernel.type === 'sing-box'
-          ? inboundToUrl(inbound, host, publicKey)
-          : xrayInboundToUrl(inbound, host);
-        if (url) urls.push(url);
-      }
-    } catch {
-      // Ignore malformed or unrelated JSON files.
+  for (const file of configPaths) {
+    const parsed = JSON.parse(fs.readFileSync(file, 'utf8'));
+    const publicKey = publicKeyFromOutbounds(parsed.outbounds);
+    for (const inbound of parsed.inbounds || []) {
+      const url = kernel.type === 'sing-box'
+        ? inboundToUrl(inbound, host, publicKey)
+        : xrayInboundToUrl(inbound, host);
+      if (url) urls.push(url);
     }
   }
   return Array.from(new Set(urls));
+}
+
+export function collectKernelSources(config: AgentConfig, host: string): {
+  sources: KernelNodeSource[];
+  kernels: KernelRuntimeStatus[];
+} {
+  const sources: KernelNodeSource[] = [];
+  const kernels: KernelRuntimeStatus[] = [];
+  const seenUrls = new Set<string>();
+
+  for (const type of SUPPORTED_KERNELS) {
+    const kernel = config.kernels.find(item => item.type === type);
+    const status: KernelRuntimeStatus = {
+      type,
+      detected: isKernelBinaryDetected(type),
+      monitored: Boolean(kernel),
+      accessible: false,
+      nodesCount: 0,
+      configPaths: [],
+    };
+
+    if (!kernel) {
+      kernels.push(status);
+      continue;
+    }
+
+    try {
+      status.configPaths = discoverKernelConfigFiles(kernel);
+      if (status.configPaths.length > 0) {
+        const urls = extractKernelNodeUrls(kernel, status.configPaths, host);
+        for (const url of urls) {
+          if (seenUrls.has(url)) continue;
+          seenUrls.add(url);
+          sources.push({ kernel: type, url });
+          status.nodesCount += 1;
+        }
+        status.accessible = true;
+      }
+    } catch (error) {
+      status.error = error instanceof Error ? error.message : String(error);
+    }
+
+    kernels.push(status);
+  }
+
+  return { sources, kernels };
 }
 
 export function handleUrls(req: IncomingRequest, config: AgentConfig): Response {
@@ -196,15 +274,11 @@ export function handleUrls(req: IncomingRequest, config: AgentConfig): Response 
     }
   }
 
-  const urls = extractNodeUrls(config, requestHost(req));
+  const data = collectKernelSources(config, requestHost(req));
   return new Response(
     JSON.stringify({
       success: true,
-      data: {
-        urls,
-        nodesCount: urls.length,
-        kernelAccessible: discoverKernelConfigFiles(config).length > 0,
-      },
+      data,
       timestamp: new Date().toISOString(),
     }),
     { status: 200, headers: { 'Content-Type': 'application/json' } },

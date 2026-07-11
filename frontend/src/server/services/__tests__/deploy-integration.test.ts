@@ -7,7 +7,7 @@ import type { NodeConfig } from '../../types';
 function makeNode(overrides: Partial<NodeConfig> = {}): NodeConfig {
   return {
     id: 'n1', name: 'Test', host: '10.0.0.1', port: 443, secret: 'sec',
-    kernel: 'sing-box', location: 'test', enabled: true, ...overrides,
+    kernels: [{ type: 'sing-box' }], location: 'test', enabled: true, ...overrides,
   };
 }
 
@@ -24,7 +24,8 @@ describe('Deploy Integration', () => {
       // deployToNode now uses real SSH, so with fake host it should return failure
       const result = await deployManager.deployToNode({
         nodeId: 'integration-1',
-        ssh: { host: '10.0.0.100', user: 'root', port: 22, keyPath: '/key', hostKey: '' },
+        secret: 'secret', kernels: [{ type: 'sing-box' }],
+        ssh: { host: '10.0.0.100', user: 'root', port: 22, authMethod: 'privateKey', privateKey: 'key', hostKey: '' },
         agentPort: 9400,
       });
 
@@ -37,11 +38,13 @@ describe('Deploy Integration', () => {
     it('should handle multiple deploy targets (all fail with fake hosts)', async () => {
       const r1 = await deployManager.deployToNode({
         nodeId: 'node-a',
-        ssh: { host: '10.0.0.1', user: 'root', port: 22, keyPath: '/k', hostKey: '' },
+        secret: 'secret', kernels: [{ type: 'sing-box' }],
+        ssh: { host: '10.0.0.1', user: 'root', port: 22, authMethod: 'privateKey', privateKey: 'key', hostKey: '' },
       });
       const r2 = await deployManager.deployToNode({
         nodeId: 'node-b',
-        ssh: { host: '10.0.0.2', user: 'admin', port: 2222, keyPath: '/k2', hostKey: '' },
+        secret: 'secret', kernels: [{ type: 'xray' }],
+        ssh: { host: '10.0.0.2', user: 'admin', port: 2222, authMethod: 'privateKey', privateKey: 'key', hostKey: '' },
       });
 
       // Both should fail with fake hosts but return proper DeployResult
@@ -69,7 +72,9 @@ describe('Deploy Integration', () => {
       manager.setDeployDelegate(async (node) => {
         return dm.deployToNode({
           nodeId: node.id,
-          ssh: node.ssh!,
+          secret: node.secret,
+          kernels: node.kernels,
+          ssh: { ...node.ssh!, host: node.host, privateKey: 'key' },
           agentPort: node.agent?.port,
         });
       });

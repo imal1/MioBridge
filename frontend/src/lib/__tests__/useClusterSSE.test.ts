@@ -33,9 +33,21 @@ describe('Phase C: useClusterSSE hook', () => {
     onlineNodes: 2,
     totalProxies: 35,
     nodes: [
-      { nodeId: 'local', name: '本地', kernel: 'sing-box', location: '本地', online: true, latency: 0, nodesCount: 23 },
-      { nodeId: 'node-sg', name: '新加坡', kernel: 'xray', location: '新加坡', online: true, latency: 45, nodesCount: 12 },
-      { nodeId: 'node-jp', name: '东京', kernel: 'sing-box', location: '东京', online: false, error: '连接超时' },
+      { nodeId: 'local', name: '本地', configuredKernels: [{ type: 'sing-box' }], kernels: [
+        { type: 'sing-box', detected: true, monitored: true, accessible: true, nodesCount: 23, configPaths: ['/etc/sing-box/config.json'] },
+        { type: 'xray', detected: false, monitored: false, accessible: false, nodesCount: 0, configPaths: [] },
+        { type: 'v2ray', detected: false, monitored: false, accessible: false, nodesCount: 0, configPaths: [] },
+      ], location: '本地', online: true, latency: 0, nodesCount: 23 },
+      { nodeId: 'node-sg', name: '新加坡', configuredKernels: [{ type: 'xray' }], kernels: [
+        { type: 'sing-box', detected: false, monitored: false, accessible: false, nodesCount: 0, configPaths: [] },
+        { type: 'xray', detected: true, monitored: true, accessible: true, nodesCount: 12, configPaths: ['/etc/xray/config.json'] },
+        { type: 'v2ray', detected: false, monitored: false, accessible: false, nodesCount: 0, configPaths: [] },
+      ], location: '新加坡', online: true, latency: 45, nodesCount: 12 },
+      { nodeId: 'node-jp', name: '东京', configuredKernels: [{ type: 'sing-box' }], kernels: [
+        { type: 'sing-box', detected: true, monitored: true, accessible: false, nodesCount: 0, configPaths: [], error: 'offline' },
+        { type: 'xray', detected: false, monitored: false, accessible: false, nodesCount: 0, configPaths: [] },
+        { type: 'v2ray', detected: false, monitored: false, accessible: false, nodesCount: 0, configPaths: [] },
+      ], location: '东京', online: false, error: '连接超时' },
     ],
     lastUpdated: new Date().toISOString(),
   };

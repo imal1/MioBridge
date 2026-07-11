@@ -1,6 +1,6 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { logger } from '@/server/utils/logger';
-import type { ApiResponse } from '@/server/types';
+import { KERNEL_TYPES, type ApiResponse, type KernelType } from '@/server/types';
 
 export default async function handler(
   req: NextApiRequest,
@@ -12,6 +12,12 @@ export default async function handler(
 
   try {
     const { nodeId, kernelType } = req.body || {};
+    if (!nodeId || !kernelType) {
+      return res.status(400).json({ success: false, error: '缺少 nodeId 或 kernelType', timestamp: new Date().toISOString() });
+    }
+    if (!KERNEL_TYPES.includes(kernelType as KernelType)) {
+      return res.status(400).json({ success: false, error: `不支持的内核类型: ${kernelType}`, timestamp: new Date().toISOString() });
+    }
     res.json({
       success: true,
       message: `节点 ${nodeId} 内核 ${kernelType} 卸载任务已提交`,

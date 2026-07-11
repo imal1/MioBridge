@@ -97,7 +97,7 @@ cat > "$AGENT_DIR/xray.json" <<'JSON'
 {
   "inbounds": [
     {
-      "tag": "e2e-vless",
+      "tag": "e2e-xray",
       "protocol": "vless",
       "port": 443,
       "settings": {
@@ -115,14 +115,38 @@ cat > "$AGENT_DIR/xray.json" <<'JSON'
 }
 JSON
 
+cat > "$AGENT_DIR/v2ray.json" <<'JSON'
+{
+  "inbounds": [
+    {
+      "tag": "e2e-v2ray",
+      "protocol": "vless",
+      "port": 8443,
+      "settings": {
+        "clients": [
+          { "id": "00000000-0000-4000-8000-000000000003", "flow": "" }
+        ]
+      },
+      "streamSettings": {
+        "network": "tcp",
+        "security": "tls",
+        "tlsSettings": { "serverName": "v2ray.example.com" }
+      }
+    }
+  ]
+}
+JSON
+
 cat > "$AGENT_DIR/agent.yaml" <<YAML
 node:
   id: "agent-e2e"
   name: "Agent E2E"
   secret: "$SECRET"
-kernel:
-  type: "xray"
-  configPath: "$AGENT_DIR/xray.json"
+kernels:
+  - type: "xray"
+    configPath: "$AGENT_DIR/xray.json"
+  - type: "v2ray"
+    configPath: "$AGENT_DIR/v2ray.json"
 mihomo:
   path: "$MAIN_DIR/bin/mihomo"
 port: $AGENT_PORT
@@ -135,7 +159,9 @@ nodes:
     host: "0.0.0.0"
     port: $AGENT_PORT
     secret: "$SECRET"
-    kernel: "xray"
+    kernels:
+      - type: "xray"
+      - type: "v2ray"
     location: "local-e2e"
     enabled: true
 YAML
@@ -197,17 +223,24 @@ async function json(pathname, init) {
   const health = await json('/health');
   assert.equal(health.status, 'healthy');
 
+  const agentUrlsResponse = await fetch(`http://127.0.0.1:${agentPort}/api/urls`);
+  assert.equal(agentUrlsResponse.status, 200);
+  const agentUrls = await agentUrlsResponse.json();
+  assert.deepEqual(agentUrls.data.sources.map(source => source.kernel), ['xray', 'v2ray']);
+  assert.equal(agentUrls.data.kernels.find(kernel => kernel.type === 'xray').nodesCount, 1);
+  assert.equal(agentUrls.data.kernels.find(kernel => kernel.type === 'v2ray').nodesCount, 1);
+
   const cluster = await json('/api/cluster/status');
   assert.equal(cluster.success, true);
   const remote = cluster.data.nodes.find(node => node.nodeId === 'agent-e2e');
   assert(remote, 'remote Agent is missing from cluster status');
   assert.equal(remote.online, true);
-  assert.equal(remote.nodesCount, 1);
+  assert.equal(remote.nodesCount, 2);
 
   const update = await json('/api/update');
   assert.equal(update.success, true, JSON.stringify(update));
   assert.equal(update.data.success, true, JSON.stringify(update));
-  assert.equal(update.data.nodesCount, 1, JSON.stringify(update));
+  assert.equal(update.data.nodesCount, 2, JSON.stringify(update));
   assert.equal(update.data.clashGenerated, true, JSON.stringify(update));
 
   const raw = await fetch(`${base}/raw.txt`).then(res => {
@@ -215,19 +248,23 @@ async function json(pathname, init) {
     return res.text();
   });
   assert(raw.includes('vless://00000000-0000-4000-8000-000000000001@0.0.0.0:443'), raw);
+  assert(raw.includes('vless://00000000-0000-4000-8000-000000000003@0.0.0.0:8443'), raw);
 
   const subscription = await fetch(`${base}/subscription.txt`).then(res => {
     assert.equal(res.status, 200);
     return res.text();
   });
-  assert(Buffer.from(subscription, 'base64').toString('utf8').includes('e2e-vless'), subscription);
+  const decodedSubscription = Buffer.from(subscription, 'base64').toString('utf8');
+  assert(decodedSubscription.includes('#e2e-xray'), decodedSubscription);
+  assert(decodedSubscription.includes('#e2e-v2ray'), decodedSubscription);
 
   const clash = await fetch(`${base}/clash.yaml`).then(res => {
     assert.equal(res.status, 200);
     return res.text();
   });
   assert(clash.includes('proxies:'), clash);
-  assert(clash.includes('e2e-vless'), clash);
+  assert(clash.includes('local-e2e e2e-xray'), clash);
+  assert(clash.includes('local-e2e e2e-v2ray'), clash);
 
   for (const file of ['raw.txt', 'subscription.txt', 'clash.yaml']) {
     assert(fs.existsSync(path.join(mainDir, 'www', file)), `${file} was not generated`);

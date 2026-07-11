@@ -17,6 +17,7 @@ server.
 - **Multi-protocol aggregation**: vless, vmess, trojan, hysteria2, tuic, shadowsocks
 - **Clash-compatible outputs**: `raw.txt`, `subscription.txt`, and `clash.yaml`
 - **Distributed nodes**: remote nodes expose source URLs through a lightweight Agent
+- **Multi-kernel Agents**: one child can monitor sing-box, Xray, and V2Ray together
 - **HMAC control plane**: the main node talks to Agents over signed HTTP requests
 - **SSR dashboard**: Next.js Pages Router UI using the Botanical Garden theme
 - **Scheduled refresh**: automatic subscription updates plus manual API/UI triggers
@@ -81,6 +82,36 @@ Build the remote Agent binary:
 cd agent
 bun build src/server.ts --compile --target=bun-linux-x64 --outfile miobridge-agent
 ```
+
+## Multi-kernel Agents
+
+When adding or editing a child node, MioBridge first detects sing-box, Xray,
+and V2Ray over SSH. The selection dialog shows the installed version and
+default configuration path for each kernel. Select at least one kernel;
+selected missing kernels are installed during deployment, while installed but
+unselected kernels remain visible as unmonitored.
+
+The Agent config uses an ordered `kernels` list, so one child can publish
+structured sources from several runtimes:
+
+```yaml
+kernels:
+  - type: xray
+    configPath: /usr/local/etc/xray/config.json
+  - type: v2ray
+    configPath: /etc/v2ray/config.json
+```
+
+Detection, monitoring, and health are separate states. Detection means an
+executable was found; monitoring means the kernel was selected in the Agent
+config; health means its configuration files were readable and its sources
+could be extracted. The dashboard reports these states, configuration paths,
+errors, and proxy counts independently for every supported kernel.
+
+During aggregation, raw URLs keep their original names. Names used for the
+Clash subscription are prefixed with the child node's `location`. If multiple
+sources still produce the same name, MioBridge appends the source URL in
+brackets so every generated proxy name remains unique.
 
 ## Public Endpoints
 

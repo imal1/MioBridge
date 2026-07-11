@@ -18,3 +18,10 @@ metadata:
   Vercel uses its native Next.js builder output.
 - The old server main-node flow, systemd restart, SSH upload, symlink switch,
   and scheduled SSH health check are no longer used for production.
+- Child deployment detects every supported kernel, lets operators choose the
+  monitored set, installs selected missing kernels, then deploys one Agent config.
+- New nodes persist as empty-kernel drafts; successful or partial deployments
+  atomically commit only monitored kernels. Deployment IDs prevent stale jobs
+  from overwriting newer node or progress state.
+- Remote Agent config and systemd unit replacement use checked same-directory
+  temporary files and atomic moves; sudo passwords travel through SSH stdin.

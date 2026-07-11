@@ -1,4 +1,55 @@
 import ky, { HTTPError } from 'ky';
+import type { KernelDetection } from '@/server/services/deployManager';
+import { KERNEL_TYPES, type KernelType, type NodeConfig, type NodeKernelConfig, type SshAuthMethod } from '@/server/types';
+
+export type DetectKernelsPayload =
+  | { nodeId: string }
+  | {
+      ssh: {
+        host: string;
+        user: string;
+        port?: number;
+        authMethod: SshAuthMethod;
+        hostKey?: string;
+        password?: string;
+        privateKey?: string;
+      };
+    };
+
+export const API_RETRY_METHODS = ['get'] as const;
+const KERNEL_DETECTION_FIELDS = new Set(['type', 'installed', 'version', 'defaultConfigPath', 'error']);
+
+export function validateKernelDetections(value: unknown): KernelDetection[] {
+  if (!Array.isArray(value) || value.length !== KERNEL_TYPES.length) {
+    throw new Error('内核检测响应无效');
+  }
+  const byType = new Map<KernelType, KernelDetection>();
+  for (const item of value) {
+    if (typeof item !== 'object' || item === null || Array.isArray(item)) throw new Error('内核检测响应无效');
+    const candidate = item as Record<string, unknown>;
+    const type = candidate.type;
+    if (Object.keys(candidate).some(key => !KERNEL_DETECTION_FIELDS.has(key)) ||
+        typeof type !== 'string' || !KERNEL_TYPES.includes(type as KernelType) || byType.has(type as KernelType) ||
+        typeof candidate.installed !== 'boolean' || typeof candidate.defaultConfigPath !== 'string' ||
+        !candidate.defaultConfigPath.startsWith('/') ||
+        (candidate.version !== undefined && typeof candidate.version !== 'string') ||
+        (candidate.error !== undefined && typeof candidate.error !== 'string')) {
+      throw new Error('内核检测响应无效');
+    }
+    byType.set(type as KernelType, {
+      type: type as KernelType,
+      installed: candidate.installed,
+      defaultConfigPath: candidate.defaultConfigPath,
+      ...(candidate.version !== undefined ? { version: candidate.version as string } : {}),
+      ...(candidate.error !== undefined ? { error: candidate.error as string } : {}),
+    });
+  }
+  return KERNEL_TYPES.map(type => {
+    const detection = byType.get(type);
+    if (!detection) throw new Error('内核检测响应无效');
+    return detection;
+  });
+}
 
 const API_BASE_URL =
   process.env.NODE_ENV === "production"
@@ -11,7 +62,7 @@ const apiClient = ky.create({
   timeout: 30000,
   retry: {
     limit: 3,
-    methods: ['get', 'post'],
+    methods: [...API_RETRY_METHODS],
     statusCodes: [408, 413, 429, 500, 502, 503, 504],
   },
   hooks: {
@@ -29,7 +80,6 @@ export interface ApiStatus {
   clashExists: boolean;
   rawExists: boolean;
   mihomoAvailable: boolean;
-  singBoxAccessible: boolean;
   subscriptionLastUpdated?: string;
   subscriptionSize?: number;
   clashLastUpdated?: string;
@@ -237,9 +287,9 @@ class ApiService {
   }
 
   // 部署节点
-  async deployNode(nodeId: string): Promise<ApiResponse> {
+  async deployNode(nodeId: string, kernels?: NodeKernelConfig[]): Promise<ApiResponse> {
     try {
-      return await apiClient.post('api/cluster/deploy', { json: { nodeId } }).json<ApiResponse>();
+      return await apiClient.post('api/cluster/deploy', { json: { nodeId, ...(kernels ? { kernels } : {}) } }).json<ApiResponse>();
     } catch (error) {
       return this.handleError(error);
     }
@@ -249,16 +299,34 @@ class ApiService {
   async addNode(data: {
     name: string;
     host: string;
-    kernel: string;
+    kernels: NodeKernelConfig[];
     location: string;
     sshUser: string;
-    sshAuthMethod: 'password' | 'privateKey';
+    sshAuthMethod: SshAuthMethod;
     sshPassword?: string;
     sshPrivateKey?: string;
     sshPrivateKeyName?: string;
-  }): Promise<ApiResponse> {
+  }): Promise<ApiResponse<NodeConfig>> {
     try {
       return await apiClient.post('api/cluster/nodes', { json: data }).json<ApiResponse>();
+    } catch (error) {
+      return this.handleError(error);
+    }
+  }
+
+  async detectKernels(payload: DetectKernelsPayload): Promise<KernelDetection[]> {
+    try {
+      const response = await apiClient.post('api/cluster/kernel/detect', { json: payload }).json<ApiResponse<KernelDetection[]>>();
+      if (!response.success || !response.data) throw new Error(response.error || '内核检测失败');
+      return validateKernelDetections(response.data);
+    } catch (error) {
+      return this.handleError(error);
+    }
+  }
+
+  async updateNodeKernels(nodeId: string, kernels: NodeKernelConfig[]): Promise<ApiResponse<NodeConfig>> {
+    try {
+      return await apiClient.put('api/cluster/nodes', { json: { nodeId, kernels } }).json<ApiResponse<NodeConfig>>();
     } catch (error) {
       return this.handleError(error);
     }

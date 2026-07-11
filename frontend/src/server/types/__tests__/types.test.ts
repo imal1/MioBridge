@@ -6,15 +6,17 @@ import { describe, it, expect } from 'vitest';
 // Import types to verify they exist and have correct shape
 import type {
   NodeConfig,
+  NodeKernelConfig,
   NodeStatus,
+  KernelRuntimeStatus,
   ClusterStatus,
   KernelAdapter,
   KernelType,
   NodesYaml,
   NodeSshConfig,
   NodeAgentInfo,
-  NodeKernelInfo,
 } from '../index';
+import { KERNEL_TYPES, validateKernelConfigs } from '../index';
 
 describe('Task 1: Type Definitions', () => {
   describe('NodeConfig', () => {
@@ -25,7 +27,7 @@ describe('Task 1: Type Definitions', () => {
         host: 'localhost',
         port: 3001,
         secret: '',
-        kernel: 'sing-box',
+        kernels: [{ type: 'sing-box' }],
         location: '东京',
         enabled: true,
       };
@@ -35,7 +37,7 @@ describe('Task 1: Type Definitions', () => {
       expect(node.host).toBe('localhost');
       expect(node.port).toBe(3001);
       expect(node.secret).toBe('');
-      expect(node.kernel).toBe('sing-box');
+      expect(node.kernels).toEqual([{ type: 'sing-box' }]);
       expect(node.location).toBe('东京');
       expect(node.enabled).toBe(true);
     });
@@ -43,20 +45,20 @@ describe('Task 1: Type Definitions', () => {
     it('should accept all kernel types', () => {
       const singBoxNode: NodeConfig = {
         id: 'n1', name: 's', host: 'h', port: 1, secret: '',
-        kernel: 'sing-box', location: 'l', enabled: true,
+        kernels: [{ type: 'sing-box' }], location: 'l', enabled: true,
       };
       const xrayNode: NodeConfig = {
         id: 'n2', name: 'x', host: 'h', port: 1, secret: '',
-        kernel: 'xray', location: 'l', enabled: true,
+        kernels: [{ type: 'xray', configPath: '/etc/xray/config.json' }], location: 'l', enabled: true,
       };
       const v2rayNode: NodeConfig = {
         id: 'n3', name: 'v', host: 'h', port: 1, secret: '',
-        kernel: 'v2ray', location: 'l', enabled: true,
+        kernels: [{ type: 'v2ray' }], location: 'l', enabled: true,
       };
 
-      expect(singBoxNode.kernel).toBe('sing-box');
-      expect(xrayNode.kernel).toBe('xray');
-      expect(v2rayNode.kernel).toBe('v2ray');
+      expect(singBoxNode.kernels[0].type).toBe('sing-box');
+      expect(xrayNode.kernels[0]).toEqual({ type: 'xray', configPath: '/etc/xray/config.json' });
+      expect(v2rayNode.kernels[0].type).toBe('v2ray');
     });
   });
 
@@ -65,7 +67,12 @@ describe('Task 1: Type Definitions', () => {
       const status: NodeStatus = {
         nodeId: 'node-a',
         name: '本地',
-        kernel: 'sing-box',
+        configuredKernels: [{ type: 'sing-box' }],
+        kernels: [
+          { type: 'sing-box', detected: true, monitored: true, accessible: true, nodesCount: 10, version: '1.11.0', configPaths: ['/etc/sing-box/config.json'] },
+          { type: 'xray', detected: false, monitored: false, accessible: false, nodesCount: 0, configPaths: [] },
+          { type: 'v2ray', detected: false, monitored: false, accessible: false, nodesCount: 0, configPaths: [] },
+        ],
         location: '东京',
         online: true,
         latency: 5,
@@ -73,7 +80,6 @@ describe('Task 1: Type Definitions', () => {
         subscriptionExists: true,
         clashExists: true,
         mihomoAvailable: true,
-        kernelAccessible: true,
         version: '0.2.0',
         uptime: 3600,
       };
@@ -82,6 +88,7 @@ describe('Task 1: Type Definitions', () => {
       expect(status.online).toBe(true);
       expect(status.latency).toBe(5);
       expect(status.nodesCount).toBe(10);
+      expect(status.configuredKernels).toEqual([{ type: 'sing-box' }]);
       expect(status.version).toBe('0.2.0');
     });
 
@@ -89,7 +96,8 @@ describe('Task 1: Type Definitions', () => {
       const status: NodeStatus = {
         nodeId: 'offline-node',
         name: '离线节点',
-        kernel: 'xray',
+        configuredKernels: [{ type: 'xray', configPath: '/custom/xray.json' }],
+        kernels: [],
         location: '新加坡',
         online: false,
         error: '连接超时',
@@ -105,9 +113,9 @@ describe('Task 1: Type Definitions', () => {
   describe('ClusterStatus', () => {
     it('should aggregate node statuses', () => {
       const nodeStatuses: NodeStatus[] = [
-        { nodeId: 'local', name: '本地', kernel: 'sing-box', location: '本地', online: true, nodesCount: 10 },
-        { nodeId: 'node-b', name: '新加坡', kernel: 'xray', location: '新加坡', online: true, nodesCount: 5 },
-        { nodeId: 'node-c', name: '洛杉矶', kernel: 'v2ray', location: '洛杉矶', online: false, error: '超时' },
+        { nodeId: 'local', name: '本地', configuredKernels: [{ type: 'sing-box' }], kernels: [], location: '本地', online: true, nodesCount: 10 },
+        { nodeId: 'node-b', name: '新加坡', configuredKernels: [{ type: 'xray' }], kernels: [], location: '新加坡', online: true, nodesCount: 5 },
+        { nodeId: 'node-c', name: '洛杉矶', configuredKernels: [{ type: 'v2ray' }], kernels: [], location: '洛杉矶', online: false, error: '超时' },
       ];
 
       const cluster: ClusterStatus = {
@@ -147,6 +155,42 @@ describe('Task 1: Type Definitions', () => {
       expect(types).toContain('sing-box');
       expect(types).toContain('xray');
       expect(types).toContain('v2ray');
+      expect(KERNEL_TYPES).toEqual(['sing-box', 'xray', 'v2ray']);
+    });
+  });
+
+  describe('multi-kernel shapes', () => {
+    it('defines node kernel config and Agent-compatible runtime status', () => {
+      const config: NodeKernelConfig = { type: 'xray', configPath: '/custom/xray.json' };
+      const status: KernelRuntimeStatus = {
+        type: 'xray', detected: true, monitored: true, accessible: true,
+        nodesCount: 3, version: '25.6.8', configPaths: ['/custom/xray.json'],
+      };
+      expect(config.configPath).toBe('/custom/xray.json');
+      expect(status.nodesCount).toBe(3);
+    });
+
+    it('rejects unknown kernel config keys', () => {
+      expect(() => validateKernelConfigs([{ type: 'xray', typo: true }]))
+        .toThrow('内核配置包含未知字段: typo');
+    });
+
+    it('accepts only single-line absolute POSIX kernel config paths', () => {
+      expect(validateKernelConfigs([{ type: 'xray', configPath: '/opt/xray-v1.2/config_@prod+test.json' }]))
+        .toEqual([{ type: 'xray', configPath: '/opt/xray-v1.2/config_@prod+test.json' }]);
+      for (const configPath of [
+        'relative/config.json',
+        '/etc/xray/config file.json',
+        '/etc/xray/config.yaml: unsafe',
+        '/etc/xray/config\nYAML_EOF\nmalicious',
+        '/etc/xray/config\r.json',
+        '/etc/xray/config\t.json',
+        '/etc/xray/$(touch-pwned).json',
+        '/etc/xray/`touch-pwned`.json',
+      ]) {
+        expect(() => validateKernelConfigs([{ type: 'xray', configPath }]))
+          .toThrow('内核配置路径无效: xray');
+      }
     });
   });
 
@@ -154,8 +198,8 @@ describe('Task 1: Type Definitions', () => {
     it('should wrap an array of NodeConfig', () => {
       const yaml: NodesYaml = {
         nodes: [
-          { id: 'n1', name: 'N1', host: 'h1', port: 443, secret: 'abc', kernel: 'sing-box', location: 'jp', enabled: true },
-          { id: 'n2', name: 'N2', host: 'h2', port: 443, secret: 'def', kernel: 'xray', location: 'sg', enabled: false },
+          { id: 'n1', name: 'N1', host: 'h1', port: 443, secret: 'abc', kernels: [{ type: 'sing-box' }], location: 'jp', enabled: true },
+          { id: 'n2', name: 'N2', host: 'h2', port: 443, secret: 'def', kernels: [{ type: 'xray' }], location: 'sg', enabled: false },
         ],
       };
 
@@ -189,22 +233,12 @@ describe('v1.0 Agent types', () => {
     expect(agent.status).toBe('running');
   });
 
-  it('NodeKernelInfo should have installed, version, installScript', () => {
-    const kernel: NodeKernelInfo = {
-      installed: true,
-      version: '25.3.6',
-      installScript: 'sing-box',
-    };
-    expect(kernel.installed).toBe(true);
-  });
-
-  it('NodeConfig should accept optional ssh, agent, kernelInfo', () => {
+  it('NodeConfig should accept optional ssh and agent', () => {
     const cfg: NodeConfig = {
       id: 'test', name: 'Test', host: 'example.com', port: 443,
-      secret: '', kernel: 'sing-box', location: 'test', enabled: true,
+      secret: '', kernels: [{ type: 'sing-box' }], location: 'test', enabled: true,
       ssh: { user: 'root', port: 22, authMethod: 'password', hostKey: '', password: 'test-password' },
       agent: { deployed: false, version: '', status: 'not_deployed', lastDeploy: '' },
-      kernelInfo: { installed: false, version: '', installScript: '' },
     };
     expect(cfg.ssh?.user).toBe('root');
     expect(cfg.agent?.status).toBe('not_deployed');

@@ -1,18 +1,25 @@
 import * as fs from 'fs-extra';
 import * as path from 'path';
-import { StatusInfo, UpdateResult } from '../types';
+import { Config, StatusInfo, UpdateResult } from '../types';
 import { config } from '../config';
 import { logger } from '../utils/logger';
 import { SingBoxService } from './singBoxService';
 import { MihomoService } from './mihomoService';
 import { YamlService } from './yamlService';
 import { VERSION, GIT_COMMIT, BUILD_TIME } from '../version';
+import {
+    buildClashSubscriptionResult,
+    dedupeProxySources,
+    type CollectedProxySource,
+} from './proxySources';
 
 export class MioBridgeService {
     private static instance: MioBridgeService;
-    private singBoxService: SingBoxService;
-    private mihomoService: MihomoService;
+    private singBoxService: Pick<SingBoxService, 'checkSingBoxAvailable' | 'getAllConfigUrls'>;
+    private mihomoService: Pick<MihomoService, 'checkHealth' | 'convertToClashByContent' | 'getVersion'>;
     private yamlService: YamlService;
+    private updateConfig?: Pick<Config, 'staticDir' | 'logDir' | 'backupDir' | 'clashFilename'>;
+    private collectRemoteSources?: () => Promise<{ sources: CollectedProxySource[]; errors: string[] }>;
     
     public static getInstance(): MioBridgeService {
         if (!MioBridgeService.instance) {
@@ -21,19 +28,27 @@ export class MioBridgeService {
         return MioBridgeService.instance;
     }
 
-    constructor() {
-        this.singBoxService = SingBoxService.getInstance();
-        this.mihomoService = MihomoService.getInstance();
+    constructor(overrides: {
+        singBoxService?: Pick<SingBoxService, 'checkSingBoxAvailable' | 'getAllConfigUrls'>;
+        mihomoService?: Pick<MihomoService, 'checkHealth' | 'convertToClashByContent' | 'getVersion'>;
+        updateConfig?: Pick<Config, 'staticDir' | 'logDir' | 'backupDir' | 'clashFilename'>;
+        collectRemoteSources?: () => Promise<{ sources: CollectedProxySource[]; errors: string[] }>;
+    } = {}) {
+        this.singBoxService = overrides.singBoxService ?? SingBoxService.getInstance();
+        this.mihomoService = overrides.mihomoService ?? MihomoService.getInstance();
         this.yamlService = YamlService.getInstance();
+        this.updateConfig = overrides.updateConfig;
+        this.collectRemoteSources = overrides.collectRemoteSources;
     }
 
     /**
      * 确保所有必要目录存在
      */
     async ensureDirectories(): Promise<void> {
-        await fs.ensureDir(config.staticDir);
-        await fs.ensureDir(config.logDir);
-        await fs.ensureDir(config.backupDir);
+        const runtimeConfig = this.updateConfig ?? config;
+        await fs.ensureDir(runtimeConfig.staticDir);
+        await fs.ensureDir(runtimeConfig.logDir);
+        await fs.ensureDir(runtimeConfig.backupDir);
         logger.info('目录检查完成');
     }
 
@@ -43,41 +58,48 @@ export class MioBridgeService {
     async updateSubscription(): Promise<UpdateResult> {
         try {
             logger.info('开始更新订阅...');
+            const runtimeConfig = this.updateConfig ?? config;
 
-            const mihomoAvailable = await this.mihomoService.checkHealth();
-            if (!mihomoAvailable) {
-                throw new Error('Mihomo服务未运行或不可访问');
-            }
-
-            const sourceUrls: string[] = [];
+            const collectedSources: CollectedProxySource[] = [];
             const errors: string[] = [];
 
-            const singBoxAvailable = await this.singBoxService.checkSingBoxAvailable();
-            if (singBoxAvailable) {
-                const localResult = await this.singBoxService.getAllConfigUrls();
-                sourceUrls.push(...localResult.urls);
-                errors.push(...localResult.errors.map(error => `本机: ${error}`));
-            } else {
-                errors.push('本机: Sing-box不可用，跳过本机节点源');
+            try {
+                const singBoxAvailable = await this.singBoxService.checkSingBoxAvailable();
+                if (singBoxAvailable) {
+                    const localResult = await this.singBoxService.getAllConfigUrls();
+                    collectedSources.push(...localResult.urls.map(url => ({
+                        url,
+                        kernel: 'sing-box' as const,
+                        nodeId: 'local',
+                        location: '本机',
+                    })));
+                    errors.push(...localResult.errors.map(error => `本机: ${error}`));
+                } else {
+                    errors.push('本机: Sing-box不可用，跳过本机节点源');
+                }
+            } catch (error) {
+                errors.push(`本机来源收集失败: ${error instanceof Error ? error.message : String(error)}`);
             }
 
-            const { NodeManager } = await import('./nodeManager');
-            const remoteResult = await NodeManager.getInstance().collectRemoteNodeUrls();
-            sourceUrls.push(...remoteResult.urls);
-            errors.push(...remoteResult.errors.map(error => `远端: ${error}`));
-
-            // 确保目录存在
-            await this.ensureDirectories();
+            try {
+                const remoteResult = this.collectRemoteSources
+                    ? await this.collectRemoteSources()
+                    : await (await import('./nodeManager')).NodeManager.getInstance().collectRemoteNodeSources();
+                collectedSources.push(...remoteResult.sources);
+                errors.push(...remoteResult.errors.map(error => `远端: ${error}`));
+            } catch (error) {
+                errors.push(`远端来源收集失败: ${error instanceof Error ? error.message : String(error)}`);
+            }
 
             // 从原始URLs中提取纯净的代理URL
             const validProxyProtocols = ['vless://', 'vmess://', 'ss://', 'ssr://', 'trojan://', 'hysteria2://', 'tuic://', 'wireguard://'];
-            const extractedUrls: string[] = [];
+            const extractedSources: CollectedProxySource[] = [];
             const protocolStats: { [key: string]: number } = {};
             
-            for (const rawUrl of sourceUrls) {
+            for (const source of collectedSources) {
                 // 移除ANSI颜色代码 - 使用字符代码27 (ESC)
                 const ansiRegex = new RegExp(String.fromCharCode(27) + '\\[[0-9;]*m', 'g');
-                const cleanUrl = rawUrl.replace(ansiRegex, '');
+                const cleanUrl = source.url.replace(ansiRegex, '');
                 
                 // 将内容按行分割
                 const lines = cleanUrl.split('\n');
@@ -92,52 +114,65 @@ export class MioBridgeService {
                     const matchedProtocol = validProxyProtocols.find(protocol => trimmedLine.startsWith(protocol));
                     
                     if (matchedProtocol) {
-                        // 进一步验证URL格式
-                        if (trimmedLine.includes('@') && trimmedLine.includes(':') && trimmedLine.length > 20) {
-                            extractedUrls.push(trimmedLine);
+                        const isVmess = matchedProtocol === 'vmess://';
+                        // URL 协议通常包含 authority；VMess 则是 Base64 JSON。
+                        if ((isVmess || (trimmedLine.includes('@') && trimmedLine.includes(':'))) && trimmedLine.length > 20) {
+                            extractedSources.push({ ...source, url: trimmedLine });
                             
                             // 统计协议类型
                             const protocolName = matchedProtocol.replace('://', '');
                             protocolStats[protocolName] = (protocolStats[protocolName] || 0) + 1;
                             
-                            logger.info(`提取到有效代理URL [${protocolName}]: ${trimmedLine.substring(0, 50)}...`);
+                            logger.info(
+                                `提取到有效代理URL [${protocolName}]，来源 ${source.nodeId}/${source.kernel}`,
+                            );
                         }
                     }
                 }
             }
             
-            const dedupedUrls = Array.from(new Set(extractedUrls));
-            logger.info(`URL提取结果: 从${sourceUrls.length}个原始条目中提取出${dedupedUrls.length}个有效代理URL`);
+            const dedupedSources = dedupeProxySources(extractedSources);
+            logger.info(`URL提取结果: 从${collectedSources.length}个原始条目中提取出${dedupedSources.length}个有效代理URL`);
             logger.info(`协议分布统计: ${JSON.stringify(protocolStats, null, 2)}`);
             
-            if (dedupedUrls.length === 0) {
+            if (dedupedSources.length === 0) {
                 throw new Error(`没有找到有效的代理URL。来源错误: ${errors.join('; ') || '无可用节点源'}`);
             }
 
-            // 打印前几个URL用于调试
-            logger.info(`前3个有效代理URL: ${dedupedUrls.slice(0, 3).join(', ')}`);
+            // 仅在确认有新内容后创建目录和写入，避免全来源失败时替换旧产物。
+            await this.ensureDirectories();
 
-            // 创建订阅内容 - 只包含纯净的代理URL
-            const subscriptionContent = dedupedUrls.join('\n');
-            const encodedContent = Buffer.from(subscriptionContent).toString('base64');
+            // 原始订阅保持来源 URL 不变；坏的 Clash 命名来源仍保留在 raw/Base64 产物中。
+            const rawContent = dedupedSources.map(source => source.url).join('\n');
+            const encodedContent = Buffer.from(rawContent).toString('base64');
 
             // 保存文件
-            const subscriptionFile = path.join(config.staticDir, 'subscription.txt');
-            const rawFile = path.join(config.staticDir, 'raw.txt');
+            const subscriptionFile = path.join(runtimeConfig.staticDir, 'subscription.txt');
+            const rawFile = path.join(runtimeConfig.staticDir, 'raw.txt');
 
             await fs.writeFile(subscriptionFile, encodedContent, 'utf8');
-            await fs.writeFile(rawFile, subscriptionContent, 'utf8');
+            await fs.writeFile(rawFile, rawContent, 'utf8');
 
             logger.info(`订阅文件已保存: ${subscriptionFile}`);
+
+            const clashSubscription = buildClashSubscriptionResult(dedupedSources);
+            errors.push(...clashSubscription.errors);
 
             // 生成Clash配置 - 通过 mihomoService 生成 YAML
             let clashGenerated = false;
             let clashError: string | null = null;
             try {
-                logger.info(`开始生成Clash配置，使用订阅内容直接转换，内容长度: ${subscriptionContent.length} 字符`);
+                const mihomoAvailable = await this.mihomoService.checkHealth();
+                if (!mihomoAvailable) {
+                    throw new Error('Mihomo服务未运行或不可访问');
+                }
+                if (!clashSubscription.content) {
+                    throw new Error('没有可用于生成 Clash 配置的代理来源');
+                }
+                logger.info(`开始生成Clash配置，使用订阅内容直接转换，内容长度: ${clashSubscription.content.length} 字符`);
                 
                 // 使用 mihomoService 将订阅内容转换为 Clash 配置
-                const clashContent = await this.mihomoService.convertToClashByContent(subscriptionContent);
+                const clashContent = await this.mihomoService.convertToClashByContent(clashSubscription.content);
                 
                 // 验证转换结果
                 if (!clashContent || !clashContent.includes('proxies:')) {
@@ -149,7 +184,7 @@ export class MioBridgeService {
                 logger.info(`使用 mihomo 转换成功，生成 ${proxyCount} 个代理节点`);
                 
                 // 保存 Clash 配置文件
-                const clashFile = path.join(config.staticDir, config.clashFilename);
+                const clashFile = path.join(runtimeConfig.staticDir, runtimeConfig.clashFilename);
                 await fs.writeFile(clashFile, clashContent, 'utf8');
                 
                 // 验证文件是否成功写入
@@ -170,23 +205,23 @@ export class MioBridgeService {
 
             // 创建备份
             const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
-            const backupFile = path.join(config.backupDir, `subscription_${timestamp}.txt`);
+            const backupFile = path.join(runtimeConfig.backupDir, `subscription_${timestamp}.txt`);
             await fs.copy(subscriptionFile, backupFile);
 
             logger.info(`备份已创建: ${backupFile}`);
 
             const result: UpdateResult = {
                 success: true,
-                message: `订阅更新成功，共 ${dedupedUrls.length} 个节点${clashGenerated ? '' : ' (Clash生成失败)'}`,
+                message: `订阅更新成功，共 ${dedupedSources.length} 个节点${clashGenerated ? '' : ' (Clash生成失败)'}`,
                 timestamp: new Date().toISOString(),
-                nodesCount: dedupedUrls.length,
+                nodesCount: dedupedSources.length,
                 clashGenerated,
                 backupCreated: backupFile,
                 warnings: errors.length > 0 ? errors : undefined,
                 errors: clashError ? [`Clash生成失败: ${clashError}`] : undefined
             };
 
-            logger.info(`订阅更新完成: ${dedupedUrls.length} 个节点, Clash生成: ${clashGenerated}`);
+            logger.info(`订阅更新完成: ${dedupedSources.length} 个节点, Clash生成: ${clashGenerated}`);
             return result;
 
         } catch (error: any) {
@@ -208,7 +243,6 @@ export class MioBridgeService {
             clashExists: await fs.pathExists(clashFile),
             rawExists: await fs.pathExists(rawFile),
             mihomoAvailable: await this.mihomoService.checkHealth(),
-            singBoxAccessible: await this.singBoxService.checkSingBoxAvailable(),
             uptime: process.uptime(),
             version: VERSION,
             gitCommit: GIT_COMMIT,

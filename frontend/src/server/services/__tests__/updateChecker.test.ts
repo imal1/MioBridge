@@ -9,7 +9,7 @@ function makeNode(overrides: Partial<NodeConfig> = {}): NodeConfig {
     host: '10.0.0.1',
     port: 443,
     secret: 'sec',
-    kernel: 'sing-box',
+    kernels: [{ type: 'sing-box' }],
     location: 'test',
     enabled: true,
     ...overrides,

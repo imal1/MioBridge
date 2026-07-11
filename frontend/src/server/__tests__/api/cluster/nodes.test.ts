@@ -1,15 +1,15 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { utils as sshUtils } from 'ssh2';
 
-const { writeNodeWithPrivateKey } = vi.hoisted(() => ({
-  writeNodeWithPrivateKey: vi.fn(async (node) => ({ ...node, id: 'node-test' })),
-}));
+const writeNodeWithPrivateKey = vi.fn(async (node) => ({ ...node, id: 'node-test' }));
+const loadNodes = vi.fn();
+const updateNodeKernels = vi.fn();
 
 vi.mock('@/server/services/nodeManager', () => ({
-  NodeManager: { getInstance: () => ({ writeNodeWithPrivateKey }) },
+  NodeManager: { getInstance: () => ({ writeNodeWithPrivateKey, loadNodes, updateNodeKernels }) },
 }));
 
-import handler from '@/pages/api/cluster/nodes';
+let handler: typeof import('@/pages/api/cluster/nodes').default;
 
 function mockRes() {
   return {
@@ -21,9 +21,13 @@ function mockRes() {
 }
 
 const baseBody = {
-  name: 'Test node', host: 'node.example.com', kernel: 'sing-box',
+  name: 'Test node', host: 'node.example.com', kernels: [{ type: 'sing-box' }],
   location: 'test', sshUser: 'root',
 };
+
+beforeAll(async () => {
+  handler = (await import('@/pages/api/cluster/nodes')).default;
+});
 
 describe('POST /api/cluster/nodes SSH credentials', () => {
   beforeEach(() => writeNodeWithPrivateKey.mockClear());
@@ -108,5 +112,90 @@ describe('POST /api/cluster/nodes SSH credentials', () => {
     expect(writeNodeWithPrivateKey.mock.calls[0][0].ssh).not.toHaveProperty('password');
     expect(JSON.stringify(writeNodeWithPrivateKey.mock.calls[0][0])).not.toContain(privateKey);
     expect(JSON.stringify(res._json)).not.toContain(privateKey);
+  });
+});
+
+describe('POST /api/cluster/nodes kernels', () => {
+  beforeEach(() => writeNodeWithPrivateKey.mockClear());
+
+  it.each([
+    ['absent', undefined, '至少选择一个内核'],
+    ['empty', [], '至少选择一个内核'],
+    ['duplicate', [{ type: 'xray' }, { type: 'xray' }], '内核类型重复: xray'],
+    ['unsupported', [{ type: 'clash' }], '不支持的内核类型: clash'],
+  ])('rejects %s kernels', async (_name, kernels, message) => {
+    const body = { ...baseBody, sshAuthMethod: 'password', sshPassword: 'login-password' } as any;
+    if (kernels === undefined) delete body.kernels;
+    else body.kernels = kernels;
+    const res = mockRes();
+
+    await handler({ method: 'POST', body } as any, res as any);
+
+    expect(res._status).toBe(400);
+    expect(res._json.error).toBe(message);
+    expect(writeNodeWithPrivateKey).not.toHaveBeenCalled();
+  });
+
+  it('normalizes valid kernels before creating the node', async () => {
+    const res = mockRes();
+    await handler({ method: 'POST', body: {
+      ...baseBody,
+      kernels: [{ type: 'v2ray' }, { type: 'sing-box' }, { type: 'xray', configPath: '/custom/xray.json' }],
+      sshAuthMethod: 'password', sshPassword: 'login-password',
+    } } as any, res as any);
+
+    expect(res._status).toBe(201);
+    expect(writeNodeWithPrivateKey.mock.calls[0][0].kernels).toEqual([]);
+  });
+
+  it('rejects unknown kernel config keys', async () => {
+    const res = mockRes();
+    await handler({ method: 'POST', body: {
+      ...baseBody, kernels: [{ type: 'xray', typo: true }],
+      sshAuthMethod: 'password', sshPassword: 'login-password',
+    } } as any, res as any);
+
+    expect(res._status).toBe(400);
+    expect(res._json.error).toBe('内核配置包含未知字段: typo');
+    expect(writeNodeWithPrivateKey).not.toHaveBeenCalled();
+  });
+
+  it('rejects a dangerous kernel config path without writing the node', async () => {
+    const res = mockRes();
+    await handler({ method: 'POST', body: {
+      ...baseBody,
+      kernels: [{ type: 'xray', configPath: '/etc/xray/config.json\nYAML_EOF\ntouch /tmp/pwned' }],
+      sshAuthMethod: 'password', sshPassword: 'login-password',
+    } } as any, res as any);
+
+    expect(res._status).toBe(400);
+    expect(res._json.error).toBe('内核配置路径无效: xray');
+    expect(writeNodeWithPrivateKey).not.toHaveBeenCalled();
+  });
+});
+
+describe('PUT /api/cluster/nodes kernels', () => {
+  const savedNode = {
+    id: 'node-edit', name: 'Edited node', host: 'edit.example.com', location: 'JP', enabled: true,
+    secret: 'secret',
+    kernels: [
+      { type: 'sing-box', configPath: '/custom/sing-box.json' },
+      { type: 'xray', configPath: '/custom/xray.json' },
+    ],
+    ssh: { user: 'root', authMethod: 'password', hostKey: '', password: 'sensitive' },
+  };
+
+  beforeEach(() => {
+    loadNodes.mockReset();
+    updateNodeKernels.mockReset();
+    loadNodes.mockResolvedValue([savedNode]);
+    updateNodeKernels.mockImplementation(async (_nodeId, kernels) => ({ ...savedNode, kernels }));
+  });
+
+  it('rejects direct kernel writes so deployment remains the only commit path', async () => {
+    const res = mockRes();
+    await handler({ method: 'PUT', body: { nodeId: 'node-edit', kernels: [{ type: 'xray' }] } } as any, res as any);
+    expect(res._status).toBe(405);
+    expect(updateNodeKernels).not.toHaveBeenCalled();
   });
 });
