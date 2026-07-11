@@ -7,6 +7,11 @@ metadata:
 
 # Bug Fixes
 
+- 2026-07-11: Agent deploy no longer requires the ~100MB compiled binary in the
+  control plane bundle. When `agent/miobridge-agent` is missing locally (Vercel),
+  the target host downloads the repo tarball pinned to the control plane's
+  commit and compiles the agent with its own Bun (`buildAgentOnRemote` in
+  deployManager). Self-hosted control planes with the binary still SFTP-upload.
 - 2026-07-04: Vercel control plane is no longer counted as a cluster node;
   mihomo is a required binary for Clash generation and validation, with no
   built-in conversion fallback.

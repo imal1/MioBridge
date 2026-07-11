@@ -323,9 +323,57 @@ export class DeployManager {
     ].some(marker => stdout.includes(marker));
   }
 
-  private uploadAgent(
+  private async uploadAgent(
     ssh: Client,
     target: DeployTarget,
+    emit: (s: DeployStep) => void,
+  ): Promise<void> {
+    const tmpAgentPath = `/tmp/miobridge-agent-${target.nodeId}`;
+
+    await this.execRoot(ssh, target, `mkdir -p ${AGENT_CONFIG_DIR} /usr/local/bin 2>&1`);
+
+    if (fs.existsSync(AGENT_LOCAL_BINARY)) {
+      // 控制面本地有编译好的二进制（自托管模式）：直接 SFTP 上传。
+      await this.sftpUploadAgent(ssh, tmpAgentPath, emit);
+    } else {
+      // Serverless 控制面（如 Vercel）不打包 ~100MB 的 agent 二进制：
+      // 目标机拉取与控制面同 commit 的源码，用部署流程已装好的 Bun 本地编译
+      // （agent 只依赖内建模块，无需 bun install，且天然匹配目标机架构）。
+      await this.buildAgentOnRemote(ssh, tmpAgentPath, emit);
+    }
+
+    const install = await this.execRoot(
+      ssh,
+      target,
+      `install -m 755 ${tmpAgentPath} ${AGENT_REMOTE_PATH} && rm -f ${tmpAgentPath}`,
+    );
+    if (install.code !== 0) {
+      const message = `Agent 安装失败: ${(install.stderr || install.stdout).trim()}`;
+      emit({ step: 'agent', status: 'error', message, progress: 75 });
+      throw new Error(message);
+    }
+
+    // Write agent.yaml
+    const agentYaml = this.generateAgentYaml(
+      target.nodeId,
+      target.nodeId,
+      target.secret,
+      target.kernel || 'sing-box',
+      target.agentPort || 3001,
+    );
+    await this.execRoot(ssh, target, `cat > ${AGENT_CONFIG_PATH} << 'YAML_EOF'\n${agentYaml}YAML_EOF\n`);
+
+    // Write systemd unit
+    const systemdUnit = this.generateSystemdUnit(target.secret);
+    await this.execRoot(ssh, target, `cat > /etc/systemd/system/miobridge-agent.service << 'UNIT_EOF'\n${systemdUnit}UNIT_EOF\n`);
+
+    logger.info('DeployManager: agent.yaml 和 systemd unit 已写入');
+  }
+
+  /** SFTP 上传本地二进制到 /tmp（非 root 用户无法直接写 /usr/local/bin） */
+  private sftpUploadAgent(
+    ssh: Client,
+    remotePath: string,
     emit: (s: DeployStep) => void,
   ): Promise<void> {
     return new Promise((resolve, reject) => {
@@ -335,49 +383,64 @@ export class DeployManager {
           return reject(err);
         }
 
-        const tmpAgentPath = `/tmp/miobridge-agent-${target.nodeId}`;
-
-        this.execRoot(ssh, target, `mkdir -p ${AGENT_CONFIG_DIR} /usr/local/bin 2>&1`).then(() => {
-          // Upload agent binary to /tmp first; non-root users may not write to /usr/local/bin via SFTP.
-          sftp.fastPut(
-            AGENT_LOCAL_BINARY,
-            tmpAgentPath,
-            { mode: 0o755 },
-            (putErr: Error | undefined) => {
-              if (putErr) {
-                emit({ step: 'agent', status: 'error', message: `上传失败: ${putErr.message}`, progress: 70 });
-                return reject(putErr);
-              }
-
-              logger.info('DeployManager: Agent 二进制上传完成');
-
-              const installAgentCmd = `install -m 755 ${tmpAgentPath} ${AGENT_REMOTE_PATH} && rm -f ${tmpAgentPath}`;
-
-              // Write agent.yaml
-              const agentYaml = this.generateAgentYaml(
-                target.nodeId,
-                target.nodeId,
-                target.secret,
-                target.kernel || 'sing-box',
-                target.agentPort || 3001,
-              );
-
-              const writeYamlCmd = `cat > ${AGENT_CONFIG_PATH} << 'YAML_EOF'\n${agentYaml}YAML_EOF\n`;
-              this.execRoot(ssh, target, installAgentCmd).then(() => this.execRoot(ssh, target, writeYamlCmd)).then(() => {
-                // Write systemd unit
-                const systemdUnit = this.generateSystemdUnit(target.secret);
-                const writeUnitCmd = `cat > /etc/systemd/system/miobridge-agent.service << 'UNIT_EOF'\n${systemdUnit}UNIT_EOF\n`;
-
-                this.execRoot(ssh, target, writeUnitCmd).then(() => {
-                  logger.info('DeployManager: agent.yaml 和 systemd unit 已写入');
-                  resolve();
-                }).catch(reject);
-              }).catch(reject);
-            },
-          );
-        }).catch(reject);
+        sftp.fastPut(AGENT_LOCAL_BINARY, remotePath, { mode: 0o755 }, (putErr: Error | undefined) => {
+          if (putErr) {
+            emit({ step: 'agent', status: 'error', message: `上传失败: ${putErr.message}`, progress: 70 });
+            return reject(putErr);
+          }
+          logger.info('DeployManager: Agent 二进制上传完成');
+          resolve();
+        });
       });
     });
+  }
+
+  /** 在目标机上拉取源码并用 Bun 编译 agent 二进制 */
+  private async buildAgentOnRemote(
+    ssh: Client,
+    outputPath: string,
+    emit: (s: DeployStep) => void,
+  ): Promise<void> {
+    const tarballUrl = this.agentSourceTarballUrl();
+    emit({ step: 'agent', status: 'running', message: '目标机正在下载源码并编译 Agent...', progress: 65 });
+    logger.info(`DeployManager: 控制面无本地 Agent 二进制，目标机从 ${tarballUrl} 构建`);
+
+    const script = [
+      'set -e',
+      'export PATH="$HOME/.bun/bin:$PATH"',
+      'command -v bun >/dev/null 2>&1 || { echo "bun 不在 PATH 中" >&2; exit 1; }',
+      'workdir=$(mktemp -d /tmp/miobridge-agent-build.XXXXXX)',
+      `trap 'rm -rf "$workdir"' EXIT`,
+      `curl -fsSL ${this.shellQuote(tarballUrl)} -o "$workdir/src.tar.gz"`,
+      'tar -xzf "$workdir/src.tar.gz" -C "$workdir" --strip-components=1',
+      `cd "$workdir/agent" && bun build src/server.ts --compile --outfile ${this.shellQuote(outputPath)}`,
+    ].join('\n');
+
+    const result = await this.execSsh(ssh, `bash -c ${this.shellQuote(script)}`);
+    if (result.code !== 0) {
+      const detail = (result.stderr || result.stdout).trim().slice(-500);
+      const message = `Agent 远程构建失败: ${detail}`;
+      emit({ step: 'agent', status: 'error', message, progress: 70 });
+      throw new Error(message);
+    }
+
+    logger.info('DeployManager: Agent 已在目标机编译完成');
+  }
+
+  /** 与控制面同 commit 的源码 tarball 地址（可用 MIOBRIDGE_AGENT_SOURCE_TARBALL 覆盖） */
+  private agentSourceTarballUrl(): string {
+    if (process.env.MIOBRIDGE_AGENT_SOURCE_TARBALL) {
+      return process.env.MIOBRIDGE_AGENT_SOURCE_TARBALL;
+    }
+
+    const owner = process.env.VERCEL_GIT_REPO_OWNER || 'imal1';
+    const repo = process.env.VERCEL_GIT_REPO_SLUG || 'MioBridge';
+    const buildCommit = process.env.NEXT_PUBLIC_GIT_COMMIT;
+    const ref = process.env.VERCEL_GIT_COMMIT_SHA
+      || (buildCommit && buildCommit !== 'unknown' ? buildCommit : '')
+      || 'main';
+
+    return `https://codeload.github.com/${owner}/${repo}/tar.gz/${ref}`;
   }
 
   private async startAgent(ssh: Client, target: DeployTarget, emit: (s: DeployStep) => void): Promise<void> {
