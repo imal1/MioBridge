@@ -137,7 +137,26 @@ export class DeployManager {
 
   // ==================== SSH Helpers ====================
 
-  private connectSsh(target: DeployTarget): Promise<Client> {
+  private async connectSsh(target: DeployTarget): Promise<Client> {
+    // Vercel 出口到部分机房偶发首包丢失导致握手超时，重试一次即可恢复
+    const maxAttempts = 2;
+    let lastError: Error = new Error('SSH 连接失败');
+
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      try {
+        return await this.connectSshOnce(target);
+      } catch (error: any) {
+        lastError = error;
+        const isHandshakeTimeout = String(error.message).includes('Timed out while waiting for handshake');
+        if (!isHandshakeTimeout || attempt === maxAttempts) throw error;
+        logger.warn(`DeployManager: SSH 握手超时，重试 (${attempt}/${maxAttempts - 1})...`);
+      }
+    }
+
+    throw lastError;
+  }
+
+  private connectSshOnce(target: DeployTarget): Promise<Client> {
     return new Promise((resolve, reject) => {
       const conn = new Client();
 
