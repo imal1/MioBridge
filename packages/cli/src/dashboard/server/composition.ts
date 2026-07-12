@@ -1,6 +1,8 @@
 import type { MioBridgeCore } from '@miobridge/core';
 import { DashboardRouteRegistry, type DashboardRouteRegistrar } from './http.js';
 
+export type { DashboardRouteRegistrar } from './http.js';
+
 /** Public core surface available to dashboard HTTP routes. */
 export type DashboardCorePort = Pick<
   MioBridgeCore,
@@ -50,9 +52,9 @@ export interface DashboardConfigPort {
 }
 
 export interface LogFilters {
-  readonly file?: string;
-  readonly level?: string;
-  readonly query?: string;
+  readonly file?: string | undefined;
+  readonly level?: string | undefined;
+  readonly query?: string | undefined;
 }
 
 // ── YAML ────────────────────────────────────────────────────────────
