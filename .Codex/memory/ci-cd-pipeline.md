@@ -39,3 +39,13 @@ bun run build
 The build gate also checks the traced core package and static assets, rejects
 Node/core markers in client chunks, starts the standalone server, and requests
 all four public compatibility URLs.
+
+## 2026-07-12 — Linux CLI release and user-systemd gates
+
+`ci.yml` now type-checks/tests `packages/cli`, cross-compiles and inspects
+checksum-covered Linux x64/arm64 archives, and packages the dashboard provider.
+`cli-systemd-e2e.yml` runs the compiled CLI in a disposable Linux systemd host
+with explicit linger, separate-shell reconnect, idempotent lifecycle, four URL
+smoke checks, failure journal guidance, and provider-removal headless status.
+Tag-only `release.yml` uploads the two archives plus `SHA256SUMS`; Vercel
+production deployment remains Git Integration.

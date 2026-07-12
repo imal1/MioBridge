@@ -1,0 +1,51 @@
+name: CLI Linux systemd E2E
+
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  user-systemd:
+    name: User service reconnect and compatibility URLs
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.0.30
+      - run: bun install --frozen-lockfile
+      - name: Compile Linux x64 CLI
+        env:
+          MIOBRIDGE_RELEASE_VERSION: 0.0.0-e2e
+        run: bun run cli:release
+      - name: Start disposable systemd host
+        run: |
+          set -euo pipefail
+          docker build --tag miobridge-systemd-e2e --file scripts/systemd-e2e.Dockerfile scripts
+          docker run --detach --privileged --cgroupns=host \
+            --tmpfs /run --tmpfs /run/lock --tmpfs /tmp \
+            --volume /sys/fs/cgroup:/sys/fs/cgroup:rw \
+            --name miobridge-systemd-e2e miobridge-systemd-e2e
+          for attempt in {1..30}; do
+            if docker exec miobridge-systemd-e2e systemctl is-system-running --wait; then exit 0; fi
+            if [[ "$(docker exec miobridge-systemd-e2e systemctl is-system-running || true)" == "degraded" ]]; then exit 0; fi
+            sleep 1
+          done
+          docker logs miobridge-systemd-e2e
+          exit 1
+      - name: Verify user-systemd lifecycle from compiled release
+        run: |
+          set -euo pipefail
+          docker cp dist/cli-release/miobridge-0.0.0-e2e-linux-x64.tar.gz miobridge-systemd-e2e:/tmp/release.tar.gz
+          docker exec miobridge-systemd-e2e sh -c 'mkdir /tmp/release && tar -xzf /tmp/release.tar.gz -C /tmp/release'
+          docker cp scripts/e2e-cli-systemd.sh miobridge-systemd-e2e:/tmp/e2e-cli-systemd.sh
+          docker exec miobridge-systemd-e2e bash /tmp/e2e-cli-systemd.sh /tmp/release/miobridge
+      - name: Print systemd logs on failure
+        if: failure()
+        run: docker logs miobridge-systemd-e2e || true
+      - name: Remove disposable systemd host
+        if: always()
+        run: docker rm --force miobridge-systemd-e2e || true

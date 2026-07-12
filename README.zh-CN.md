@@ -21,6 +21,7 @@ SSH/部署适配器位于 `frontend/`。生产环境直接运行 Next standalone
 - **SSR 仪表盘**：Next.js Pages Router 页面，使用 Botanical Garden 主题
 - **定时刷新**：支持自动更新，也可通过 API 或页面手动触发
 - **Vercel 部署**：Vercel Git Integration 将推送部署到生产环境
+- **Linux CLI**：带校验和的无头发布命令，以及可选 provider 仪表盘生命周期
 
 ## 技术栈
 
@@ -75,6 +76,8 @@ bun run typecheck
 bun run build
 cd frontend && bun run test
 cd agent && bun test
+bun run cli:typecheck
+bun run cli:test
 ```
 
 构建远程 Agent 二进制：
@@ -141,8 +144,17 @@ docs/                        部署和运维文档
 ```
 
 `MioBridgeCore` 是无头组合 facade。Agent HTTP/HMAC 访问、节点仓库和节点聚合
-属于 core API；SSH、远程安装、systemd 修改、部署回调和仪表盘生命周期仍由
-frontend 运维适配器负责。
+属于 core API；SSH、远程安装和部署回调仍由 frontend 运维适配器负责。独立发布的
+Linux CLI 使用相同公开 core API；其可选 dashboard provider 和 user-systemd
+生命周期与仪表盘框架无关。
+
+## Linux CLI 与可选仪表盘
+
+仓库仪表盘和 Vercel 部署不是 CLI 运行前提。发布二进制可无头执行
+`miobridge update` 与 `miobridge status --json`，运行时状态在
+`~/.config/miobridge` 下。安装、升级、托管依赖、provider、user-systemd、删除与
+故障排查见 [docs/CLI.zh-CN.md](./docs/CLI.zh-CN.md)；英文版见
+[docs/CLI.md](./docs/CLI.md)。
 
 ## 部署
 
@@ -150,7 +162,8 @@ frontend 运维适配器负责。
 并发布生产部署。
 
 完整部署说明见 [docs/DEPLOYMENT.md](./docs/DEPLOYMENT.md)，CI/CD 说明见
-[docs/CI-CD.md](./docs/CI-CD.md)。
+[docs/CI-CD.md](./docs/CI-CD.md)。这两份文档描述 Vercel 生产部署；自托管 Linux
+CLI/仪表盘运维见 [docs/CLI.zh-CN.md](./docs/CLI.zh-CN.md)。
 
 ## 运维
 

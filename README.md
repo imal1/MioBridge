@@ -23,6 +23,8 @@ separate Express server.
 - **SSR dashboard**: Next.js Pages Router UI using the Botanical Garden theme
 - **Scheduled refresh**: automatic subscription updates plus manual API/UI triggers
 - **Vercel deployment**: Vercel Git Integration deploys pushes to production
+- **Linux CLI**: checksum-verified headless release command with an optional
+  provider-backed dashboard lifecycle
 
 ## Stack
 
@@ -77,6 +79,8 @@ bun run typecheck
 bun run build
 cd frontend && bun run test
 cd agent && bun test
+bun run cli:typecheck
+bun run cli:test
 ```
 
 Build the remote Agent binary:
@@ -149,8 +153,18 @@ docs/                        deployment and operations documentation
 
 `MioBridgeCore` is the headless composition facade. Agent HTTP/HMAC access, the
 node repository, and node aggregation are core APIs. SSH, remote installation,
-systemd changes, deployment callbacks, and dashboard lifecycle remain
-frontend-owned operations.
+and deployment callbacks remain frontend-owned operations. The separately
+distributed Linux CLI composes the same public core API; its optional dashboard
+provider and user-systemd lifecycle are framework-neutral.
+
+## Linux CLI and optional dashboard
+
+The repository dashboard and Vercel deployment are not required for CLI
+operation. A release binary runs `miobridge update` and `miobridge status --json`
+headlessly with runtime state under `~/.config/miobridge`. Install, upgrade,
+managed dependency, provider, user-systemd, removal, and troubleshooting details
+are in [docs/CLI.md](./docs/CLI.md). Chinese instructions are in
+[docs/CLI.zh-CN.md](./docs/CLI.zh-CN.md).
 
 ## Deployment
 
@@ -158,7 +172,8 @@ Production deployments are normally triggered by pushing `main`. Vercel Git
 Integration builds the connected project and promotes the production deployment.
 
 Detailed setup is in [docs/DEPLOYMENT.md](./docs/DEPLOYMENT.md). CI/CD notes are
-in [docs/CI-CD.md](./docs/CI-CD.md).
+in [docs/CI-CD.md](./docs/CI-CD.md). These describe Vercel production; self-hosted
+Linux CLI/dashboard operation is documented separately in [docs/CLI.md](./docs/CLI.md).
 
 ## Operations
 

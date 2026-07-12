@@ -81,6 +81,46 @@ jobs:
       - name: Test Agent
         run: bun run --cwd agent test
 
+  cli:
+    name: CLI contracts and Linux release archives
+    needs: lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.0.30
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Type-check and test CLI contracts
+        run: |
+          bun run cli:typecheck
+          bun run cli:test
+
+      - name: Build and inspect x64 and arm64 release archives
+        env:
+          MIOBRIDGE_RELEASE_VERSION: 0.0.0-ci
+        run: |
+          set -euo pipefail
+          bun run cli:release
+          for arch in x64 arm64; do
+            archive="dist/cli-release/miobridge-0.0.0-ci-linux-$arch.tar.gz"
+            test -f "$archive"
+            tar -tzf "$archive" | sort | diff -u <(printf 'VERSION\nmiobridge\n') -
+            mkdir -p "$RUNNER_TEMP/$arch"
+            tar -xzf "$archive" -C "$RUNNER_TEMP/$arch"
+            test -x "$RUNNER_TEMP/$arch/miobridge"
+          done
+          grep -F 'miobridge-0.0.0-ci-linux-x64.tar.gz' dist/cli-release/SHA256SUMS
+          grep -F 'miobridge-0.0.0-ci-linux-arm64.tar.gz' dist/cli-release/SHA256SUMS
+
   build:
     name: Build (Next.js standalone)
     needs: [typecheck, test]
@@ -118,6 +158,14 @@ jobs:
             echo "Node-only core marker found in a client bundle" >&2
             exit 1
           fi
+
+      - name: Package dashboard provider artifact
+        run: |
+          set -euo pipefail
+          bash scripts/package-dashboard-provider.sh "$RUNNER_TEMP/dashboard-provider"
+          test -f "$RUNNER_TEMP/dashboard-provider/provider.json"
+          test -f "$RUNNER_TEMP/dashboard-provider/artifact/frontend/server.js"
+          node -e 'const fs = require("node:fs"); const manifest = JSON.parse(fs.readFileSync(process.argv[1], "utf8")); if (manifest.schemaVersion !== 1 || manifest.entrypoint !== "frontend/server.js") process.exit(1)' "$RUNNER_TEMP/dashboard-provider/provider.json"
 
       - name: Smoke-test standalone compatibility URLs
         run: |

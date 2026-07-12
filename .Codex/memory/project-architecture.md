@@ -30,3 +30,10 @@ metadata:
 ## 2026-07-12 — Frontend core composition
 
 - `frontend/src/server/core.ts` is the Node-only composition adapter for `@miobridge/core`; API routes and SSR consume its `MioBridgeCore`/node aggregation instances, while deployment and SSH lifecycle behavior remains frontend-owned.
+
+## 2026-07-12 — CLI dashboard provider boundary
+
+- `packages/cli` consumes public `@miobridge/core` exports headlessly. Its
+  versioned dashboard provider manifest and user-systemd launcher own only
+  optional dashboard lifecycle; provider removal preserves core config/data and
+  allows fn-4 to replace the artifact without changing CLI commands.
