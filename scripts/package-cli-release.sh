@@ -4,6 +4,7 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 VERSION="${MIOBRIDGE_RELEASE_VERSION:-${1:-}}"
 OUTPUT_DIR="${MIOBRIDGE_RELEASE_DIR:-$ROOT_DIR/dist/cli-release}"
+BUN_CMD="${MIOBRIDGE_BUN_CMD:-bun}"
 
 if [[ -z "$VERSION" ]]; then
   VERSION="$(node -p "require('$ROOT_DIR/packages/cli/package.json').version" 2>/dev/null || true)"
@@ -16,6 +17,19 @@ fi
 need() { command -v "$1" >/dev/null 2>&1 || { echo "required command not found: $1" >&2; exit 1; }; }
 need tar
 need shasum
+
+build_core() {
+  # CLI source imports the public compiled core package. Rebuild it here so a
+  # release never inherits an untracked or stale workspace dist/ directory.
+  rm -rf "$ROOT_DIR/packages/core/dist"
+  "$BUN_CMD" run --cwd "$ROOT_DIR/packages/core" build
+}
+
+if [[ -z "${MIOBRIDGE_BINARY_X64:-}" || -z "${MIOBRIDGE_BINARY_ARM64:-}" ]]; then
+  need "$BUN_CMD"
+  build_core
+fi
+
 mkdir -p "$OUTPUT_DIR"
 rm -f "$OUTPUT_DIR"/miobridge-"$VERSION"-linux-*.tar.gz "$OUTPUT_DIR/SHA256SUMS"
 
@@ -30,8 +44,7 @@ build_one() {
   if [[ -n "$override" ]]; then
     cp "$override" "$binary"
   else
-    need bun
-    bun build "$ROOT_DIR/packages/cli/src/main.ts" --compile --target="$target" --outfile "$binary"
+    "$BUN_CMD" build "$ROOT_DIR/packages/cli/src/main.ts" --compile --target="$target" --outfile "$binary"
   fi
   chmod 0755 "$binary"
   printf '%s\n' "$VERSION" > "$stage/VERSION"

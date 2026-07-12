@@ -19,7 +19,13 @@ export class DependencySetupService {
   async discover(name: DependencyName): Promise<DependencyStatus> {
     const definition = DEFINITIONS.find(item => item.name === name)!;
     const configured = this.options.configured?.[name];
-    if (configured && await this.options.adapters.existsExecutable(configured)) return this.status(definition, 'configured', configured);
+    if (configured) {
+      // Existing config files store binary directories while newer users may
+      // provide an exact executable. Support both without rewriting config.
+      for (const candidate of [configured, join(configured, name)]) {
+        if (await this.options.adapters.existsExecutable(candidate)) return this.status(definition, 'configured', candidate);
+      }
+    }
     const managed = join(this.options.paths.managedBinDir, name);
     if (await this.options.adapters.existsExecutable(managed)) return this.status(definition, 'managed', managed);
     for (const directory of this.options.paths.pathDirectories) {

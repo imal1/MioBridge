@@ -1,5 +1,5 @@
 import { execFileSync, spawnSync } from 'node:child_process';
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { chmodSync, copyFileSync, mkdirSync, mkdtempSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
@@ -41,6 +41,53 @@ function fakePlatform(dir: string, machine: string) {
 }
 
 describe('CLI release distribution', () => {
+  it('cleans and rebuilds core before compiling release sources', () => {
+    const sandbox = mkdtempSync(join(tmpdir(), 'miobridge-release-clean-'));
+    const sandboxScript = join(sandbox, 'scripts', 'package-cli-release.sh');
+    const coreDir = join(sandbox, 'packages', 'core');
+    const log = join(sandbox, 'bun.log');
+    const fakeBun = join(sandbox, 'bun');
+    const release = join(sandbox, 'release');
+    mkdirSync(join(sandbox, 'scripts'), { recursive: true });
+    mkdirSync(join(coreDir, 'dist'), { recursive: true });
+    mkdirSync(join(sandbox, 'packages', 'cli', 'src'), { recursive: true });
+    writeFileSync(join(coreDir, 'dist', 'stale.js'), 'stale');
+    writeFileSync(join(sandbox, 'packages', 'cli', 'src', 'main.ts'), 'fixture');
+    copyFileSync(packageScript, sandboxScript);
+    writeFileSync(fakeBun, [
+      '#!/bin/sh',
+      'set -eu',
+      'printf "%s\\n" "$*" >> "$FAKE_BUN_LOG"',
+      'if [ "$1" = run ]; then',
+      '  test ! -e "$3/dist/stale.js"',
+      '  mkdir -p "$3/dist"',
+      '  printf fresh > "$3/dist/index.js"',
+      '  exit 0',
+      'fi',
+      'while [ "$#" -gt 0 ]; do',
+      '  if [ "$1" = --outfile ]; then',
+      '    shift',
+      '    printf "#!/bin/sh\\nexit 0\\n" > "$1"',
+      '    chmod 755 "$1"',
+      '    exit 0',
+      '  fi',
+      '  shift',
+      'done',
+      'exit 1',
+      '',
+    ].join('\n'));
+    chmodSync(fakeBun, 0o755);
+    execFileSync('bash', [sandboxScript, '1.2.4'], {
+      env: { ...process.env, FAKE_BUN_LOG: log, MIOBRIDGE_BUN_CMD: fakeBun, MIOBRIDGE_RELEASE_DIR: release },
+    });
+    expect(readFileSync(log, 'utf8').trim().split('\n')).toEqual([
+      `run --cwd ${coreDir} build`,
+      expect.stringContaining(`build ${join(sandbox, 'packages', 'cli', 'src', 'main.ts')} --compile --target=bun-linux-x64`),
+      expect.stringContaining(`build ${join(sandbox, 'packages', 'cli', 'src', 'main.ts')} --compile --target=bun-linux-arm64`),
+    ]);
+    expect(readFileSync(join(coreDir, 'dist', 'index.js'), 'utf8')).toBe('fresh');
+  });
+
   it('packages deterministic architecture names, checksums, and executable binaries', () => {
     const { release } = fixture();
     const sums = readFileSync(join(release, 'SHA256SUMS'), 'utf8');

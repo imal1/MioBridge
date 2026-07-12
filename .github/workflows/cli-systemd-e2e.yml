@@ -20,7 +20,9 @@ jobs:
       - name: Compile Linux x64 CLI
         env:
           MIOBRIDGE_RELEASE_VERSION: 0.0.0-e2e
-        run: bun run cli:release
+        run: |
+          rm -rf packages/core/dist packages/cli/dist dist/cli-release
+          bun run cli:release
       - name: Start disposable systemd host
         run: |
           set -euo pipefail

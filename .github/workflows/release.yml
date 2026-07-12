@@ -26,6 +26,7 @@ jobs:
           MIOBRIDGE_RELEASE_VERSION: ${{ inputs.version || github.ref_name }}
         run: |
           export MIOBRIDGE_RELEASE_VERSION="${MIOBRIDGE_RELEASE_VERSION#v}"
+          rm -rf packages/core/dist packages/cli/dist dist/cli-release
           bun run cli:release
       - name: Verify release contracts
         run: bun run cli:test

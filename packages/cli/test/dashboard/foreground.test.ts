@@ -1,8 +1,8 @@
-import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
+import { chmod, mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { basename, dirname, join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { DashboardForegroundService, createNodeForegroundAdapters } from '../../src/index.js';
+import { DashboardForegroundService, createNodeForegroundAdapters, resolveDashboardRuntime } from '../../src/index.js';
 
 const roots: string[] = [];
 afterEach(async () => Promise.all(roots.splice(0).map(root => rm(root, { recursive: true, force: true }))));
@@ -18,6 +18,28 @@ async function freePort(): Promise<number> {
 }
 
 describe('dashboard foreground lifecycle', () => {
+  it('resolves configured, managed, then PATH Bun while preserving an effective child PATH', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'miobridge-dashboard-bun-'));
+    roots.push(root);
+    const configured = join(root, 'configured');
+    const managed = join(root, 'managed');
+    const pathBin = join(root, 'path');
+    await Promise.all([mkdir(configured), mkdir(managed), mkdir(pathBin)]);
+    for (const file of [join(configured, 'bun'), join(managed, 'bun'), join(pathBin, 'bun')]) {
+      await writeFile(file, '#!/bin/sh\nexit 0\n');
+      await chmod(file, 0o755);
+    }
+    const paths = { managedBinDir: managed, pathDirectories: [pathBin] };
+    await expect(resolveDashboardRuntime(paths, configured, { PATH: pathBin })).resolves.toMatchObject({
+      executables: { bun: join(configured, 'bun') },
+      effectivePath: expect.stringMatching(new RegExp(`^${configured}`)),
+    });
+    await rm(join(configured, 'bun'));
+    await expect(resolveDashboardRuntime(paths, configured, { PATH: pathBin })).resolves.toMatchObject({ executables: { bun: join(managed, 'bun') } });
+    await rm(join(managed, 'bun'));
+    await expect(resolveDashboardRuntime(paths, undefined, { PATH: pathBin })).resolves.toMatchObject({ executables: { bun: join(pathBin, 'bun') } });
+  });
+
   it('injects runtime ownership and serves every compatibility URL', async () => {
     const baseDir = await mkdtemp(join(tmpdir(), 'miobridge-dashboard-'));
     roots.push(baseDir);
@@ -71,12 +93,14 @@ describe('dashboard foreground lifecycle', () => {
     }));
     const signals: NodeJS.Signals[] = [];
     const listeners = new Map<NodeJS.Signals, () => void>();
+    const spawned: Array<{ command: string; path?: string }> = [];
     const result = new DashboardForegroundService({ baseDir, configFile: join(baseDir, 'config.yaml'), distDir: join(baseDir, 'dist') }, {
       env: {}, resolveExecutable: async () => '/managed/runtime',
-      spawn: (_command, _args, options) => ({ wait: async () => { listeners.get('SIGTERM')?.(); return 9; }, signal: signal => signals.push(signal) }),
+      spawn: (command, _args, options) => { spawned.push({ command, path: options.env.PATH }); return { wait: async () => { listeners.get('SIGTERM')?.(); return 9; }, signal: signal => signals.push(signal) }; },
       onSignal: (signal, listener) => { listeners.set(signal, listener); return () => listeners.delete(signal); },
-    }).run();
+    }, { effectivePath: '/effective/bin', executables: { runtime: '/configured/runtime' } }).run();
     await expect(result).resolves.toMatchObject({ exitCode: 9 });
+    expect(spawned).toEqual([{ command: '/configured/runtime', path: '/effective/bin' }]);
     expect(signals).toEqual(['SIGTERM']);
     expect(listeners.size).toBe(0);
   });

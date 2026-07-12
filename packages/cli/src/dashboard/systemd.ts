@@ -30,6 +30,7 @@ export interface SystemdAdapters {
   readonly username: string;
   readonly cliPath: string;
   readonly unitDirectory: string;
+  readonly effectivePath: string;
   run(command: string, args: readonly string[]): Promise<CommandResult>;
   writeAtomic(path: string, content: string): Promise<void>;
   isPortAvailable(host: string, port: number): Promise<boolean>;
@@ -49,8 +50,9 @@ export function renderDashboardUserUnit(input: {
   readonly configFile: string;
   readonly host: string;
   readonly port: number;
+  readonly effectivePath: string;
 }): string {
-  return `[Unit]\nDescription=MioBridge dashboard\nAfter=network-online.target\nWants=network-online.target\n\n[Service]\nType=simple\nExecStart=${quote(input.cliPath)} dashboard foreground\nRestart=on-failure\nRestartSec=5s\nTimeoutStopSec=30s\nNoNewPrivileges=true\nPrivateTmp=true\nEnvironment=${quote(`MIOBRIDGE_CONFIG_DIR=${input.baseDir}`)}\nEnvironment=${quote(`CONFIG_FILE=${input.configFile}`)}\nEnvironment=${quote(`HOSTNAME=${input.host}`)}\nEnvironment=${quote(`PORT=${input.port}`)}\n\n[Install]\nWantedBy=default.target\n`;
+  return `[Unit]\nDescription=MioBridge dashboard\nAfter=network-online.target\nWants=network-online.target\n\n[Service]\nType=simple\nExecStart=${quote(input.cliPath)} dashboard foreground\nRestart=on-failure\nRestartSec=5s\nTimeoutStopSec=30s\nNoNewPrivileges=true\nPrivateTmp=true\nEnvironment=${quote(`MIOBRIDGE_CONFIG_DIR=${input.baseDir}`)}\nEnvironment=${quote(`CONFIG_FILE=${input.configFile}`)}\nEnvironment=${quote(`HOSTNAME=${input.host}`)}\nEnvironment=${quote(`PORT=${input.port}`)}\nEnvironment=${quote(`PATH=${input.effectivePath}`)}\n\n[Install]\nWantedBy=default.target\n`;
 }
 
 function output(result: CommandResult): string { return `${result.stdout}\n${result.stderr}`.trim(); }
@@ -97,7 +99,7 @@ export class DashboardSystemdService {
       return { ...base, state: 'broken', active: false, enabled: enabled.exitCode === 0, linger, message: `Dashboard service failed. Inspect provider logs with: ${this.journalCommand()}` };
     }
     const knownStopped = ['inactive', 'unknown'].includes(active.stdout.trim()) || /not[- ]found|could not be found/iu.test(output(active));
-    if (!knownStopped && active.exitCode !== 0) {
+    if (!knownStopped) {
       return { ...base, state: 'broken', active: false, enabled: enabled.exitCode === 0, linger, message: `Could not inspect dashboard service: ${output(active) || 'systemctl failed'}. Logs: ${this.journalCommand()}` };
     }
     return { ...base, state: 'stopped', active: false, enabled: enabled.exitCode === 0, linger, message: `Dashboard is stopped. Logs: ${this.journalCommand()}` };
@@ -120,7 +122,7 @@ export class DashboardSystemdService {
       const enabled = await this.adapters.run('loginctl', ['enable-linger', this.adapters.username]);
       if (enabled.exitCode !== 0) throw new Error(`Could not enable lingering. Run "sudo loginctl enable-linger ${this.adapters.username}" manually. ${output(enabled)}`.trim());
     }
-    await this.adapters.writeAtomic(this.unitPath, renderDashboardUserUnit({ cliPath: this.adapters.cliPath, baseDir: this.paths.baseDir, configFile: this.paths.configFile, host, port }));
+    await this.adapters.writeAtomic(this.unitPath, renderDashboardUserUnit({ cliPath: this.adapters.cliPath, baseDir: this.paths.baseDir, configFile: this.paths.configFile, host, port, effectivePath: this.adapters.effectivePath }));
     for (const args of [['--user', 'daemon-reload'], ['--user', 'enable', '--now', DASHBOARD_UNIT_NAME]] as const) {
       const result = await this.adapters.run('systemctl', args);
       if (result.exitCode !== 0) throw new Error(`systemctl ${args.slice(1).join(' ')} failed: ${output(result) || 'unknown error'}`);
@@ -132,7 +134,7 @@ export class DashboardSystemdService {
 
   async stop(): Promise<DashboardDaemonStatus> {
     const current = await this.status();
-    if (current.state === 'unsupported' || current.state === 'broken') throw new Error(current.message);
+    if (current.state === 'unsupported') throw new Error(current.message);
     if (!current.active && !current.enabled) return current;
     const result = await this.adapters.run('systemctl', ['--user', 'disable', '--now', DASHBOARD_UNIT_NAME]);
     if (result.exitCode !== 0 && !/not loaded|does not exist|not found/iu.test(output(result))) throw new Error(`Could not stop dashboard: ${output(result)}`);
@@ -148,6 +150,7 @@ export function createNodeSystemdAdapters(options: { readonly env?: NodeJS.Proce
     username: env.USER ?? userInfo().username,
     cliPath: process.execPath,
     unitDirectory: join(env.XDG_CONFIG_HOME ?? join(home, '.config'), 'systemd', 'user'),
+    effectivePath: env.PATH ?? '',
     async run(command, args) {
       try { const result = await execFileAsync(command, [...args], { env }); return { exitCode: 0, stdout: result.stdout, stderr: result.stderr }; }
       catch (error) { const value = error as Error & { code?: number; stdout?: string; stderr?: string }; return { exitCode: typeof value.code === 'number' ? value.code : 1, stdout: value.stdout ?? '', stderr: value.stderr ?? value.message }; }

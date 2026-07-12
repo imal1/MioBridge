@@ -39,9 +39,16 @@ uid="$(id -u "$TEST_USER")"
 wait_for 20 test -S "/run/user/$uid/bus" || fail "user systemd bus did not appear after enable-linger"
 
 provider_dir="$TEST_HOME/.config/miobridge/dist/dashboard"
-install -d -m 0755 -o "$TEST_USER" -g "$TEST_USER" "$provider_dir/artifact"
+managed_bin="$TEST_HOME/.config/miobridge/bin"
+install -d -m 0755 -o "$TEST_USER" -g "$TEST_USER" "$provider_dir/artifact" "$managed_bin"
+cat > "$managed_bin/bun" <<'EOF'
+#!/bin/sh
+printf '%s\n' "$0 $*" > "$MIOBRIDGE_CONFIG_DIR/bun-provider-invocation"
+exec /usr/bin/node "$@"
+EOF
+chmod 0755 "$managed_bin/bun"
 cat > "$provider_dir/provider.json" <<'EOF'
-{"schemaVersion":1,"dashboardVersion":"e2e","artifactRoot":"artifact","executable":"node","entrypoint":"server.js","args":[],"environment":{"host":"HOSTNAME","port":"PORT","configDir":"MIOBRIDGE_CONFIG_DIR","configFile":"CONFIG_FILE"},"healthUrl":"http://{host}:{port}/health","compatibilityUrls":["http://{host}:{port}/health","http://{host}:{port}/subscription.txt","http://{host}:{port}/clash.yaml","http://{host}:{port}/raw.txt"]}
+{"schemaVersion":1,"dashboardVersion":"e2e","artifactRoot":"artifact","executable":"bun","entrypoint":"server.js","args":[],"environment":{"host":"HOSTNAME","port":"PORT","configDir":"MIOBRIDGE_CONFIG_DIR","configFile":"CONFIG_FILE"},"healthUrl":"http://{host}:{port}/health","compatibilityUrls":["http://{host}:{port}/health","http://{host}:{port}/subscription.txt","http://{host}:{port}/clash.yaml","http://{host}:{port}/raw.txt"]}
 EOF
 cat > "$provider_dir/artifact/server.js" <<'EOF'
 const http = require('node:http');
@@ -60,6 +67,7 @@ grep -q '"state":"stopped"' /tmp/status-before.json || fail "expected initially 
 run_as_user "$TEST_HOME/.local/bin/miobridge" dashboard start
 run_as_user "$TEST_HOME/.local/bin/miobridge" dashboard start
 wait_for 20 curl -fsS "http://127.0.0.1:$TEST_PORT/health" >/dev/null || fail "provider never became healthy"
+test -s "$TEST_HOME/.config/miobridge/bun-provider-invocation" || fail "provider did not use managed Bun"
 for path in /subscription.txt /clash.yaml /raw.txt; do
   curl -fsS "http://127.0.0.1:$TEST_PORT$path" >/dev/null || fail "compatibility URL failed: $path"
 done

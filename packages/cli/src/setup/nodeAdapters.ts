@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { constants } from 'node:fs';
-import { access, chmod, copyFile, mkdir, open, readFile, rename, rm } from 'node:fs/promises';
+import { access, chmod, copyFile, mkdir, open, readFile, rename, rm, stat } from 'node:fs/promises';
 import { arch, platform } from 'node:os';
 import { dirname } from 'node:path';
 import { createInterface } from 'node:readline/promises';
@@ -59,7 +59,13 @@ export function createNodeSetupAdapters(): SetupAdapters {
       try { osRelease = await readFile('/etc/os-release', 'utf8'); } catch { /* unknown distro */ }
       return detectLinuxPlatform({ platform: platform(), architecture: arch(), osRelease });
     },
-    async existsExecutable(path) { try { await access(path, constants.X_OK); return true; } catch { return false; } },
+    async existsExecutable(path) {
+      try {
+        if (!(await stat(path)).isFile()) return false;
+        await access(path, constants.X_OK);
+        return true;
+      } catch { return false; }
+    },
     probeVersion: command,
     async confirm(message) {
       if (!process.stdin.isTTY) return false;

@@ -3,7 +3,7 @@ import { CLI_VERSION, runCli } from './command.js';
 import { createNodeCore } from './composition.js';
 import { DependencySetupService } from './setup/service.js';
 import { createNodeSetupAdapters } from './setup/nodeAdapters.js';
-import { DashboardForegroundService, createNodeForegroundAdapters } from './dashboard/foreground.js';
+import { DashboardForegroundService, createNodeForegroundAdapters, resolveDashboardRuntime } from './dashboard/foreground.js';
 import { DashboardSystemdService, createNodeSystemdAdapters } from './dashboard/systemd.js';
 
 const output = {
@@ -12,6 +12,8 @@ const output = {
 };
 
 const composition = createNodeCore({ metadata: { version: CLI_VERSION } });
+const dashboardRuntime = await resolveDashboardRuntime(composition.paths, composition.configuredBinaries.bun);
+const dashboardEnv = { ...process.env, PATH: dashboardRuntime.effectivePath };
 const exitCode = await runCli(process.argv.slice(2), {
   createCore: () => composition.core,
   setup: new DependencySetupService({ paths: composition.paths, adapters: createNodeSetupAdapters(), configured: {
@@ -20,8 +22,8 @@ const exitCode = await runCli(process.argv.slice(2), {
     ...(process.env.MIOBRIDGE_SING_BOX_PATH ? { 'sing-box': process.env.MIOBRIDGE_SING_BOX_PATH } : {}),
   } }),
   dashboard: {
-    foreground: () => new DashboardForegroundService(composition.paths, createNodeForegroundAdapters()).run(),
-    daemon: action => new DashboardSystemdService(composition.paths, createNodeSystemdAdapters())[action](),
+    foreground: () => new DashboardForegroundService(composition.paths, createNodeForegroundAdapters(dashboardEnv), dashboardRuntime).run(),
+    daemon: action => new DashboardSystemdService(composition.paths, createNodeSystemdAdapters({ env: dashboardEnv }))[action](),
   },
   output,
   version: CLI_VERSION,

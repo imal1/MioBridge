@@ -7,7 +7,7 @@ import { DashboardSystemdService, renderDashboardUserUnit, type CommandResult, t
 const roots: string[] = [];
 afterEach(async () => Promise.all(roots.splice(0).map(root => rm(root, { recursive: true, force: true }))));
 
-async function fixture(overrides: Partial<SystemdAdapters> = {}, state: { active?: boolean; enabled?: boolean; linger?: boolean; legacy?: boolean; startFails?: boolean } = {}) {
+async function fixture(overrides: Partial<SystemdAdapters> = {}, state: { active?: boolean; activeStatus?: string; enabled?: boolean; linger?: boolean; legacy?: boolean; startFails?: boolean } = {}) {
   const root = await mkdtemp(join(tmpdir(), 'miobridge-systemd-'));
   roots.push(root);
   const dashboard = join(root, 'dist', 'dashboard');
@@ -22,20 +22,23 @@ async function fixture(overrides: Partial<SystemdAdapters> = {}, state: { active
   const files = new Map<string, string>();
   const ok = (stdout = ''): CommandResult => ({ exitCode: 0, stdout, stderr: '' });
   const adapters: SystemdAdapters = {
-    platform: 'linux', username: 'alice', cliPath: '/home/alice/.local/bin/miobridge', unitDirectory: join(root, 'systemd'),
+    platform: 'linux', username: 'alice', cliPath: '/home/alice/.local/bin/miobridge', unitDirectory: join(root, 'systemd'), effectivePath: '/managed/bin:/usr/bin',
     async run(command, args) {
       calls.push([command, args]);
       if (command === 'loginctl' && args[0] === 'show-user') return ok(state.linger === false ? 'no\n' : 'yes\n');
       if (command === 'loginctl' && args[0] === 'enable-linger') { state.linger = true; return ok(); }
       if (args.includes('show-environment')) return ok();
       if (command === 'systemctl' && args[0] === 'show') return ok(state.legacy ? 'loaded\n' : 'not-found\n');
-      if (args.includes('is-active')) return state.active ? ok('active\n') : { exitCode: 3, stdout: 'inactive\n', stderr: '' };
+      if (args.includes('is-active')) {
+        const status = state.activeStatus ?? (state.active ? 'active' : 'inactive');
+        return status === 'active' ? ok('active\n') : { exitCode: status === 'activating' ? 0 : 3, stdout: `${status}\n`, stderr: '' };
+      }
       if (args.includes('is-enabled')) return state.enabled ? ok('enabled\n') : { exitCode: 1, stdout: 'disabled\n', stderr: '' };
       if (args.includes('enable') && args.includes('--now')) {
         if (state.startFails) return { exitCode: 1, stdout: '', stderr: 'provider crashed' };
         state.active = true; state.enabled = true; return ok();
       }
-      if (args.includes('disable') && args.includes('--now')) { state.active = false; state.enabled = false; return ok(); }
+      if (args.includes('disable') && args.includes('--now')) { state.active = false; state.activeStatus = 'inactive'; state.enabled = false; return ok(); }
       return ok();
     },
     async writeAtomic(path, content) { files.set(path, content); },
@@ -48,10 +51,11 @@ async function fixture(overrides: Partial<SystemdAdapters> = {}, state: { active
 
 describe('dashboard systemd user lifecycle', () => {
   it('renders a hardened safely escaped unit with the stable CLI launcher', () => {
-    const unit = renderDashboardUserUnit({ cliPath: '/home/a user/bin/mio%bridge', baseDir: '/home/a user/.config/mio"bridge', configFile: '/config.yaml', host: '0.0.0.0', port: 3000 });
+    const unit = renderDashboardUserUnit({ cliPath: '/home/a user/bin/mio%bridge', baseDir: '/home/a user/.config/mio"bridge', configFile: '/config.yaml', host: '0.0.0.0', port: 3000, effectivePath: '/managed/bin:/usr/bin' });
     expect(unit).toContain('ExecStart="/home/a user/bin/mio%%bridge" dashboard foreground');
     expect(unit).toContain('Environment="MIOBRIDGE_CONFIG_DIR=/home/a user/.config/mio\\"bridge"');
     expect(unit).toContain('Restart=on-failure');
+    expect(unit).toContain('Environment="PATH=/managed/bin:/usr/bin"');
     expect(unit).toContain('NoNewPrivileges=true');
     expect(unit).not.toContain('PIDFile');
   });
@@ -108,5 +112,15 @@ describe('dashboard systemd user lifecycle', () => {
       return { exitCode: 0, stdout: 'not-found\n', stderr: '' };
     } });
     await expect(broken.service.status()).resolves.toMatchObject({ state: 'broken', enabled: true, active: false });
+  });
+
+  it('disables a failed or restart-looping unit instead of leaving it enabled', async () => {
+    const failed = await fixture({}, { activeStatus: 'failed', enabled: true });
+    await expect(failed.service.stop()).resolves.toMatchObject({ state: 'stopped', enabled: false });
+    expect(failed.calls.some(([, args]) => args.includes('disable') && args.includes('--now'))).toBe(true);
+
+    const restarting = await fixture({}, { activeStatus: 'activating', enabled: true });
+    await expect(restarting.service.stop()).resolves.toMatchObject({ state: 'stopped', enabled: false });
+    expect(restarting.calls.some(([, args]) => args.includes('disable') && args.includes('--now'))).toBe(true);
   });
 });

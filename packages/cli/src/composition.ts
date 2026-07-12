@@ -83,7 +83,7 @@ function createKernelFileSystem() {
 export interface NodeCoreComposition {
   readonly core: MioBridgeCore;
   readonly paths: RuntimePaths;
-  readonly configuredBinaries: Readonly<{ mihomo?: string; 'sing-box'?: string }>;
+  readonly configuredBinaries: Readonly<{ mihomo?: string; bun?: string; 'sing-box'?: string }>;
 }
 
 export function createNodeCore(options: NodeCoreOptions = {}): NodeCoreComposition {
@@ -122,6 +122,7 @@ export function createNodeCore(options: NodeCoreOptions = {}): NodeCoreCompositi
   });
   return { core, paths, configuredBinaries: {
     ...(fullConfig.binaries?.mihomo_path ? { mihomo: fullConfig.binaries.mihomo_path } : {}),
+    ...(fullConfig.binaries?.bun_path ? { bun: fullConfig.binaries.bun_path } : {}),
     ...(fullConfig.binaries?.sing_box_path ? { 'sing-box': fullConfig.binaries.sing_box_path } : {}),
   } };
 }
