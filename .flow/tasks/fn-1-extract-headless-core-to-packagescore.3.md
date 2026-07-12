@@ -38,9 +38,8 @@ Extract source normalization plus sing-box and mihomo kernel/conversion adapters
 - [ ] Golden source/conversion tests pass against the extracted adapters.
 
 ## Done summary
-TBD
-
+Extracted source normalization and injected SingBox, Mihomo, Xray, and V2ray adapters into `@miobridge/core`. Preserved exact URL deduplication, collision-safe naming, kernel tags, binary precedence, mihomo validation arguments, and failure isolation with core golden-style tests.
 ## Evidence
-- Commits:
-- Tests:
+- Commits: 2fda4536e43a4dc21dcc4a418a008c11aa1aaeb5
+- Tests: bun run core:test && bun run core:typecheck, bun run lint && bun run typecheck && bun run build, cd agent && bun test, bun install --frozen-lockfile
 - PRs:
