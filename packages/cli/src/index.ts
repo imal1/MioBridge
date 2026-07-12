@@ -13,3 +13,7 @@ export { formatDashboardDaemonStatus, runDashboardDaemonCommand } from './dashbo
 export type { DashboardDaemonAction } from './dashboard/commands.js';
 export { DASHBOARD_UNIT_NAME, DashboardSystemdService, createNodeSystemdAdapters, renderDashboardUserUnit } from './dashboard/systemd.js';
 export type { CommandResult, DashboardDaemonOptions, DashboardDaemonState, DashboardDaemonStatus, SystemdAdapters } from './dashboard/systemd.js';
+export { createDashboardServerComposition } from './dashboard/server/composition.js';
+export { DashboardRouteRegistry, createDashboardTestRequest, createDashboardTestResponse } from './dashboard/server/http.js';
+export type { DashboardCorePort, DashboardConfigPort, DashboardConvertPort, DashboardOperationsPort, DashboardServerComposition, DashboardServerDependencies, DashboardYamlPort, LogFilters, OperationsResult } from './dashboard/server/composition.js';
+export type { DashboardHeaders, DashboardHttpMethod, DashboardRequest, DashboardResponse, DashboardRoute, DashboardRouteHandler, DashboardRouteRegistrar, DashboardTestRequestOptions, DashboardTestResponse } from './dashboard/server/http.js';
