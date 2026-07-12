@@ -3,7 +3,7 @@ import { access, stat } from 'node:fs/promises';
 import { constants } from 'node:fs';
 import { delimiter, dirname, join } from 'node:path';
 import type { RuntimePaths } from '@miobridge/core';
-import { DASHBOARD_MANIFEST_NAME, loadDashboardProvider, renderProviderUrl, type LoadedDashboardProvider } from './provider.js';
+import { DASHBOARD_MANIFEST_NAME, isV1Manifest, loadDashboardProvider, renderProviderUrl, type DashboardProviderManifestV1, type LoadedDashboardProvider } from './provider.js';
 
 export interface ForegroundOptions {
   readonly host?: string;
@@ -50,10 +50,22 @@ export class DashboardForegroundService {
     const port = options.port ?? 3000;
     if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error(`Invalid dashboard port: ${port}`);
     const provider = await loadDashboardProvider(dashboardManifestPath(this.paths));
-    const executable = this.runtime.executables[provider.manifest.executable]
-      ?? await this.adapters.resolveExecutable(provider.manifest.executable);
-    if (!executable) throw new Error(`Dashboard provider requires '${provider.manifest.executable}', but it is not executable or on PATH`);
-    const names = provider.manifest.environment;
+
+    // v2 static provider: no external process to spawn
+    if (!isV1Manifest(provider.manifest)) {
+      return {
+        exitCode: 0,
+        healthUrl: `http://${host}:${port}/health`,
+        provider,
+      };
+    }
+
+    // v1 legacy: spawn external executable
+    const v1 = provider.manifest as DashboardProviderManifestV1;
+    const executable = this.runtime.executables[v1.executable]
+      ?? await this.adapters.resolveExecutable(v1.executable);
+    if (!executable) throw new Error(`Dashboard provider requires '${v1.executable}', but it is not executable or on PATH`);
+    const names = v1.environment;
     const env: Record<string, string> = {};
     for (const [key, value] of Object.entries(this.adapters.env)) if (value !== undefined) env[key] = value;
     if (this.runtime.effectivePath) env.PATH = this.runtime.effectivePath;
@@ -62,10 +74,10 @@ export class DashboardForegroundService {
     env[names.port] = String(port);
     env[names.configDir] = this.paths.baseDir;
     env[names.configFile] = this.paths.configFile;
-    const child = this.adapters.spawn(executable, [provider.entrypoint, ...provider.manifest.args], { cwd: provider.root, env });
+    const child = this.adapters.spawn(executable, [v1.entrypoint, ...v1.args], { cwd: provider.root, env });
     const removers = (['SIGINT', 'SIGTERM', 'SIGHUP'] as const).map(signal => this.adapters.onSignal(signal, () => child.signal(signal)));
     try {
-      return { exitCode: await child.wait(), healthUrl: renderProviderUrl(provider.manifest.healthUrl, host, port), provider };
+      return { exitCode: await child.wait(), healthUrl: renderProviderUrl(v1.healthUrl, host, port), provider };
     } finally {
       for (const remove of removers) remove();
     }
