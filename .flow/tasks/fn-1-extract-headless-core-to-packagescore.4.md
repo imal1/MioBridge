@@ -12,7 +12,8 @@ Split the mixed `NodeManager` into core Agent HTTP, registry/repository, and agg
 ## Approach
 
 - Freeze and preserve the Agent HMAC wire contract before extraction: URL/port, headers, canonical payload, timeout, response validation, partial failures, node identity, and redaction.
-- Keep node serialization, file/Redis repository behavior, offline kernel shape, aggregation, and main/child ownership in core.
+- Keep node serialization, file/Redis repository behavior, offline kernel shape, aggregation, and main/child ownership in core. Inject the implemented `StateStore` interface (normally selected by `createStateStore({ paths, env, logger })`) rather than importing or rebuilding a singleton.
+<!-- Updated by plan-sync: fn-1-extract-headless-core-to-packagescore.2 exposed instance-scoped StateStore creation -->
 - Define a frontend operations adapter for deployment/SSH callbacks rather than retaining a hidden reverse core dependency.
 - Wire later through injected `RemoteSourceCollector` instead of dynamic-importing the artifact service.
 

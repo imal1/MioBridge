@@ -13,6 +13,8 @@ Cut Next API routes, SSR loaders, and Node instrumentation over to `@miobridge/c
 
 - Inventory server consumers and classify them as core, Next boundary, or frontend operations before changing imports.
 - SSR continues to call services directly; API routes remain thin; Node-only initialization stays behind the existing runtime guard.
+- The frontend composition adapter supplies `createRuntimePaths` with an explicit application root and, on Vercel, `platformBaseDir: vercelRuntimeBaseDir()`; it also injects the frontend logger into YAML/state services. Core must not infer Vercel or recreate Winston transports.
+<!-- Updated by plan-sync: fn-1-extract-headless-core-to-packagescore.2 made platform paths and logging explicit composition inputs -->
 - Consume the compiled ESM `dist` export selected in task .1. The baseline production Next build passed without `transpilePackages`; add transpilation or tracing changes only if the extracted runtime implementation later proves they are required.
 <!-- Updated by plan-sync: fn-1-extract-headless-core-to-packagescore.1 proved compiled dist consumption without transpilePackages -->
 - Keep type-only browser imports separated and scan client output for Node/core runtime leakage.

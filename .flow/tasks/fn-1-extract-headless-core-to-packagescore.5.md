@@ -12,7 +12,8 @@ Extract artifact generation, update/status behavior, backup handling, and versio
 
 ## Approach
 
-- Inject local/kernel sources, `RemoteSourceCollector`, runtime paths, state, logger, clock/process, and version metadata at composition time.
+- Inject local/kernel sources, `RemoteSourceCollector`, the implemented `RuntimePaths` and `StateStore` instances, logger, clock/process, and version metadata at composition time. Compose config through the exported `YamlService` and `ConfigService` constructors; do not add compatibility singletons.
+<!-- Updated by plan-sync: fn-1-extract-headless-core-to-packagescore.2 established constructor-based runtime/config/state APIs -->
 - Preserve main-node artifact ownership, exact byte generation, warnings/partial-success rules, total-failure no-replacement, backups, and status fields.
 - Remove the dynamic `MioBridgeService`/`NodeManager` cycle and the core-to-frontend package metadata dependency.
 - Build before validating the public API from external-cwd Bun and compiled Node smoke scripts; consumers must import `@miobridge/core`, never `packages/core/src`.

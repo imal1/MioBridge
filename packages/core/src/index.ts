@@ -26,3 +26,9 @@ export {
   type StateStoreOptions,
 } from './state/stateStore.js';
 export type { Config, FullConfig } from './types/config.js';
+export { buildClashSubscription, buildClashSubscriptionResult, dedupeProxySources, type ClashSubscriptionResult, type CollectedProxySource } from './artifacts/sources.js';
+export { SingBoxAdapter, type SingBoxAdapterOptions } from './kernels/singBoxAdapter.js';
+export { MihomoAdapter, type MihomoAdapterOptions } from './kernels/mihomoAdapter.js';
+export { V2rayAdapter, XrayAdapter } from './kernels/jsonOutboundAdapters.js';
+export { KERNEL_TYPES, type KernelAdapter, type KernelType } from './kernels/types.js';
+export type { KernelFileSystem, ProcessOptions, ProcessResult, ProcessRunner } from './kernels/ports.js';

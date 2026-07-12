@@ -12,7 +12,8 @@ Extract source normalization plus sing-box and mihomo kernel/conversion adapters
 ## Approach
 
 - Preserve existing proxy protocol validation, exact-URL deduplication, kernel tags, errors, conversion arguments, and mihomo-required semantics.
-- Replace cwd-derived binary candidates with managed-bin, explicit repo-bin, then PATH resolution from `RuntimePaths`.
+- Replace cwd-derived binary candidates by consuming `RuntimePaths.binaryCandidates(name)`, whose implemented order is managed-bin, explicit application-root repo-bin, then PATH.
+<!-- Updated by plan-sync: fn-1-extract-headless-core-to-packagescore.2 implemented binary precedence through RuntimePaths.binaryCandidates(name) -->
 - Keep process execution injectable and redact credentials/full proxy URLs from diagnostics.
 - Leave deprecated frontend re-exports only after consumers move in task .6.
 
