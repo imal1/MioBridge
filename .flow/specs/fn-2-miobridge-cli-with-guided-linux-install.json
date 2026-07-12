@@ -9,7 +9,7 @@
   "plan_review_status": "unknown",
   "plan_reviewed_at": null,
   "spec_path": ".flow/specs/fn-2-miobridge-cli-with-guided-linux-install.md",
-  "status": "open",
+  "status": "done",
   "title": "miobridge CLI with guided Linux install and dashboard lifecycle",
   "tracker": {
     "baseHashFlow": null,
@@ -22,5 +22,5 @@
     "mergeBaseTracker": null,
     "url": null
   },
-  "updated_at": "2026-07-12T09:39:41.406132Z"
+  "updated_at": "2026-07-12T14:58:09.464851Z"
 }
