@@ -32,9 +32,8 @@ Define a framework-neutral, versioned dashboard provider manifest and implement 
 - [ ] Provider smoke tests serve health plus all compatibility URLs and establish a fn-4-replaceable contract.
 
 ## Done summary
-TBD
-
+Defined a versioned, framework-neutral dashboard provider contract with strict schema, URL, entrypoint, lexical path, and symlink containment validation. Added installed-provider discovery and a foreground lifecycle that injects host, port, config ownership, forwards signals, and preserves child exit status without composing the headless core. Registered dashboard foreground in the CLI, packaged the current Next standalone tree as a replaceable provider, and added real HTTP compatibility URL smoke tests.
 ## Evidence
-- Commits:
-- Tests:
+- Commits: 5ef05e2
+- Tests: bun run cli:test (6 files, 31 tests), bun run cli:typecheck, bun run core:test (6 files, 30 tests), bash -n scripts/package-dashboard-provider.sh, scripts/package-dashboard-provider.sh real Next standalone packaging smoke, git diff --check
 - PRs:
