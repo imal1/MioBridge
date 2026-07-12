@@ -1,7 +1,7 @@
 "use client";
 
 import { Icon } from '@iconify/react';
-import type { DeployStatus } from '@/server/types';
+import type { DeployStatus } from '@/lib/types';
 
 interface DeployProgressDialogProps {
   isOpen: boolean;

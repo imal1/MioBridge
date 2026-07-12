@@ -1,11 +1,9 @@
-"use client";
-
-import Link from 'next/link'
 import { Icon } from '@iconify/react'
-import { useCallback, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
+import { Link } from 'react-router-dom'
 import { toast } from 'sonner'
 import { apiService, type ApiStatus, type UpdateResult } from '@/lib/api'
-import type { ClusterStatus } from '@/server/types'
+import type { ClusterStatus } from '@/lib/types'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -52,6 +50,15 @@ export default function Dashboard({ initialCluster = null, initialStatus = null,
   const [updateResult, setUpdateResult] = useState<UpdateResult | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(initialError)
+
+  useEffect(() => {
+    if (initialStatus || initialCluster) return
+    refresh().catch((err: unknown) => {
+      const message = err instanceof Error ? err.message : '加载失败'
+      setError(message)
+    })
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   const refresh = useCallback(async () => {
     const [nextStatus, nextCluster] = await Promise.all([
@@ -111,7 +118,7 @@ export default function Dashboard({ initialCluster = null, initialStatus = null,
             {loading ? '更新中' : '立即更新订阅'}
           </Button>
           <Button asChild variant="outline">
-            <Link href="/subscription">
+            <Link to="/subscription">
               输出产物中心
               <span className="grid h-7 w-7 place-items-center rounded-full bg-[var(--muted)]"><Icon icon="ph:arrow-up-right-light" /></span>
             </Link>

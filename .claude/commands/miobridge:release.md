@@ -17,17 +17,12 @@ Create a new versioned release: tag the commit, push the tag, and monitor the de
    git push origin <version>
    ```
 
-4. The tag push triggers deploy.yml. Watch the deployment:
+4. The tag push triggers release.yml. Watch the release build:
    ```bash
-   RUN_ID=$(gh run list -w deploy.yml -L1 --json databaseId -q '.[0].databaseId')
+   RUN_ID=$(gh run list -w release.yml -L1 --json databaseId -q '.[0].databaseId')
    gh run watch $RUN_ID
    ```
 
-5. After deployment succeeds, verify:
-   ```bash
-   PORT=$(grep 'port:' ~/.config/miobridge/config.yaml 2>/dev/null | awk '{print $2}' | head -1 || echo "3001")
-   curl -fsS "http://localhost:${PORT:-3001}/api/health"
-   readlink ~/.config/miobridge/dist
-   ```
+5. After the release build succeeds, verify the artifacts are available on the GitHub Releases page.
 
-6. Report the release result with version, commit, and deployment status.
+6. Report the release result with version, commit, and release status.

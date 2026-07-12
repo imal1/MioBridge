@@ -1,9 +1,8 @@
-import type { GetServerSideProps } from 'next'
-import { useCallback, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { Icon } from '@iconify/react'
 import { toast } from 'sonner'
 import { apiService, type ApiStatus } from '@/lib/api'
-import type { ClusterStatus, KernelType } from '@/server/types'
+import type { ClusterStatus, KernelType } from '@/lib/types'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -178,34 +177,4 @@ export default function ConfigPage({ initialStatus, initialCluster, initialConfi
       </Card>
     </SignalPage>
   )
-}
-
-export const getServerSideProps: GetServerSideProps<ConfigPageProps> = async () => {
-  try {
-    const { mioBridgeCore, nodeAggregation } = await import('@/server/core')
-    const { config, getFrontendConfig } = await import('@/server/config')
-    const [status, cluster] = await Promise.all([
-      mioBridgeCore.getStatus(),
-      nodeAggregation.getClusterStatus(),
-    ])
-    return {
-      props: {
-        initialStatus: JSON.parse(JSON.stringify(status)),
-        initialCluster: JSON.parse(JSON.stringify(cluster)),
-        initialConfigs: config.singBoxConfigs,
-        frontendConfig: JSON.parse(JSON.stringify(getFrontendConfig())),
-        initialError: null,
-      },
-    }
-  } catch (error) {
-    return {
-      props: {
-        initialStatus: null,
-        initialCluster: null,
-        initialConfigs: [],
-        frontendConfig: null,
-        initialError: error instanceof Error ? error.message : '读取配置失败',
-      },
-    }
-  }
 }

@@ -7,7 +7,7 @@ import { ClusterOverview } from '../ClusterOverview';
 import { NodeCard } from '../NodeCard';
 import { NodeDetail } from '../NodeDetail';
 import { getKernelDisplayStatus } from '../KernelStatus';
-import type { KernelRuntimeStatus, NodeStatus, ClusterStatus } from '@/server/types';
+import type { KernelRuntimeStatus, NodeStatus, ClusterStatus } from '@/lib/types';
 
 const runtimeKernels = (
   overrides: Partial<Record<KernelRuntimeStatus['type'], Partial<KernelRuntimeStatus>>> = {},

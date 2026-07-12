@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import type { ClusterStatus } from '@/server/types';
+import type { ClusterStatus } from '@/lib/types';
 
 /**
  * React Hook: 使用 SSE 获取集群状态实时更新

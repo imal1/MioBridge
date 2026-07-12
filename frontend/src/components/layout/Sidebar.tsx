@@ -1,6 +1,5 @@
-import Link from 'next/link'
-import { useRouter } from 'next/router'
 import { memo, useEffect, useState } from 'react'
+import { Link, useLocation } from 'react-router-dom'
 import { Icon } from '@iconify/react'
 import ThemeToggle from '@/components/ThemeToggle'
 import { apiService } from '@/lib/api'
@@ -19,7 +18,7 @@ const ICONS: Record<NavIcon, string> = {
 function NavItem({ href, icon, label, active }: { href: string; icon: NavIcon; label: string; active: boolean }) {
   return (
     <Link
-      href={href}
+      to={href}
       className="group relative flex h-11 items-center gap-3 rounded-full px-3 text-sm font-medium transition-[transform,background-color,color,box-shadow] duration-700 ease-[var(--motion)] active:scale-[0.985]"
       style={{
         background: active ? 'var(--sidebar-accent)' : 'transparent',
@@ -42,7 +41,7 @@ function NavItem({ href, icon, label, active }: { href: string; icon: NavIcon; l
 }
 
 const Sidebar = memo(function Sidebar() {
-  const router = useRouter()
+  const location = useLocation()
   const [mihomoAvailable, setMihomoAvailable] = useState<boolean | null>(null)
 
   useEffect(() => {
@@ -67,7 +66,7 @@ const Sidebar = memo(function Sidebar() {
         backdropFilter: 'blur(18px)',
       }}
     >
-      <Link href="/" className="mb-8 flex items-center gap-3">
+      <Link to="/" className="mb-8 flex items-center gap-3">
         <span
           className="grid h-10 w-10 place-items-center rounded-2xl border"
           style={{
@@ -91,7 +90,7 @@ const Sidebar = memo(function Sidebar() {
           <NavItem
             key={item.href}
             {...item}
-            active={router.pathname === item.href}
+            active={location.pathname === item.href}
           />
         ))}
       </nav>

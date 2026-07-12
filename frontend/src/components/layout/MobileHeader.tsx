@@ -1,4 +1,4 @@
-import { useRouter } from 'next/router'
+import { useLocation } from 'react-router-dom'
 import { Icon } from '@iconify/react'
 import ThemeToggle from '@/components/ThemeToggle'
 import { useAppContext } from '@/context/AppContext'
@@ -6,8 +6,8 @@ import { PAGE_TITLES } from './navigation'
 
 export default function MobileHeader() {
   const { setMobileDrawerOpen } = useAppContext()
-  const router = useRouter()
-  const title = PAGE_TITLES[router.pathname] ?? 'MioBridge'
+  const location = useLocation()
+  const title = PAGE_TITLES[location.pathname] ?? 'MioBridge'
 
   return (
     <header

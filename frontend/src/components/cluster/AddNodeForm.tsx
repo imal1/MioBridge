@@ -3,8 +3,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Icon } from '@iconify/react';
 import { apiService } from '@/lib/api';
-import type { KernelDetection } from '@/server/services/deployManager';
-import type { KernelType, NodeKernelConfig, SshAuthMethod } from '@/server/types';
+import type { KernelDetection } from '@/lib/types';
+import type { KernelType, NodeKernelConfig, SshAuthMethod } from '@/lib/types';
 import { KernelDetectionDialog } from './KernelDetectionDialog';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';

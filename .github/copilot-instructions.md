@@ -1,6 +1,6 @@
 # Copilot Instructions
 
-Use `AGENTS.md` as the source of truth for this repository.
+Use `AGENTS.md` as the source of truth for this repository. All project rules, architecture conventions, commands, and response style are defined there.
 
 Important current facts:
 

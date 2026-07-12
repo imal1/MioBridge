@@ -10,7 +10,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
-import type { NodeStatus } from '@/server/types';
+import type { NodeStatus } from '@/lib/types';
 import { KernelRuntimeDetails } from './KernelStatus';
 
 interface NodeDetailProps {

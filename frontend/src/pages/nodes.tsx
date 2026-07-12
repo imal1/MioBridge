@@ -1,10 +1,9 @@
-import type { GetServerSideProps } from 'next'
-import { useCallback, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Icon } from '@iconify/react'
 import { toast } from 'sonner'
 import { apiService } from '@/lib/api'
-import type { ClusterStatus, KernelType, NodeKernelConfig, NodeStatus } from '@/server/types'
-import type { KernelDetection } from '@/server/services/deployManager'
+import type { ClusterStatus, KernelType, NodeKernelConfig, NodeStatus } from '@/lib/types'
+import type { KernelDetection } from '@/lib/types'
 import { AddNodeForm } from '@/components/cluster/AddNodeForm'
 import { KernelDetectionDialog } from '@/components/cluster/KernelDetectionDialog'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
@@ -72,6 +71,15 @@ export default function NodesPage({ initialCluster, initialError }: NodesPagePro
   const [busyNode, setBusyNode] = useState<string | null>(null)
   const [kernelEditor, setKernelEditor] = useState<KernelEditorState | null>(null)
   const editLockRef = useRef(false)
+
+  useEffect(() => {
+    if (initialCluster) return
+    refresh().catch((err: unknown) => {
+      const message = err instanceof Error ? err.message : "加载失败"
+      setError(message)
+    })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   const refresh = useCallback(async () => {
     const result = await apiService.getClusterStatus()
@@ -322,14 +330,4 @@ export default function NodesPage({ initialCluster, initialError }: NodesPagePro
     </SignalPage>
     </TooltipProvider>
   )
-}
-
-export const getServerSideProps: GetServerSideProps<NodesPageProps> = async () => {
-  try {
-    const { NodeManager } = await import('@/server/services/nodeManager')
-    const cluster = await NodeManager.getInstance().getClusterStatus()
-    return { props: { initialCluster: JSON.parse(JSON.stringify(cluster)), initialError: null } }
-  } catch (error) {
-    return { props: { initialCluster: null, initialError: error instanceof Error ? error.message : '获取节点失败' } }
-  }
 }

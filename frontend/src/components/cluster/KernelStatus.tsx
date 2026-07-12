@@ -1,10 +1,5 @@
 import StatusBadge from '@/components/shared/StatusBadge'
-import {
-  KERNEL_TYPES,
-  type KernelRuntimeStatus,
-  type KernelType,
-  type NodeKernelConfig,
-} from '@/server/types'
+import { KERNEL_TYPES, type KernelRuntimeStatus, type KernelType, type NodeKernelConfig } from '@/lib/types'
 
 export const kernelLabels: Record<KernelType, string> = {
   'sing-box': 'Sing-Box',

@@ -1,6 +1,6 @@
 import { useState } from 'react';
-import type { KernelDetection } from '@/server/services/deployManager';
-import { KERNEL_TYPES, type KernelType, type NodeKernelConfig } from '@/server/types';
+import type { KernelDetection } from '@/lib/types';
+import { KERNEL_TYPES, type KernelType, type NodeKernelConfig } from '@/lib/types';
 import StatusBadge from '@/components/shared/StatusBadge';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';

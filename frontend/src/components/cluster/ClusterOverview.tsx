@@ -2,7 +2,7 @@
 
 import StatCard from '@/components/shared/StatCard';
 import SectionHeading from '@/components/shared/SectionHeading';
-import type { ClusterStatus } from '@/server/types';
+import type { ClusterStatus } from '@/lib/types';
 import { getKernelDisplayStatus } from './KernelStatus';
 
 interface ClusterOverviewProps {

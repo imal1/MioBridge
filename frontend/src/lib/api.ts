@@ -1,6 +1,5 @@
 import ky, { HTTPError } from 'ky';
-import type { KernelDetection } from '@/server/services/deployManager';
-import { KERNEL_TYPES, type KernelType, type NodeConfig, type NodeKernelConfig, type SshAuthMethod } from '@/server/types';
+import { KERNEL_TYPES, type KernelDetection, type KernelType, type NodeConfig, type NodeKernelConfig, type SshAuthMethod } from '@/lib/types';
 
 export type DetectKernelsPayload =
   | { nodeId: string }

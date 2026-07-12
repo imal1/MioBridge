@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { Icon } from '@iconify/react';
-import type { NodeStatus } from '@/server/types';
+import type { NodeStatus } from '@/lib/types';
 import { NodeDetail } from './NodeDetail';
 import { KernelStatusPills } from './KernelStatus';
 

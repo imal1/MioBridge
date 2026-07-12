@@ -1,6 +1,5 @@
-import Link from 'next/link'
-import { useRouter } from 'next/router'
 import { useEffect, useState } from 'react'
+import { Link, useLocation } from 'react-router-dom'
 import { createPortal } from 'react-dom'
 import { Icon } from '@iconify/react'
 import { useAppContext } from '@/context/AppContext'
@@ -19,12 +18,12 @@ const ICONS: Record<NavIcon, string> = {
 
 export default function MobileDrawer() {
   const { mobileDrawerOpen, setMobileDrawerOpen } = useAppContext()
-  const router = useRouter()
+  const location = useLocation()
 
   // Close on route change
   useEffect(() => {
     setMobileDrawerOpen(false)
-  }, [router.pathname, setMobileDrawerOpen])
+  }, [location.pathname, setMobileDrawerOpen])
 
   // Close on Escape
   useEffect(() => {
@@ -105,11 +104,11 @@ export default function MobileDrawer() {
         {/* Nav items */}
         <nav className="flex-1 py-3 space-y-0.5">
           {NAV_ITEMS.map(item => {
-            const isActive = router.pathname === item.href
+            const isActive = location.pathname === item.href
             return (
               <Link
                 key={item.href}
-                href={item.href}
+                to={item.href}
                 className="relative mx-2 flex items-center gap-3 rounded-full px-3 py-2.5 transition-[transform,background-color,color] duration-700 ease-[var(--motion)]"
                 style={{
                   backgroundColor: isActive ? 'var(--sidebar-accent)' : 'transparent',

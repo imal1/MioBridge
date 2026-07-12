@@ -2,7 +2,7 @@
 import React from 'react';
 import { fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
-import type { KernelDetection } from '@/server/services/deployManager';
+import type { KernelDetection } from '@/lib/types';
 
 const detections: KernelDetection[] = [
   { type: 'sing-box', installed: true, version: '1.11.0', defaultConfigPath: '/etc/sing-box/config.json' },
