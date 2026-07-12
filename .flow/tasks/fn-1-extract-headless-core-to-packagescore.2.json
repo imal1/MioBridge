@@ -1,0 +1,16 @@
+{
+  "assignee": null,
+  "claim_note": "",
+  "claimed_at": null,
+  "created_at": "2026-07-12T04:39:41.536986Z",
+  "depends_on": [
+    "fn-1-extract-headless-core-to-packagescore.1"
+  ],
+  "id": "fn-1-extract-headless-core-to-packagescore.2",
+  "priority": null,
+  "spec": "fn-1-extract-headless-core-to-packagescore",
+  "spec_path": ".flow/tasks/fn-1-extract-headless-core-to-packagescore.2.md",
+  "status": "todo",
+  "title": "Extract runtime paths, configuration, and state stores",
+  "updated_at": "2026-07-12T04:40:55.963624Z"
+}

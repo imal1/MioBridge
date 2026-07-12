@@ -1,0 +1,17 @@
+{
+  "assignee": null,
+  "claim_note": "",
+  "claimed_at": null,
+  "created_at": "2026-07-12T04:39:42.506779Z",
+  "depends_on": [
+    "fn-1-extract-headless-core-to-packagescore.3",
+    "fn-1-extract-headless-core-to-packagescore.4"
+  ],
+  "id": "fn-1-extract-headless-core-to-packagescore.5",
+  "priority": null,
+  "spec": "fn-1-extract-headless-core-to-packagescore",
+  "spec_path": ".flow/tasks/fn-1-extract-headless-core-to-packagescore.5.md",
+  "status": "todo",
+  "title": "Build artifact services and MioBridgeCore facade",
+  "updated_at": "2026-07-12T04:40:56.895226Z"
+}

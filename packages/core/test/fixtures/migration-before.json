@@ -1,0 +1,30 @@
+{
+  "schemaVersion": 1,
+  "sourceNormalization": {
+    "orderedInput": [
+      { "url": "vless://id-a@a.example:443#node", "kernel": "sing-box", "nodeId": "local", "location": "香港" },
+      { "url": "vless://id-a@a.example:443#node", "kernel": "xray", "nodeId": "duplicate", "location": "新加坡" },
+      { "url": "vless://id-b@b.example:443#node", "kernel": "xray", "nodeId": "remote", "location": "香港" }
+    ],
+    "deduplicatedNodeIds": ["local", "remote"],
+    "clashNames": [
+      "香港 node [vless://id-a@a.example:443#node]",
+      "香港 node [vless://id-b@b.example:443#node]"
+    ]
+  },
+  "artifacts": {
+    "raw": "vless://id@local.example:443#local\ntrojan://secret@remote.example:443#remote",
+    "subscriptionUtf8": "vless://id@local.example:443#local\ntrojan://secret@remote.example:443#remote",
+    "clash": "proxies:\n  - name: usable\n"
+  },
+  "failureContracts": {
+    "partial": { "success": true, "clashGenerated": true, "preserveUsableSources": true, "returnsWarnings": true },
+    "converterUnavailable": { "success": true, "clashGenerated": false, "rawWrittenFirst": true, "subscriptionWrittenFirst": true },
+    "total": { "rejects": true, "replacementAllowed": false, "message": "没有找到有效的代理URL" }
+  },
+  "status": {
+    "fields": ["status", "lastUpdate", "proxyCount", "clashAvailable", "singBoxAvailable", "mihomoVersion"],
+    "offlineNode": { "status": "offline", "proxyCount": 0, "sources": [] }
+  },
+  "hmacErrors": ["missing signature", "invalid signature", "expired timestamp", "invalid response", "timeout"]
+}
