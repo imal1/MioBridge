@@ -4,7 +4,8 @@ satisfies: [R3, R6, R7]
 
 ## Description
 
-Extract domain primitives, `RuntimePaths`, the side-effect-free logger contract, YAML/config services, and file/Redis StateStore implementations into core while preserving every existing path, environment, key, and serialized-data contract.
+Extract domain primitives, `RuntimePaths`, YAML/config services, and file/Redis StateStore implementations into core while preserving every existing path, environment, key, and serialized-data contract. Use the side-effect-free `CoreLogger` contract already exported by `@miobridge/core`.
+<!-- Updated by plan-sync: fn-1-extract-headless-core-to-packagescore.1 established CoreLogger in the compiled package seam -->
 
 **Size:** M
 **Files:** `packages/core/src/runtime/**`, `packages/core/src/config/**`, `packages/core/src/state/**`, `packages/core/src/types/**`, `packages/core/test/**`
@@ -14,7 +15,7 @@ Extract domain primitives, `RuntimePaths`, the side-effect-free logger contract,
 - Resolve runtime paths at instance creation through an injected policy; never cache cwd or environment-derived paths at module scope.
 - Preserve existing config defaults, YAML shapes, Redis environment names/key namespace, file locking, and trailing-separator containment behavior.
 - Keep Vercel `/tmp` selection in a frontend-supplied policy rather than embedding platform behavior in core.
-- Keep logger creation free of filesystem writes; frontend owns Winston/file transports.
+- Keep logger creation free of filesystem writes; implement against the existing `CoreLogger` port while frontend owns Winston/file transports.
 
 ## Investigation targets
 
@@ -41,9 +42,8 @@ Repository `bin/` is a development fallback based on an explicit application roo
 - [ ] Tests cover external cwd, trailing separators, traversal, explicit Vercel policy injection, and isolated `MIOBRIDGE_CONFIG_DIR` instances.
 
 ## Done summary
-TBD
-
+Extracted instance-scoped runtime paths, side-effect-free YAML/config services, and compatible file/Redis state stores into @miobridge/core with explicit platform policy injection and containment coverage.
 ## Evidence
 - Commits:
-- Tests:
+- Tests: bun run core:test (11 passed), bun run core:typecheck (passed), git diff --check (passed)
 - PRs:

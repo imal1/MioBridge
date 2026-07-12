@@ -4,7 +4,8 @@ satisfies: [R1, R4, R6, R7]
 
 ## Description
 
-Extract artifact generation, update/status behavior, backup handling, and version metadata into core and expose them through the `MioBridgeCore` composition root plus only the focused public services consumers require.
+Extract artifact generation, update/status behavior, backup handling, and version metadata into core and expose them through the `MioBridgeCore` composition root plus only the focused public services consumers require. Extend the existing explicit root export while preserving the compiled ESM `dist` package contract.
+<!-- Updated by plan-sync: fn-1-extract-headless-core-to-packagescore.1 selected explicit compiled ESM dist exports -->
 
 **Size:** M
 **Files:** `packages/core/src/artifacts/**`, `packages/core/src/status/**`, `packages/core/src/mioBridgeCore.ts`, `packages/core/src/index.ts`, `packages/core/test/**`
@@ -14,7 +15,7 @@ Extract artifact generation, update/status behavior, backup handling, and versio
 - Inject local/kernel sources, `RemoteSourceCollector`, runtime paths, state, logger, clock/process, and version metadata at composition time.
 - Preserve main-node artifact ownership, exact byte generation, warnings/partial-success rules, total-failure no-replacement, backups, and status fields.
 - Remove the dynamic `MioBridgeService`/`NodeManager` cycle and the core-to-frontend package metadata dependency.
-- Validate the public API from external-cwd Bun and compiled Node smoke scripts.
+- Build before validating the public API from external-cwd Bun and compiled Node smoke scripts; consumers must import `@miobridge/core`, never `packages/core/src`.
 
 ## Investigation targets
 

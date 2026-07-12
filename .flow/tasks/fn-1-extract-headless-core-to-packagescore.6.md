@@ -13,7 +13,8 @@ Cut Next API routes, SSR loaders, and Node instrumentation over to `@miobridge/c
 
 - Inventory server consumers and classify them as core, Next boundary, or frontend operations before changing imports.
 - SSR continues to call services directly; API routes remain thin; Node-only initialization stays behind the existing runtime guard.
-- Add `transpilePackages` or tracing configuration only if the package-consumption decision and clean build demonstrate it is required.
+- Consume the compiled ESM `dist` export selected in task .1. The baseline production Next build passed without `transpilePackages`; add transpilation or tracing changes only if the extracted runtime implementation later proves they are required.
+<!-- Updated by plan-sync: fn-1-extract-headless-core-to-packagescore.1 proved compiled dist consumption without transpilePackages -->
 - Keep type-only browser imports separated and scan client output for Node/core runtime leakage.
 
 ## Investigation targets

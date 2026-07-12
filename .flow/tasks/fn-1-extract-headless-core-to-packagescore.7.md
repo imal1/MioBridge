@@ -11,7 +11,8 @@ Finish the extraction by wiring core gates into CI and contributor commands, ver
 
 ## Approach
 
-- Make root/CI commands execute core tests and typecheck in addition to existing frontend and Agent gates.
+- Integrate the existing root `core:test`, `core:typecheck`, and `core:build` commands from task .1 into CI and aggregate gates alongside existing frontend and Agent checks.
+<!-- Updated by plan-sync: fn-1-extract-headless-core-to-packagescore.1 already wired the independent root core commands -->
 - Perform a clean build, verify traced core/assets and copied `.next/static`/`public`, start the standalone server, and request all four compatibility URLs.
 - Update documentation only after final command and package shapes are known.
 - Record the new canonical boundary and remove the stale convention that sends business logic to `frontend/src/server`.
