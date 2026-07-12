@@ -31,9 +31,8 @@ Create `packages/cli` with a testable command dispatcher, Node composition root 
 - [ ] Parsing, help/version, stdout/stderr, JSON purity, and exit codes are covered.
 
 ## Done summary
-TBD
-
+Added the independent `@miobridge/cli` package with a public-core-only Node composition root and testable `update`, `status`, help, and version command contracts. External-cwd tests verify headless operation, JSON purity, deterministic exits, and confinement of generated state to the injected runtime base directory.
 ## Evidence
-- Commits:
-- Tests:
+- Commits: a8c5e325289f57a755e56a7892891bcaad655fbb
+- Tests: bun run cli:test && bun run cli:typecheck && bun run cli:build, bun run core:test && bun run lint && bun run typecheck && bun run build, cd agent && bun test, .flow/bin/flowctl validate --spec fn-2-miobridge-cli-with-guided-linux-install --json, git diff --check
 - PRs:
