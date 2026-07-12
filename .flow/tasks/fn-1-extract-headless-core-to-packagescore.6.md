@@ -19,6 +19,8 @@ Cut Next API routes, SSR loaders, and Node instrumentation over to `@miobridge/c
 <!-- Updated by plan-sync: fn-1-extract-headless-core-to-packagescore.3 used injected adapter classes instead of compatibility singletons -->
 - Cut node consumers over to the exported `AgentClient`, `NodeRepository`, and `NodeAggregationService`. Preserve `NodeOperationsAdapter` as a real frontend implementation for deploy callbacks/SSH operations, and retire duplicated Agent HMAC, registry parsing, and aggregation logic from the legacy `NodeManager` path.
 <!-- Updated by plan-sync: fn-1-extract-headless-core-to-packagescore.4 established core node services plus the frontend operations seam -->
+- Build the frontend composition adapter with `new MioBridgeCore({ paths, state, logger, metadata, local, remote, mihomo })`: `SingBoxAdapter` satisfies `LocalSourceCollector`, `NodeAggregationService` satisfies `RemoteSourceCollector`, and `MihomoAdapter` supplies conversion, health, and version methods. Route update/status consumers through `core.updateSubscription()` and `core.getStatus()`; focused file consumers may use `core.artifacts.getFileContent()`.
+<!-- Updated by plan-sync: fn-1-extract-headless-core-to-packagescore.5 exposed injected facade members and structural collector ports -->
 - Consume the compiled ESM `dist` export selected in task .1. The baseline production Next build passed without `transpilePackages`; add transpilation or tracing changes only if the extracted runtime implementation later proves they are required.
 <!-- Updated by plan-sync: fn-1-extract-headless-core-to-packagescore.1 proved compiled dist consumption without transpilePackages -->
 - Keep type-only browser imports separated and scan client output for Node/core runtime leakage.
@@ -29,6 +31,7 @@ Cut Next API routes, SSR loaders, and Node instrumentation over to `@miobridge/c
 - `frontend/src/instrumentation.ts:1-7` — required Node runtime guard.
 - `frontend/src/instrumentation-node.ts` — scheduler/service composition consumer.
 - `frontend/src/pages/api/update.ts` — thin core update route.
+- `packages/core/src/mioBridgeCore.ts` — actual facade constructor and public `config`, `state`, `artifacts`, and `status` members.
 - `frontend/src/pages/api/cluster/status.ts` — node aggregation route.
 - `frontend/src/server/services/nodeOperationsAdapter.ts` — frontend-owned deploy callback seam that must remain outside core.
 - `frontend/src/pages/index.tsx` — SSR direct-service consumer.
@@ -45,9 +48,8 @@ Cut Next API routes, SSR loaders, and Node instrumentation over to `@miobridge/c
 - [ ] Existing frontend API, SSR, deployment, and server tests pass after cutover with no duplicate active core implementation.
 
 ## Done summary
-TBD
-
+Cut Next API routes, SSR loaders, and Node instrumentation over to the injected @miobridge/core composition root; retained frontend deployment/SSH operations and converted legacy source/kernel modules to deprecated re-export shims.
 ## Evidence
 - Commits:
-- Tests:
+- Tests: bun run --cwd frontend test --run (324 passed), bun run lint, bun run typecheck, bun run core:test (26 passed), bun run build, client bundle scan (no @miobridge/core or Node runtime markers)
 - PRs:

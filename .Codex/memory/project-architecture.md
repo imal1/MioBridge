@@ -27,3 +27,6 @@ metadata:
 - `@miobridge/core` composes artifact generation and status through the explicit
   `MioBridgeCore` facade; runtime paths, state, kernels, metadata, clock, and
   source collectors are injected without frontend imports or module singletons.
+## 2026-07-12 — Frontend core composition
+
+- `frontend/src/server/core.ts` is the Node-only composition adapter for `@miobridge/core`; API routes and SSR consume its `MioBridgeCore`/node aggregation instances, while deployment and SSH lifecycle behavior remains frontend-owned.

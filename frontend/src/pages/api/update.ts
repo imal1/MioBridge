@@ -1,5 +1,5 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
-import { MioBridgeService } from '@/server/services/mioBridgeService';
+import { mioBridgeCore } from '@/server/core';
 import { hmacVerify } from '@/server/middleware/hmac';
 import { logger } from '@/server/utils/logger';
 import type { ApiResponse } from '@/server/types';
@@ -25,7 +25,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
   }
 
   try {
-    const result = await MioBridgeService.getInstance().updateSubscription();
+    const result = await mioBridgeCore.updateSubscription();
     res.json({ success: true, data: result, message: '订阅更新成功', timestamp: new Date().toISOString() });
   } catch (error: any) {
     logger.error('更新订阅API错误:', error);

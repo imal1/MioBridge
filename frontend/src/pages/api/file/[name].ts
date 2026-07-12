@@ -1,5 +1,5 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
-import { MioBridgeService } from '@/server/services/mioBridgeService';
+import { mioBridgeCore } from '@/server/core';
 import { config as appConfig } from '@/server/config';
 import { logger } from '@/server/utils/logger';
 
@@ -20,7 +20,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   }
 
   try {
-    const content = await MioBridgeService.getInstance().getFileContent(entry.filename);
+    const content = await mioBridgeCore.artifacts.getFileContent(entry.filename);
     res.setHeader('Content-Type', entry.contentType);
     res.setHeader('Content-Disposition', `attachment; filename="${entry.filename}"`);
     res.send(content);

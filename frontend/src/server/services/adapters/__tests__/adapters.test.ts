@@ -7,6 +7,22 @@ import { XrayAdapter } from '../xrayAdapter';
 import { V2rayAdapter } from '../v2rayAdapter';
 import type { KernelAdapter } from '../kernelAdapter';
 
+const logger = { debug() {}, info() {}, warn() {}, error() {} };
+const fileSystem = {
+  exists: async () => false,
+  mkdir: async () => {},
+  readFile: async () => '{}',
+  writeFile: async () => {},
+  remove: async () => {},
+};
+const processRunner = {
+  run: async () => ({ stdout: '', stderr: '' }),
+  which: async () => null,
+};
+const singBox = () => new SingBoxAdapter({ process: processRunner, logger, configs: [], requestTimeout: 1000 });
+const xray = () => new XrayAdapter(fileSystem, logger);
+const v2ray = () => new V2rayAdapter(fileSystem, logger);
+
 describe('Task 2: Kernel Adapters', () => {
   describe('kernelAdapter type re-export', () => {
     it('should have re-exported KernelAdapter and KernelType at type level', async () => {
@@ -21,19 +37,19 @@ describe('Task 2: Kernel Adapters', () => {
 
   describe('SingBoxAdapter', () => {
     it('should implement KernelAdapter interface', () => {
-      const adapter = new SingBoxAdapter();
+      const adapter = singBox();
       // Type check: adapter satisfies KernelAdapter
       const typed: KernelAdapter = adapter;
       expect(typed.type).toBe('sing-box');
     });
 
     it('should have type "sing-box"', () => {
-      const adapter = new SingBoxAdapter();
+      const adapter = singBox();
       expect(adapter.type).toBe('sing-box');
     });
 
     it('should return config paths array', async () => {
-      const adapter = new SingBoxAdapter();
+      const adapter = singBox();
       const paths = await adapter.getConfigPaths();
       expect(Array.isArray(paths)).toBe(true);
       expect(paths.length).toBeGreaterThan(0);
@@ -41,13 +57,13 @@ describe('Task 2: Kernel Adapters', () => {
     });
 
     it('should return node URLs array from extractNodeUrls', async () => {
-      const adapter = new SingBoxAdapter();
+      const adapter = singBox();
       const urls = await adapter.extractNodeUrls();
       expect(Array.isArray(urls)).toBe(true);
     });
 
     it('should report availability via isAvailable', async () => {
-      const adapter = new SingBoxAdapter();
+      const adapter = singBox();
       const available = await adapter.isAvailable();
       expect(typeof available).toBe('boolean');
     });
@@ -55,18 +71,18 @@ describe('Task 2: Kernel Adapters', () => {
 
   describe('XrayAdapter', () => {
     it('should implement KernelAdapter interface', () => {
-      const adapter = new XrayAdapter();
+      const adapter = xray();
       const typed: KernelAdapter = adapter;
       expect(typed.type).toBe('xray');
     });
 
     it('should have type "xray"', () => {
-      const adapter = new XrayAdapter();
+      const adapter = xray();
       expect(adapter.type).toBe('xray');
     });
 
     it('should return config paths array', async () => {
-      const adapter = new XrayAdapter();
+      const adapter = xray();
       const paths = await adapter.getConfigPaths();
       expect(Array.isArray(paths)).toBe(true);
       expect(paths.length).toBeGreaterThan(0);
@@ -74,13 +90,13 @@ describe('Task 2: Kernel Adapters', () => {
     });
 
     it('should return node URLs array from extractNodeUrls', async () => {
-      const adapter = new XrayAdapter();
+      const adapter = xray();
       const urls = await adapter.extractNodeUrls();
       expect(Array.isArray(urls)).toBe(true);
     });
 
     it('should report availability via isAvailable', async () => {
-      const adapter = new XrayAdapter();
+      const adapter = xray();
       const available = await adapter.isAvailable();
       expect(typeof available).toBe('boolean');
     });
@@ -88,18 +104,18 @@ describe('Task 2: Kernel Adapters', () => {
 
   describe('V2rayAdapter', () => {
     it('should implement KernelAdapter interface', () => {
-      const adapter = new V2rayAdapter();
+      const adapter = v2ray();
       const typed: KernelAdapter = adapter;
       expect(typed.type).toBe('v2ray');
     });
 
     it('should have type "v2ray"', () => {
-      const adapter = new V2rayAdapter();
+      const adapter = v2ray();
       expect(adapter.type).toBe('v2ray');
     });
 
     it('should return config paths array', async () => {
-      const adapter = new V2rayAdapter();
+      const adapter = v2ray();
       const paths = await adapter.getConfigPaths();
       expect(Array.isArray(paths)).toBe(true);
       expect(paths.length).toBeGreaterThan(0);
@@ -107,13 +123,13 @@ describe('Task 2: Kernel Adapters', () => {
     });
 
     it('should return node URLs array from extractNodeUrls', async () => {
-      const adapter = new V2rayAdapter();
+      const adapter = v2ray();
       const urls = await adapter.extractNodeUrls();
       expect(Array.isArray(urls)).toBe(true);
     });
 
     it('should report availability via isAvailable', async () => {
-      const adapter = new V2rayAdapter();
+      const adapter = v2ray();
       const available = await adapter.isAvailable();
       expect(typeof available).toBe('boolean');
     });

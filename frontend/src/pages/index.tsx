@@ -33,11 +33,10 @@ export default function Home({ initialCluster, initialStatus, initialError }: Ho
 // 服务端渲染：同进程内直接调用服务，不自调用 HTTP
 export const getServerSideProps: GetServerSideProps<HomeProps> = async () => {
   try {
-    const { NodeManager } = await import('@/server/services/nodeManager')
-    const { MioBridgeService } = await import('@/server/services/mioBridgeService')
+    const { mioBridgeCore, nodeAggregation } = await import('@/server/core')
     const [cluster, status] = await Promise.all([
-      NodeManager.getInstance().getClusterStatus(),
-      MioBridgeService.getInstance().getStatus(),
+      nodeAggregation.getClusterStatus(),
+      mioBridgeCore.getStatus(),
     ])
     return {
       props: {

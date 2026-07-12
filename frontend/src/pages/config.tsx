@@ -182,12 +182,11 @@ export default function ConfigPage({ initialStatus, initialCluster, initialConfi
 
 export const getServerSideProps: GetServerSideProps<ConfigPageProps> = async () => {
   try {
-    const { MioBridgeService } = await import('@/server/services/mioBridgeService')
-    const { NodeManager } = await import('@/server/services/nodeManager')
+    const { mioBridgeCore, nodeAggregation } = await import('@/server/core')
     const { config, getFrontendConfig } = await import('@/server/config')
     const [status, cluster] = await Promise.all([
-      MioBridgeService.getInstance().getStatus(),
-      NodeManager.getInstance().getClusterStatus(),
+      mioBridgeCore.getStatus(),
+      nodeAggregation.getClusterStatus(),
     ])
     return {
       props: {

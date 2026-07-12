@@ -1,27 +1,23 @@
 // 实际的服务端初始化逻辑（仅 Node runtime 加载）。
 // 承担原 Express App.initialize() 的职责：初始化目录、健康检查、注册 cron 定时更新。
 import cron from 'node-cron'
+import * as fs from 'fs-extra'
 import { config } from '@/server/config'
+import { corePaths, mihomoAdapter, mioBridgeCore, singBoxAdapter } from '@/server/core'
 import { logger } from '@/server/utils/logger'
-import { MioBridgeService } from '@/server/services/mioBridgeService'
-import { MihomoService } from '@/server/services/mihomoService'
-import { SingBoxService } from '@/server/services/singBoxService'
 import { NodeManager } from '@/server/services/nodeManager'
-
-const mioBridgeService = MioBridgeService.getInstance()
 
 async function initialize() {
   try {
     logger.info('🚀 Next 服务端启动初始化...')
 
-    await mioBridgeService.ensureDirectories()
+    await Promise.all([corePaths.dataDir, corePaths.logDir, corePaths.backupDir].map(directory => fs.ensureDir(directory)))
     logger.info('✅ 目录初始化完成')
 
     // Mihomo 状态检查（非阻塞）
     try {
-      const mihomoService = MihomoService.getInstance()
-      if (await mihomoService.checkHealth()) {
-        const version = await mihomoService.getVersion()
+      if (await mihomoAdapter.checkHealth()) {
+        const version = await mihomoAdapter.getVersion()
         logger.info(`✅ Mihomo 可用 (版本: ${version?.version || 'unknown'})`)
       } else {
         logger.warn('⚠️  Mihomo 不可用，将在首次使用时检查')
@@ -32,7 +28,7 @@ async function initialize() {
 
     // Sing-box 状态检查（非阻塞）
     try {
-      const singBoxAvailable = await SingBoxService.getInstance().checkSingBoxAvailable()
+      const singBoxAvailable = await singBoxAdapter.isAvailable()
       logger.info(singBoxAvailable ? '✅ Sing-box 可用' : '⚠️  Sing-box 不可用')
     } catch (error: any) {
       logger.warn('⚠️  Sing-box 检查失败:', error?.message)
@@ -55,7 +51,7 @@ async function initialize() {
         async () => {
           logger.info('执行定时更新订阅...')
           try {
-            const result = await mioBridgeService.updateSubscription()
+            const result = await mioBridgeCore.updateSubscription()
             logger.info(`定时更新完成: ${result.nodesCount} 个节点`)
           } catch (error: any) {
             logger.error('定时更新失败:', error)

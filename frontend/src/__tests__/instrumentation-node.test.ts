@@ -38,30 +38,13 @@ vi.mock('@/server/services/nodeManager', () => ({
   },
 }));
 
-vi.mock('@/server/services/mioBridgeService', () => ({
-  MioBridgeService: {
-    getInstance: vi.fn(() => ({
-      ensureDirectories: mockEnsureDirectories,
-      updateSubscription: mockUpdateSubscription,
-    })),
-  },
-}));
+vi.mock('fs-extra', () => ({ ensureDir: mockEnsureDirectories }));
 
-vi.mock('@/server/services/mihomoService', () => ({
-  MihomoService: {
-    getInstance: vi.fn(() => ({
-      checkHealth: mockCheckHealth,
-      getVersion: mockGetVersion,
-    })),
-  },
-}));
-
-vi.mock('@/server/services/singBoxService', () => ({
-  SingBoxService: {
-    getInstance: vi.fn(() => ({
-      checkSingBoxAvailable: mockCheckSingBox,
-    })),
-  },
+vi.mock('@/server/core', () => ({
+  corePaths: { dataDir: '/tmp/data', logDir: '/tmp/log', backupDir: '/tmp/backup' },
+  mioBridgeCore: { updateSubscription: mockUpdateSubscription },
+  mihomoAdapter: { checkHealth: mockCheckHealth, getVersion: mockGetVersion },
+  singBoxAdapter: { isAvailable: mockCheckSingBox },
 }));
 
 vi.mock('@/server/config', () => ({

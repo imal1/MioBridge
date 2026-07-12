@@ -1,5 +1,5 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
-import { NodeManager } from '@/server/services/nodeManager';
+import { nodeAggregation } from '@/server/core';
 import type { ApiResponse } from '@/server/types';
 
 export default async function handler(
@@ -7,7 +7,7 @@ export default async function handler(
   res: NextApiResponse<ApiResponse>,
 ) {
   try {
-    const clusterStatus = await NodeManager.getInstance().getClusterStatus();
+    const clusterStatus = await nodeAggregation.getClusterStatus();
     res.json({
       success: true,
       data: clusterStatus,

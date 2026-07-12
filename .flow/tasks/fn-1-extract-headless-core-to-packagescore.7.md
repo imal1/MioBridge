@@ -14,6 +14,8 @@ Finish the extraction by wiring core gates into CI and contributor commands, ver
 - Integrate the existing root `core:test`, `core:typecheck`, and `core:build` commands from task .1 into CI and aggregate gates alongside existing frontend and Agent checks.
 <!-- Updated by plan-sync: fn-1-extract-headless-core-to-packagescore.1 already wired the independent root core commands -->
 - Perform a clean build, verify traced core/assets and copied `.next/static`/`public`, start the standalone server, and request all four compatibility URLs.
+- Treat `core:test` as the headless package gate: it builds compiled ESM first and includes external-cwd Bun and Node facade smoke coverage for config, generation, update, and status. Keep the standalone HTTP verification as the frontend integration gate.
+<!-- Updated by plan-sync: fn-1-extract-headless-core-to-packagescore.5 added compiled external-runtime facade coverage -->
 - Update documentation only after final command and package shapes are known.
 - Document the focused node boundary: Agent HTTP/HMAC, node repository, and aggregation are core APIs, while `NodeOperationsAdapter` and SSH/deployment lifecycle remain frontend-owned.
 <!-- Updated by plan-sync: fn-1-extract-headless-core-to-packagescore.4 split node runtime and operations ownership -->
