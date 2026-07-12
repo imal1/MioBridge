@@ -27,9 +27,15 @@ Current PR gate:
 
 ```bash
 bun run lint
-cd frontend && bunx tsc --noEmit
+bun run core:typecheck
+bun run core:test
+bun run typecheck
+cd frontend && bun run test
+cd ../agent && bun test
+cd ..
 bun run build
 ```
 
-The root `package.json` exposes `bun run typecheck` as a convenience wrapper
-for the frontend command.
+The build gate also checks the traced core package and static assets, rejects
+Node/core markers in client chunks, starts the standalone server, and requests
+all four public compatibility URLs.

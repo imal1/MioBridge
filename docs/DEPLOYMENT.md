@@ -4,7 +4,8 @@ Production runs on Vercel at `https://miobridge.vercel.app/`.
 
 ## Runtime
 
-- App: Next.js Pages Router service under `frontend/`
+- App: Next.js Pages Router service under `frontend/`, composing the traced
+  `@miobridge/core` workspace package on the server only
 - Runtime: Vercel Node.js functions
 - Project link: `.vercel/project.json`
 - Public health check: `https://miobridge.vercel.app/api/health`
@@ -30,6 +31,8 @@ secrets or a Vercel CLI token.
 ```bash
 bun install
 bun run lint
+bun run core:typecheck
+bun run core:test
 bun run typecheck
 bun run build
 ```

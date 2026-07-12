@@ -6,9 +6,10 @@
 > V2Ray 节点源聚合为 Clash 兼容输出，并提供 SSR 仪表盘、远程 Agent
 > 支持和 Vercel 生产部署流程。
 
-MioBridge 是一个单体 Next.js 全栈服务。仪表盘、API 路由、定时任务和后端
-转换服务都位于 `frontend/`。生产环境直接运行 Next standalone 输出，不需要
-单独的 Express 服务。
+MioBridge 以单个 Next.js 全栈服务部署。与框架无关的 Node 后端位于私有 Bun
+workspace 包 `@miobridge/core`；仪表盘、轻量 API/SSR 边界、定时任务、日志和
+SSH/部署适配器位于 `frontend/`。生产环境直接运行 Next standalone 输出，
+不需要单独的 Express 服务。
 
 ## 功能亮点
 
@@ -68,6 +69,8 @@ bun run start
 
 ```bash
 bun run lint
+bun run core:test
+bun run core:typecheck
 bun run typecheck
 bun run build
 cd frontend && bun run test
@@ -127,14 +130,19 @@ routes 内部。
 ```text
 frontend/
   src/pages/                 Next 页面和 API routes
-  src/server/                与框架无关的后端服务
+  src/server/                Next 组合层与运维适配器
   src/components/            仪表盘 UI
   next.config.js             standalone 输出和 rewrites
+packages/core/               无头配置、状态、转换、产物与节点服务
 agent/                       远程节点 Agent
 scripts/                     安装、管理和部署脚本
 docs/                        部署和运维文档
 .github/workflows/           CI/CD 工作流
 ```
+
+`MioBridgeCore` 是无头组合 facade。Agent HTTP/HMAC 访问、节点仓库和节点聚合
+属于 core API；SSH、远程安装、systemd 修改、部署回调和仪表盘生命周期仍由
+frontend 运维适配器负责。
 
 ## 部署
 

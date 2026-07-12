@@ -48,12 +48,42 @@ jobs:
       - name: Install dependencies
         run: bun install
 
-      - name: Run TypeScript compiler
-        run: cd frontend && bunx tsc --noEmit
+      - name: Type-check core
+        run: bun run core:typecheck
+
+      - name: Type-check frontend
+        run: bun run typecheck
+
+  test:
+    name: Tests (core, frontend, Agent)
+    needs: lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.0.30
+
+      - name: Install dependencies
+        run: bun install
+
+      - name: Test core
+        run: bun run core:test
+
+      - name: Test frontend
+        run: bun run --cwd frontend test
+
+      - name: Test Agent
+        run: bun run --cwd agent test
 
   build:
     name: Build (Next.js standalone)
-    needs: typecheck
+    needs: [typecheck, test]
     runs-on: ubuntu-latest
     timeout-minutes: 10
 
@@ -77,12 +107,37 @@ jobs:
       - name: Build
         run: bun run build
 
-      - name: Verify standalone output
+      - name: Verify standalone trace and browser boundary
         run: |
           set -euo pipefail
           STANDALONE=frontend/.next/standalone
-          if [ ! -f "$STANDALONE/frontend/server.js" ]; then
-            echo "❌ missing $STANDALONE/frontend/server.js"
+          test -f "$STANDALONE/frontend/server.js"
+          test -f "$STANDALONE/packages/core/dist/index.js"
+          test -d "$STANDALONE/frontend/.next/static"
+          if rg -l '@miobridge/core|MioBridgeCore|node:fs|node:child_process' frontend/.next/static; then
+            echo "Node-only core marker found in a client bundle" >&2
             exit 1
           fi
-          echo "✅ standalone build verified"
+
+      - name: Smoke-test standalone compatibility URLs
+        run: |
+          set -euo pipefail
+          export MIOBRIDGE_CONFIG_DIR="$RUNNER_TEMP/miobridge"
+          export PORT=3101
+          export HOSTNAME=127.0.0.1
+          export NODE_ENV=production
+          mkdir -p "$MIOBRIDGE_CONFIG_DIR/www"
+          printf 'vless://standalone-smoke\n' > "$MIOBRIDGE_CONFIG_DIR/www/raw.txt"
+          printf 'dmxlc3M6Ly9zdGFuZGFsb25lLXNtb2tlCg==\n' > "$MIOBRIDGE_CONFIG_DIR/www/subscription.txt"
+          printf 'proxies: []\n' > "$MIOBRIDGE_CONFIG_DIR/www/clash.yaml"
+          node frontend/.next/standalone/frontend/server.js > "$RUNNER_TEMP/standalone.log" 2>&1 &
+          server_pid=$!
+          trap 'kill "$server_pid" 2>/dev/null || true; cat "$RUNNER_TEMP/standalone.log"' EXIT
+          for attempt in {1..30}; do
+            curl -fsS "http://127.0.0.1:$PORT/health" >/dev/null && break
+            if [[ "$attempt" == 30 ]]; then exit 1; fi
+            sleep 1
+          done
+          for path in subscription.txt clash.yaml raw.txt health; do
+            curl -fsS "http://127.0.0.1:$PORT/$path" >/dev/null
+          done

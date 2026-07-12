@@ -8,7 +8,9 @@ metadata:
 # Coding Conventions
 
 - Prefer existing service and UI patterns.
-- Keep API routes thin; put business logic in `frontend/src/server/**`.
+- Keep API routes thin. Put framework-independent business logic in
+  `packages/core`; keep Next composition, logging, SSH/deployment, and dashboard
+  lifecycle adapters in `frontend/src/server/**`.
 - Keep Markdown short. Move only durable, current facts into memory files.
-- Run `bun run lint`, `bun run typecheck`, and relevant tests before handoff
-  when code changes warrant it.
+- Run `bun run lint`, both workspace typechecks, and relevant core/frontend/Agent
+  tests before handoff when code changes warrant it.

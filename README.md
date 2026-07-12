@@ -7,10 +7,11 @@
 > Clash-compatible outputs with an SSR dashboard, remote Agent support, and
 > Vercel production deployment.
 
-MioBridge is a single Next.js full-stack service. The dashboard, API routes,
-scheduled jobs, and backend conversion services all live under `frontend/`.
-Production runs the Next standalone output directly, with no separate Express
-server.
+MioBridge deploys as a single Next.js full-stack service. Its framework-independent
+Node backend is the private Bun workspace package `@miobridge/core`; the dashboard,
+thin API/SSR boundaries, scheduled jobs, logging, and SSH/deployment adapters live
+under `frontend/`. Production runs the Next standalone output directly, with no
+separate Express server.
 
 ## Highlights
 
@@ -70,6 +71,8 @@ Runtime config and generated files live outside the repository:
 
 ```bash
 bun run lint
+bun run core:test
+bun run core:typecheck
 bun run typecheck
 bun run build
 cd frontend && bun run test
@@ -134,14 +137,20 @@ while implementation remains inside API routes.
 ```text
 frontend/
   src/pages/                 Next pages and API routes
-  src/server/                framework-independent backend services
+  src/server/                Next composition and operations adapters
   src/components/            dashboard UI
   next.config.js             standalone output and rewrites
+packages/core/               headless config, state, conversion, artifacts, nodes
 agent/                       remote node Agent
 scripts/                     install, manage, and deploy helpers
 docs/                        deployment and operations documentation
 .github/workflows/           CI/CD workflows
 ```
+
+`MioBridgeCore` is the headless composition facade. Agent HTTP/HMAC access, the
+node repository, and node aggregation are core APIs. SSH, remote installation,
+systemd changes, deployment callbacks, and dashboard lifecycle remain
+frontend-owned operations.
 
 ## Deployment
 

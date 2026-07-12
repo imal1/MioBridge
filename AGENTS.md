@@ -10,8 +10,10 @@ SSR, and `output: 'standalone'`. There is no separate Express server.
 
 ## Architecture Rules
 
-- Backend logic lives in `frontend/src/server/**` and is framework-independent.
-  Use `XxxService.getInstance()` and expose new behavior through thin API routes.
+- Framework-independent backend logic lives in `packages/core`; expose it through
+  explicit `@miobridge/core` exports and the `MioBridgeCore` facade.
+- `frontend/src/server/**` owns the Node composition root plus Next, logging,
+  SSH/deployment, and dashboard lifecycle adapters. Keep API routes thin.
 - SSR pages call services directly in `getServerSideProps`; do not self-call HTTP
   inside the same process.
 - Node-only modules belong in `server/`, `pages/api/`, or
@@ -37,11 +39,14 @@ bun run build               # Next standalone build
 bun run start               # node frontend/.next/standalone/frontend/server.js
 bun run lint                # oxlint frontend/src
 bun run typecheck           # frontend TypeScript check
+bun run core:typecheck      # core package TypeScript check
+bun run core:test           # compiled Bun/Node headless and unit tests
+cd frontend && bun run test
 cd agent && bun test
 cd agent && bun build src/server.ts --compile --target=bun-linux-x64 --outfile miobridge-agent
 ```
 
-Do not run root `npx tsc --noEmit`; the active TS project is `frontend/`.
+Do not run root `npx tsc --noEmit`; use the frontend and core workspace commands.
 
 ## Deployment Notes
 
