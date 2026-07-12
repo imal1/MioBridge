@@ -15,6 +15,8 @@ Finish the extraction by wiring core gates into CI and contributor commands, ver
 <!-- Updated by plan-sync: fn-1-extract-headless-core-to-packagescore.1 already wired the independent root core commands -->
 - Perform a clean build, verify traced core/assets and copied `.next/static`/`public`, start the standalone server, and request all four compatibility URLs.
 - Update documentation only after final command and package shapes are known.
+- Document the focused node boundary: Agent HTTP/HMAC, node repository, and aggregation are core APIs, while `NodeOperationsAdapter` and SSH/deployment lifecycle remain frontend-owned.
+<!-- Updated by plan-sync: fn-1-extract-headless-core-to-packagescore.4 split node runtime and operations ownership -->
 - Record the new canonical boundary and remove the stale convention that sends business logic to `frontend/src/server`.
 
 ## Investigation targets

@@ -14,6 +14,10 @@ Extract artifact generation, update/status behavior, backup handling, and versio
 
 - Inject local/kernel sources, `RemoteSourceCollector`, the implemented `RuntimePaths` and `StateStore` instances, logger, clock/process, and version metadata at composition time. Compose config through the exported `YamlService` and `ConfigService` constructors; do not add compatibility singletons.
 <!-- Updated by plan-sync: fn-1-extract-headless-core-to-packagescore.2 established constructor-based runtime/config/state APIs -->
+- Use the exported `NodeAggregationService.collectRemoteNodeSources()` as the concrete remote-source collector, composed from the same `NodeRepository`/`StateStore` instance and `AgentClient`; do not recreate Agent validation, HMAC, or node persistence inside the artifact facade.
+<!-- Updated by plan-sync: fn-1-extract-headless-core-to-packagescore.4 exposed focused node services and preserved partial-failure collection -->
+- Reuse the exported `buildClashSubscriptionResult`, `SingBoxAdapter`, `MihomoAdapter`, `XrayAdapter`, and `V2rayAdapter` implementations rather than rebuilding normalization or kernel conversion inside the facade.
+<!-- Updated by plan-sync: fn-1-extract-headless-core-to-packagescore.3 exposed focused source and kernel adapter APIs -->
 - Preserve main-node artifact ownership, exact byte generation, warnings/partial-success rules, total-failure no-replacement, backups, and status fields.
 - Remove the dynamic `MioBridgeService`/`NodeManager` cycle and the core-to-frontend package metadata dependency.
 - Build before validating the public API from external-cwd Bun and compiled Node smoke scripts; consumers must import `@miobridge/core`, never `packages/core/src`.
@@ -39,9 +43,8 @@ Extract artifact generation, update/status behavior, backup handling, and versio
 - [ ] External-cwd Bun and compiled Node scripts call config, conversion, update, generation, and status without Next.
 
 ## Done summary
-TBD
-
+Extracted artifact generation and status into framework-neutral services and exposed an injected MioBridgeCore composition root.
 ## Evidence
 - Commits:
-- Tests:
+- Tests: bun run core:typecheck, bun run core:test (26 passed), bun run core:build, git diff --check
 - PRs:

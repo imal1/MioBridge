@@ -24,3 +24,6 @@ metadata:
   sources plus per-kernel runtime status to the main node.
 - Cluster proxy totals and generated artifacts use exact-URL global deduplication;
   Clash-only naming prefixes region and appends the source URL on name conflicts.
+- `@miobridge/core` composes artifact generation and status through the explicit
+  `MioBridgeCore` facade; runtime paths, state, kernels, metadata, clock, and
+  source collectors are injected without frontend imports or module singletons.

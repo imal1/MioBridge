@@ -36,3 +36,6 @@ export { AgentClient, type AgentClientOptions } from './nodes/agentClient.js';
 export { NodeRepository, validateNodeKernels } from './nodes/nodeRepository.js';
 export { NodeAggregationService, type RemoteSourceCollection } from './nodes/nodeAggregationService.js';
 export type { ClusterStatus, KernelRuntimeStatus, LogsResult, NodeAgentInfo, NodeConfig, NodeKernelConfig, NodeSshConfig, NodeStatus } from './nodes/types.js';
+export { ArtifactService, type ArtifactServiceOptions, type ClashConverter, type LocalSourceCollector, type RemoteSourceCollector, type SourceCollection, type UpdateResult } from './artifacts/artifactService.js';
+export { StatusService, type BuildMetadata, type StatusInfo, type StatusKernel, type StatusServiceOptions } from './status/statusService.js';
+export { MioBridgeCore, type MioBridgeCoreOptions } from './mioBridgeCore.js';

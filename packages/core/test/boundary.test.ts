@@ -43,4 +43,28 @@ describe('@miobridge/core package boundary', () => {
     expect(await readdir(cwd)).toEqual([]);
     await rm(cwd, { recursive: true, force: true });
   });
+
+  it.each(['bun', 'node'])('runs the compiled facade from an external cwd under %s', async runtime => {
+    const cwd = await mkdtemp(join(tmpdir(), 'miobridge-core-facade-'));
+    const entry = join(packageDir, 'dist', 'index.js');
+    const script = `
+      import { MioBridgeCore, createRuntimePaths, createStateStore } from ${JSON.stringify(entry)};
+      const paths = createRuntimePaths({ platformBaseDir: ${JSON.stringify(cwd)}, env: {} });
+      const logger = { debug(){}, info(){}, warn(){}, error(){} };
+      const mihomo = { checkHealth: async()=>true, getVersion: async()=>({version:'test'}), convertToClashByContent: async()=> 'proxies:\\n  - name: test\\n' };
+      const core = new MioBridgeCore({ paths, state:createStateStore({paths}), logger, metadata:{version:'test'}, local:{isAvailable:async()=>true,extractNodeUrls:async()=>['vless://id@host.example:443#test']}, remote:{collectRemoteNodeSources:async()=>({sources:[],errors:[]})}, mihomo });
+      if (core.config.getAppVersion() !== 'test') process.exit(2);
+      await core.updateSubscription();
+      const status = await core.getStatus();
+      if (!status.subscriptionExists || status.nodesCount !== 1) process.exit(3);
+    `;
+    const args = runtime === 'bun' ? ['-e', script] : ['--input-type=module', '-e', script];
+    const exitCode = await new Promise<number | null>((resolveExit, reject) => {
+      const child = spawn(runtime, args, { cwd, stdio: 'pipe' });
+      child.once('error', reject);
+      child.once('exit', resolveExit);
+    });
+    expect(exitCode).toBe(0);
+    await rm(cwd, { recursive: true, force: true });
+  });
 });

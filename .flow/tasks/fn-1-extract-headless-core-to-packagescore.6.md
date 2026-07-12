@@ -15,6 +15,10 @@ Cut Next API routes, SSR loaders, and Node instrumentation over to `@miobridge/c
 - SSR continues to call services directly; API routes remain thin; Node-only initialization stays behind the existing runtime guard.
 - The frontend composition adapter supplies `createRuntimePaths` with an explicit application root and, on Vercel, `platformBaseDir: vercelRuntimeBaseDir()`; it also injects the frontend logger into YAML/state services. Core must not infer Vercel or recreate Winston transports.
 <!-- Updated by plan-sync: fn-1-extract-headless-core-to-packagescore.2 made platform paths and logging explicit composition inputs -->
+- Replace frontend source/kernel implementations with deprecated shims for the exported core APIs: `buildClashSubscriptionResult`, `SingBoxAdapter`, `MihomoAdapter`, `XrayAdapter`, and `V2rayAdapter`; construct adapters with frontend-owned process, filesystem, runtime-path, and logger collaborators.
+<!-- Updated by plan-sync: fn-1-extract-headless-core-to-packagescore.3 used injected adapter classes instead of compatibility singletons -->
+- Cut node consumers over to the exported `AgentClient`, `NodeRepository`, and `NodeAggregationService`. Preserve `NodeOperationsAdapter` as a real frontend implementation for deploy callbacks/SSH operations, and retire duplicated Agent HMAC, registry parsing, and aggregation logic from the legacy `NodeManager` path.
+<!-- Updated by plan-sync: fn-1-extract-headless-core-to-packagescore.4 established core node services plus the frontend operations seam -->
 - Consume the compiled ESM `dist` export selected in task .1. The baseline production Next build passed without `transpilePackages`; add transpilation or tracing changes only if the extracted runtime implementation later proves they are required.
 <!-- Updated by plan-sync: fn-1-extract-headless-core-to-packagescore.1 proved compiled dist consumption without transpilePackages -->
 - Keep type-only browser imports separated and scan client output for Node/core runtime leakage.
@@ -26,6 +30,7 @@ Cut Next API routes, SSR loaders, and Node instrumentation over to `@miobridge/c
 - `frontend/src/instrumentation-node.ts` — scheduler/service composition consumer.
 - `frontend/src/pages/api/update.ts` — thin core update route.
 - `frontend/src/pages/api/cluster/status.ts` — node aggregation route.
+- `frontend/src/server/services/nodeOperationsAdapter.ts` — frontend-owned deploy callback seam that must remain outside core.
 - `frontend/src/pages/index.tsx` — SSR direct-service consumer.
 - `frontend/next.config.js:15-36` — standalone tracing and compatibility rewrites.
 
