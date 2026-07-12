@@ -1,0 +1,18 @@
+{
+  "assignee": null,
+  "claim_note": "",
+  "claimed_at": null,
+  "created_at": "2026-07-12T09:39:43.227544Z",
+  "depends_on": [
+    "fn-2-miobridge-cli-with-guided-linux-install.2",
+    "fn-2-miobridge-cli-with-guided-linux-install.3",
+    "fn-2-miobridge-cli-with-guided-linux-install.5"
+  ],
+  "id": "fn-2-miobridge-cli-with-guided-linux-install.6",
+  "priority": null,
+  "spec": "fn-2-miobridge-cli-with-guided-linux-install",
+  "spec_path": ".flow/tasks/fn-2-miobridge-cli-with-guided-linux-install.6.md",
+  "status": "todo",
+  "title": "Harden Linux E2E, CI, release docs, and memory",
+  "updated_at": "2026-07-12T09:40:49.356007Z"
+}

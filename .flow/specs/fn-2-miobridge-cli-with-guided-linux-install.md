@@ -1,88 +1,99 @@
-# fn-2 miobridge CLI with guided Linux install and dashboard lifecycle
+# miobridge CLI with guided Linux install and dashboard lifecycle
 
-## Goal & Context
+## Overview
 
-Make MioBridge easy for other people to deploy. Today deployment means cloning
-the repo and running a Next.js standalone build — too heavy for users who just
-want a subscription converter. The product direction: a `miobridge` command is
-the primary distribution; the web dashboard is a pluggable optional layer that
-must never make the project feel heavy.
+Ship `miobridge` as a self-contained Linux command that consumes `@miobridge/core`, works headlessly without Next.js, guides users through managed dependencies, and treats the dashboard as a separately installable provider. Distribution uses checksum-verified GitHub Release binaries so a fresh machine needs neither a repository clone nor a preinstalled JS runtime.
 
-The CLI targets Linux only for now. After installation it guides the user
-through installing the runtime dependencies the project needs (mihomo, bun,
-yq, optionally sing-box), exposes the project's core functionality as
-subcommands, and manages the dashboard lifecycle: `miobridge dashboard` starts
-the frontend in the foreground, with options to run it as a persistent
-background service and stop it.
+## Scope
 
-## Architecture & Data Models
+- Add `packages/cli` with stable commands: `setup`, `update`, `status [--json]`, and `dashboard foreground|start|stop|status`.
+- Compose `MioBridgeCore` from public core exports and CLI-owned Node/process/filesystem/logger adapters; do not copy business logic.
+- Detect Linux architecture/distro and report each dependency as configured/managed/PATH/missing. Guide confirmed installation of mihomo, Bun, and yq into the managed directory; sing-box remains optional.
+- Build self-contained linux-x64 and linux-arm64 release binaries plus a version-pinned, checksum-verifying, atomic bootstrap installer.
+- Define a versioned dashboard provider manifest so current Next standalone and future fn-4 Vite output share the same CLI lifecycle contract.
+- Use a systemd user service for persistent dashboard daemon mode, with explicit lingering guidance and no PID guessing.
 
-- New workspace package (e.g. `packages/cli`) that consumes `@miobridge/core`
-  (fn-1) — no business logic in the CLI layer itself (D-05).
-- Command surface (final naming at implementer's discretion, keep it small):
-  - `miobridge setup` / first-run wizard: detect Linux distro, check/install
-    mihomo, bun, yq (and optionally sing-box) into `~/.config/miobridge/bin/`
-    following the existing binary-preference order (managed bin/ -> repo bin/ ->
-    PATH). Interactive guidance, not silent global installs.
-  - Core commands mapping to core services: update/convert subscription,
-    generate artifacts (`raw.txt`, `subscription.txt`, `clash.yaml`), status,
-    node/agent operations as exposed by `MioBridgeCore`.
-  - `miobridge dashboard` — start frontend in foreground; `--daemon`/
-    `start|stop|status` variants manage a persistent background process
-    (systemd user unit or supervised child process — implementer chooses, but
-    stop/status must work without guessing PIDs).
-- Runtime state stays under `~/.config/miobridge` (RuntimePaths from core).
-- Distribution mechanism (npm/bun global install vs curl installer script) to
-  be decided during planning — must not require cloning the repo.
+## Approach
 
-## API Contracts
+1. Establish CLI composition, exit/output contracts, test harness, and headless core commands.
+2. Implement dependency discovery and confirmed managed installation with pinned downloads, checksums, rollback, and redaction.
+3. Compile and package standalone Linux binaries; install atomically to `~/.local/bin` without requiring Bun/Node/git.
+4. Introduce a dashboard provider manifest and foreground runner independent of the dashboard framework.
+5. Manage daemon lifecycle through a systemd user unit and stable launcher/manifest contract.
+6. Add release/VM-style integration gates, compatibility URL smoke tests, docs, and durable memory updates.
 
-- CLI exit codes: 0 success, non-zero on failure with actionable stderr.
-- `miobridge dashboard start --daemon` / `stop` / `status` are idempotent
-  (starting a running dashboard or stopping a stopped one reports state, does
-  not error).
-- Dashboard serves the same compatibility URLs as today
-  (`/subscription.txt`, `/clash.yaml`, `/raw.txt`, `/health`).
-- Dependency check output clearly distinguishes: found in managed bin / found
-  on PATH / missing (with guided install offer).
+## Quick commands
 
-## Edge Cases & Constraints
+```bash
+bun run cli:test && bun run cli:typecheck && bun run cli:build
+bun run core:test && bun run lint && bun run typecheck && bun run build
+cd agent && bun test
+```
 
-- Linux only for this spec; macOS/Windows explicitly out of scope (do not
-  block future support with Linux-only assumptions in core — put OS specifics
-  in the CLI layer).
-- Never install system-wide packages without explicit user confirmation.
-- Must work on a headless server (no browser, no GUI).
-- Daemon mode must survive SSH session exit and be discoverable after
-  reconnect (status command).
-- The CLI must function fully without the dashboard installed/built —
-  the web layer is pluggable, not required.
+## Boundaries / non-goals
 
-## Acceptance Criteria
-
-- **R1:** A user on a fresh Linux machine can install the `miobridge` command without cloning the repo.
-- **R2:** First run guides the user through checking/installing mihomo, bun, and yq into the managed bin directory, with confirmation before any install.
-- **R3:** Core functionality (subscription update, artifact generation, status) works from the CLI with no Next.js process running.
-- **R4:** `miobridge dashboard` starts the frontend in foreground; a daemon variant supports start/stop/status and survives SSH logout.
-- **R5:** All CLI state lives under `~/.config/miobridge`; removing the dashboard leaves CLI functionality intact.
-
-## Boundaries
-
-Out of scope:
-- macOS/Windows support.
-- Rewriting the frontend (fn-4) — the CLI launches whatever dashboard build
-  exists.
-- Multi-user/auth.
-- Replacing the existing GitHub-Actions deployment for the author's own nodes
-  (this spec is about third-party deployability; existing deploy flow keeps
-  working).
+- Linux x64/arm64 only; macOS, Windows, musl-specific guarantees, containers, and non-systemd daemon fallback are deferred.
+- No silent system-wide package-manager installs, root systemd unit, auth/multi-user work, or replacement of the author's Vercel production flow.
+- No frontend rewrite. The current dashboard provider may wrap Next standalone; fn-4 replaces the provider artifact without changing CLI commands.
+- No broad node/Agent administration command surface beyond what R1-R5 require.
 
 ## Decision Context
 
-Why a CLI instead of docker-compose or a bigger web installer: the goal is
-lightweight adoption — a single command that can run headless, with web UI as
-opt-in. This depends on fn-1: without the core package, every CLI command would
-have to boot Next.js or duplicate logic, defeating the purpose. Distribution
-and daemonization mechanisms are deliberately left to planning/implementation
-discretion; the spec locks the user-visible contract (guided install,
-subcommands, dashboard lifecycle) rather than the mechanism.
+- A global npm/Bun package cannot bootstrap a fresh machine that lacks Bun/Node, so GitHub Releases provide Bun-compiled Linux executables and SHA256 manifests. A small shell installer selects architecture, verifies a pinned release, and atomically installs the command.
+- `setup` still checks/guides mihomo, Bun, and yq as required by R2; the compiled CLI itself does not depend on Bun. Output explains which capabilities need each dependency and installs only after confirmation.
+- Dashboard daemonization is a systemd user service. This provides stable identity, restart/status/journal behavior, and survival across SSH logout when lingering is enabled. Unsupported user-systemd environments return actionable errors.
+- Dashboard lifecycle consumes a manifest containing version, entrypoint, arguments, health URL, and artifact root. It never hard-codes Next paths; fn-4 can supply a Vite/static-server provider.
+- CLI human output goes to stdout/stderr with actionable nonzero failures; `--json` emits decoration-free structured output for automation. Idempotent already-running/already-stopped states exit 0.
+
+## Risks and mitigations
+
+- **Supply-chain compromise:** pin release versions, require SHA256 verification, use temporary files and atomic replacement, and preserve the previous binary on failure.
+- **CLI/core drift:** enforce imports from `@miobridge/core` public exports and run headless update/status tests with no dashboard files or process.
+- **Daemon disappears after SSH logout:** detect systemd user manager/lingering state and provide an explicit confirmed enablement path or actionable guidance.
+- **Next coupling blocks fn-4:** make provider manifest and launcher framework-neutral and keep Next packaging in a provider adapter.
+- **Legacy service/port conflict:** detect existing system-wide `miobridge.service` and occupied ports before daemon start.
+
+## Acceptance Criteria
+
+- **R1:** A fresh Linux x64 or arm64 user installs a checksum-verified self-contained `miobridge` command from a versioned release without cloning the repository or preinstalling Bun/Node/git; failed install or upgrade preserves the previous version.
+- **R2:** `miobridge setup` reports configured/managed/PATH/missing origin and, only after explicit confirmation, guides pinned managed installation of mihomo, Bun, and yq under the runtime bin directory; sing-box is optional and secrets/full proxy URLs are never logged.
+- **R3:** `miobridge update` and `miobridge status [--json]` compose and call `@miobridge/core` with no Next.js process or dashboard artifact present, preserve exit-code/output contracts, and keep runtime state under the injected MioBridge base directory.
+- **R4:** A versioned provider manifest runs the installed dashboard in foreground; systemd-user `dashboard start|stop|status` is idempotent, survives SSH logout when lingering is enabled, exposes journal/status guidance, and preserves the four compatibility URLs.
+- **R5:** Dashboard artifacts, service files, logs, and runtime data have distinct ownership beneath user directories; removing the dashboard/provider leaves CLI update/status and existing config/data intact.
+- **R6:** Release, installer, dependency, daemon, and dashboard flows have automated x64/arm64 contract tests plus Linux integration evidence for checksum rollback, confirmation refusal, no-dashboard headless use, service reconnect, and live compatibility URLs.
+
+## Test notes
+
+- Unit tests cover parsing, exit codes, JSON purity, dependency origin, confirmation refusal, architecture/distro mapping, checksum mismatch, atomic rollback, manifest validation, unit escaping, and idempotent daemon states.
+- Headless integration uses fake local/mihomo/remote adapters and `MIOBRIDGE_CONFIG_DIR` to generate artifacts and status without importing frontend code.
+- Release checks inspect tar contents/executable bits/checksum manifests and run compiled binaries from external working directories.
+- systemd unit rendering runs everywhere; real linger/SSH persistence is verified in a Linux systemd VM/job rather than assumed from mocks.
+
+## Documentation
+
+Update English/Chinese README, installation, deployment, troubleshooting, contributing, CI/release docs, and relevant architecture/deployment/CI/config memories. Clearly separate self-hosted CLI/dashboard lifecycle from Vercel production deployment.
+
+## References
+
+- `packages/core/src/mioBridgeCore.ts:9-32` — public facade composition and command APIs.
+- `packages/core/src/runtime/runtimePaths.ts:38-71` — canonical runtime and binary precedence policy.
+- `frontend/src/server/core.ts:16-64` — existing Node composition adapter to mirror without importing frontend.
+- `scripts/manage.sh:85-162` — repo-bound build and root systemd flow to replace for third-party users.
+- `scripts/prepare-standalone.sh:4-32` — current Next provider artifact requirements.
+- `.Codex/memory/config-patterns.md:10-19` — runtime path and binary conventions.
+- `.Codex/memory/deployment-flow.md:10-20` — Vercel production boundary that must remain independent.
+
+## Early proof point
+
+Task `fn-2-miobridge-cli-with-guided-linux-install.1` proves a compiled CLI can compose the public core and run update/status from an external cwd without Next or dashboard files. If it fails, revise the core public composition seams before building installers or daemon lifecycle.
+
+## Requirement coverage
+
+| Req | Description | Task(s) | Gap justification |
+|-----|-------------|---------|-------------------|
+| R1 | Clone-free self-contained install | .3, .6 | — |
+| R2 | Guided managed dependencies | .2, .6 | — |
+| R3 | Headless core commands | .1, .6 | — |
+| R4 | Provider and persistent dashboard lifecycle | .4, .5, .6 | — |
+| R5 | Dashboard optionality and data ownership | .1, .4, .6 | — |
+| R6 | Release/Linux integration evidence | .2, .3, .5, .6 | — |

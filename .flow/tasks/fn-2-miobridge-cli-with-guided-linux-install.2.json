@@ -1,0 +1,16 @@
+{
+  "assignee": null,
+  "claim_note": "",
+  "claimed_at": null,
+  "created_at": "2026-07-12T09:39:42.006342Z",
+  "depends_on": [
+    "fn-2-miobridge-cli-with-guided-linux-install.1"
+  ],
+  "id": "fn-2-miobridge-cli-with-guided-linux-install.2",
+  "priority": null,
+  "spec": "fn-2-miobridge-cli-with-guided-linux-install",
+  "spec_path": ".flow/tasks/fn-2-miobridge-cli-with-guided-linux-install.2.md",
+  "status": "todo",
+  "title": "Add guided managed dependency installation",
+  "updated_at": "2026-07-12T09:40:48.206292Z"
+}
