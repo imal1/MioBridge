@@ -14,7 +14,7 @@
   },
   "artifacts": {
     "raw": "vless://id@local.example:443#local\ntrojan://secret@remote.example:443#remote",
-    "subscriptionUtf8": "vless://id@local.example:443#local\ntrojan://secret@remote.example:443#remote",
+    "subscriptionDecoded": "vless://id@local.example:443#local\ntrojan://secret@remote.example:443#remote",
     "clash": "proxies:\n  - name: usable\n"
   },
   "failureContracts": {
@@ -23,7 +23,7 @@
     "total": { "rejects": true, "replacementAllowed": false, "message": "没有找到有效的代理URL" }
   },
   "status": {
-    "fields": ["status", "lastUpdate", "proxyCount", "clashAvailable", "singBoxAvailable", "mihomoVersion"],
+    "fields": ["subscriptionExists", "clashExists", "rawExists", "nodesCount", "mihomoAvailable", "mihomoVersion"],
     "offlineNode": { "status": "offline", "proxyCount": 0, "sources": [] }
   },
   "hmacErrors": ["missing signature", "invalid signature", "expired timestamp", "invalid response", "timeout"]

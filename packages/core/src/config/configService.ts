@@ -33,7 +33,7 @@ export class ConfigService {
       clashFilename: 'clash.yaml',
       staticDir: full.directories?.data_dir ?? this.paths.dataDir,
       logDir: full.directories?.log_dir ?? this.paths.logDir,
-      backupDir: this.paths.backupDir,
+      backupDir: full.directories?.backup_dir ?? this.paths.backupDir,
       autoUpdateCron: full.automation?.auto_update_cron ?? '0 */2 * * *',
       nginxPort: full.network?.nginx_port ?? 3080,
       maxRetries: full.network?.max_retries ?? 3,

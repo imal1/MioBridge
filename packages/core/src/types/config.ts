@@ -19,8 +19,8 @@ export interface FullConfig {
   network?: { nginx_port?: number; nginx_proxy_port?: number; max_retries?: number; request_timeout?: number };
   external?: { host?: string };
   protocols?: { sing_box_configs?: string[] };
-  binaries?: { mihomo_path?: string; bun_path?: string };
-  directories?: { base_dir?: string; data_dir?: string; log_dir?: string; dist_dir?: string };
+  binaries?: { mihomo_path?: string; sing_box_path?: string; bun_path?: string };
+  directories?: { base_dir?: string; data_dir?: string; log_dir?: string; backup_dir?: string; dist_dir?: string };
   automation?: { auto_update_cron?: string };
   [key: string]: unknown;
 }

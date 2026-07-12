@@ -37,9 +37,15 @@ export class NodeAggregationService {
         return source as { kernel: typeof KERNEL_TYPES[number]; url: string };
       });
       if (new Set(sources.map(s => s.url)).size !== sources.length) throw new Error('Agent 返回了重复的代理来源');
+      const byType = new Map(kernels.map(kernel => [kernel.type, kernel]));
+      for (const source of sources) {
+        const kernel = byType.get(source.kernel);
+        if (!kernel || !kernel.monitored || !kernel.accessible) {
+          throw new Error(`Agent 来源引用了未监控或不可访问的内核: ${source.kernel}`);
+        }
+      }
       for (const kernel of kernels) if (sources.filter(s => s.kernel === kernel.type).length !== kernel.nodesCount) throw new Error(`Agent 内核 ${kernel.type} 的来源数量与 nodesCount 不一致`);
-      const available = new Set(kernels.filter(k => k.monitored && k.accessible).map(k => k.type));
-      return { sources: sources.filter(s => available.has(s.kernel)).sort((a,b) => KERNEL_TYPES.indexOf(a.kernel)-KERNEL_TYPES.indexOf(b.kernel)).map(s => ({ ...s, nodeId: node.id, location: node.location })), errors: kernels.filter(k => (k.monitored && !k.accessible) || k.error).map(k => this.error(node, `内核 ${k.type}: ${k.error || '已监控但不可访问'}`)) };
+      return { sources: sources.sort((a,b) => KERNEL_TYPES.indexOf(a.kernel)-KERNEL_TYPES.indexOf(b.kernel)).map(s => ({ ...s, nodeId: node.id, location: node.location })), errors: kernels.filter(k => (k.monitored && !k.accessible) || k.error).map(k => this.error(node, `内核 ${k.type}: ${k.error || '已监控但不可访问'}`)) };
     } catch (error) { return { sources: [], errors: [this.error(node, error instanceof Error ? error.message : String(error))] }; }
   }
 

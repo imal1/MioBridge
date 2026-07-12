@@ -7,6 +7,9 @@ metadata:
 
 # Bug Fixes
 
+- 2026-07-12: Core composition preserves configured mihomo/backup paths, resolves
+  application and sing-box binaries independently of cwd, and rejects Agent
+  sources tied to unmonitored or inaccessible kernels.
 - 2026-07-12: Agent config and systemd unit deployment now uses checked,
   same-directory temporary files plus atomic rename; sudo passwords travel over
   SSH stdin, node YAML strings use JSON-compatible quoting, and proxy logs omit

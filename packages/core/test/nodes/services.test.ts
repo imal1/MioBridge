@@ -39,4 +39,18 @@ describe('node core services', () => {
     expect(result.errors).toEqual(['节点 Bad (bad): offline']);
     expect(JSON.stringify(result)).not.toContain('dont-print-me');
   });
+
+  it.each([
+    ['unmonitored', { type: 'sing-box', detected: true, monitored: false, accessible: true, nodesCount: 1, configPaths: [] }],
+    ['inaccessible', { type: 'sing-box', detected: true, monitored: true, accessible: false, nodesCount: 1, configPaths: [] }],
+  ])('rejects a source from an %s kernel instead of filtering it', async (_label, invalidKernel) => {
+    const repository = new NodeRepository(memoryStore(`nodes:\n  - id: node-a\n    name: A\n    host: agent.example\n    secret: secret\n    kernels:\n      - type: xray\n    location: HK\n    enabled: true\n`));
+    const responseKernels = kernels.map(kernel => kernel.type === 'sing-box' ? invalidKernel : kernel);
+    const client = new AgentClient({ fetch: (async () => new Response(JSON.stringify({ data: {
+      kernels: responseKernels, sources: [{ kernel: 'sing-box', url: 'vless://id@example.com:443' }],
+    } }), { status: 200 })) as typeof fetch });
+    const result = await new NodeAggregationService(repository, client).collectRemoteNodeSources();
+    expect(result.sources).toEqual([]);
+    expect(result.errors[0]).toContain('未监控或不可访问');
+  });
 });

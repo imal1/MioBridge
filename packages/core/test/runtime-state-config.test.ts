@@ -113,4 +113,15 @@ describe('YamlService and ConfigService', () => {
     });
     expect(command).not.toHaveBeenCalled();
   });
+
+  it('preserves configured data, log, backup, and mihomo paths', async () => {
+    const directory = await temporaryDirectory();
+    const paths = createRuntimePaths({ env: { MIOBRIDGE_CONFIG_DIR: directory } });
+    const yaml = { getFullConfig: () => ({ binaries: { mihomo_path: '/custom/mihomo' }, directories: {
+      data_dir: '/custom/data', log_dir: '/custom/log', backup_dir: '/custom/backup',
+    } }) } as YamlService;
+    expect(new ConfigService(yaml, paths, '1').getConfig()).toMatchObject({
+      mihomoPath: '/custom/mihomo', staticDir: '/custom/data', logDir: '/custom/log', backupDir: '/custom/backup',
+    });
+  });
 });

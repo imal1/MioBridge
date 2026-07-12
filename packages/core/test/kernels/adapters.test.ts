@@ -60,7 +60,15 @@ describe('kernel adapters', () => {
     const process = new FakeProcess();
     const adapter = new SingBoxAdapter({ process, logger, configs: ['a', 'b'], requestTimeout: 1234 });
     expect(await adapter.extractNodeUrls()).toEqual(['a://node', 'b://node']);
-    expect(process.calls.map(call => call.args)).toEqual([['url', 'a'], ['url', 'b']]);
+    expect(process.calls.map(call => call.args)).toEqual([['version'], ['url', 'a'], ['url', 'b']]);
+  });
+
+  it('uses RuntimePaths precedence when resolving sing-box', async () => {
+    const paths = createRuntimePaths({ env: { MIOBRIDGE_CONFIG_DIR: '/state', PATH: '/one' }, applicationRoot: '/app' });
+    const process = new FakeProcess();
+    const adapter = new SingBoxAdapter({ process, logger, paths, configs: [], requestTimeout: 1234 });
+    expect(await adapter.isAvailable()).toBe(true);
+    expect(process.calls[0]?.command).toBe('/state/bin/sing-box');
   });
 
   it.each(['/repo', '/tmp/unrelated'])('uses managed, explicit repository, then PATH candidates independent of cwd (%s)', async () => {
