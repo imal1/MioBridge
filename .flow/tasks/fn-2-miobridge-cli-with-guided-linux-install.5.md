@@ -5,17 +5,21 @@ satisfies: [R4, R6]
 Implement idempotent persistent dashboard `start|stop|status` using a systemd user unit generated from the provider contract, including lingering guidance, journal discovery, and conflict checks.
 
 **Size:** M
-**Files:** `packages/cli/src/dashboard/systemd.ts`, `packages/cli/src/dashboard/commands.ts`, `packages/cli/test/dashboard/systemd.test.ts`
+**Files:** `packages/cli/src/dashboard/systemd.ts`, `packages/cli/src/dashboard/commands.ts`, `packages/cli/src/command.ts`, `packages/cli/test/dashboard/systemd.test.ts`
 
 ## Approach
 - Render a hardened user unit under the user config directory using a stable CLI launcher and provider manifest rather than a Next path.
 - Probe user-systemd availability, lingering, legacy system-wide service, and port occupancy before start.
 - Treat already-running/already-stopped as exit-0 states; distinguish unsupported/broken service through human and JSON status.
 - Any lingering enablement requiring privilege must be explicitly confirmed and provide manual guidance when unavailable.
+- Route `dashboard start|stop|status` through the established `runCli()` output/exit-code contract; preserve decoration-free JSON output alongside the existing headless `status --json` behavior.
+
+<!-- Updated by plan-sync: fn-2-miobridge-cli-with-guided-linux-install.1 established runCli as the output and exit-code boundary -->
 
 ## Investigation targets
 **Required**:
 - `scripts/manage.sh:107-162` — legacy root unit behavior to avoid copying.
+- `packages/cli/src/command.ts` — actual dispatcher, JSON purity, and error-to-exit mapping contract.
 - `scripts/lib/service.sh` — existing systemctl parsing patterns.
 - `scripts/server-deploy.sh:124-140` — current restart/health behavior.
 - `.Codex/memory/deployment-flow.md:10-27` — deployment and privilege constraints.

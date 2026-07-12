@@ -29,6 +29,7 @@ const status = {
 
 describe('CLI command contract', () => {
   it('parses the stable command surface and rejects invalid options', () => {
+    expect(parseCommand(['setup'])).toEqual({ kind: 'setup' });
     expect(parseCommand(['update'])).toEqual({ kind: 'update' });
     expect(parseCommand(['status'])).toEqual({ kind: 'status', json: false });
     expect(parseCommand(['status', '--json'])).toEqual({ kind: 'status', json: true });
@@ -36,6 +37,14 @@ describe('CLI command contract', () => {
     expect(parseCommand(['--version'])).toEqual({ kind: 'version' });
     expect(() => parseCommand(['status', '--verbose'])).toThrow('Unexpected argument');
     expect(() => parseCommand(['dashboard'])).toThrow('Unknown command');
+  });
+
+  it('runs setup without composing core', async () => {
+    const run = harness({ updateSubscription: vi.fn(), getStatus: vi.fn() } as unknown as CliCore);
+    const dependencies = { ...run.dependencies, setup: { run: vi.fn(async () => [{ name: 'sing-box' as const, required: false, capability: 'optional', origin: 'missing' as const }]) } };
+    expect(await runCli(['setup'], dependencies)).toBe(0);
+    expect(run.createCore).not.toHaveBeenCalled();
+    expect(run.stdout[0]).toContain('sing-box: missing');
   });
 
   it('handles help and version without composing core', async () => {

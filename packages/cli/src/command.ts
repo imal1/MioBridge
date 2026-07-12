@@ -1,4 +1,5 @@
 import type { StatusInfo, UpdateResult } from '@miobridge/core';
+import { formatSetupStatus, type DependencySetupService } from './setup/service.js';
 
 export const CLI_VERSION = '0.1.0';
 
@@ -16,12 +17,14 @@ export interface CliDependencies {
   readonly createCore: () => CliCore;
   readonly output: CliOutput;
   readonly version?: string;
+  readonly setup?: Pick<DependencySetupService, 'run'>;
 }
 
 type ParsedCommand =
   | { readonly kind: 'help' }
   | { readonly kind: 'version' }
   | { readonly kind: 'update' }
+  | { readonly kind: 'setup' }
   | { readonly kind: 'status'; readonly json: boolean };
 
 export const helpText = `MioBridge ${CLI_VERSION}
@@ -29,6 +32,7 @@ export const helpText = `MioBridge ${CLI_VERSION}
 Usage: miobridge <command> [options]
 
 Commands:
+  setup           Discover and optionally install managed dependencies
   update          Generate subscription artifacts
   status [--json] Show headless runtime status
 
@@ -48,6 +52,10 @@ export function parseCommand(args: readonly string[]): ParsedCommand {
   if (args[0] === 'update') {
     if (args.length > 1) throw new Error(`Unexpected argument: ${args[1]}`);
     return { kind: 'update' };
+  }
+  if (args[0] === 'setup') {
+    if (args.length > 1) throw new Error(`Unexpected argument: ${args[1]}`);
+    return { kind: 'setup' };
   }
   if (args[0] === 'status') {
     if (args.length === 1) return { kind: 'status', json: false };
@@ -94,6 +102,11 @@ export async function runCli(args: readonly string[], dependencies: CliDependenc
   }
 
   try {
+    if (command.kind === 'setup') {
+      if (!dependencies.setup) throw new Error('Setup adapters are unavailable');
+      dependencies.output.stdout(formatSetupStatus(await dependencies.setup.run()));
+      return 0;
+    }
     const core = dependencies.createCore();
     if (command.kind === 'update') {
       const result = await core.updateSubscription();

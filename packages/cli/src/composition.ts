@@ -83,6 +83,7 @@ function createKernelFileSystem() {
 export interface NodeCoreComposition {
   readonly core: MioBridgeCore;
   readonly paths: RuntimePaths;
+  readonly configuredBinaries: Readonly<{ mihomo?: string; 'sing-box'?: string }>;
 }
 
 export function createNodeCore(options: NodeCoreOptions = {}): NodeCoreComposition {
@@ -99,12 +100,13 @@ export function createNodeCore(options: NodeCoreOptions = {}): NodeCoreCompositi
   const repository = new NodeRepository(state);
   const yaml = new YamlService({ paths, logger });
   const configService = new ConfigService(yaml, paths, options.metadata?.version ?? '0.1.0');
+  const fullConfig = configService.getFullConfig();
   const config = configService.getConfig();
   const local = options.local ?? new SingBoxAdapter({
     process: processRunner, logger, configs: config.singBoxConfigs,
     requestTimeout: config.requestTimeout, paths,
-    ...(configService.getFullConfig().binaries?.sing_box_path
-      ? { configuredPath: configService.getFullConfig().binaries!.sing_box_path }
+    ...(fullConfig.binaries?.sing_box_path
+      ? { configuredPath: fullConfig.binaries.sing_box_path }
       : {}),
   });
   const remote = options.remote ?? new NodeAggregationService(repository, new AgentClient());
@@ -118,5 +120,8 @@ export function createNodeCore(options: NodeCoreOptions = {}): NodeCoreCompositi
     local, remote, mihomo,
     ...(options.uptime ? { uptime: options.uptime } : {}),
   });
-  return { core, paths };
+  return { core, paths, configuredBinaries: {
+    ...(fullConfig.binaries?.mihomo_path ? { mihomo: fullConfig.binaries.mihomo_path } : {}),
+    ...(fullConfig.binaries?.sing_box_path ? { 'sing-box': fullConfig.binaries.sing_box_path } : {}),
+  } };
 }
