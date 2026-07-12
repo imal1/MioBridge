@@ -5,3 +5,7 @@ export { PINNED_ARTIFACTS } from './setup/catalog.js';
 export { createNodeSetupAdapters } from './setup/nodeAdapters.js';
 export { DependencySetupService, formatSetupStatus } from './setup/service.js';
 export type { Artifact, ArtifactCatalog, DependencyName, DependencyOrigin, DependencyStatus, SetupAdapters, SetupOptions } from './setup/types.js';
+export { DASHBOARD_MANIFEST_NAME, DASHBOARD_PROVIDER_SCHEMA_VERSION, loadDashboardProvider, renderProviderUrl, validateDashboardProviderManifest } from './dashboard/provider.js';
+export type { DashboardProviderManifest, LoadedDashboardProvider } from './dashboard/provider.js';
+export { DashboardForegroundService, createNodeForegroundAdapters, dashboardManifestPath } from './dashboard/foreground.js';
+export type { DashboardProcess, ForegroundAdapters, ForegroundOptions, ForegroundResult } from './dashboard/foreground.js';

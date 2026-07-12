@@ -18,6 +18,7 @@ export interface CliDependencies {
   readonly output: CliOutput;
   readonly version?: string;
   readonly setup?: Pick<DependencySetupService, 'run'>;
+  readonly dashboard?: { foreground(): Promise<{ readonly exitCode: number; readonly healthUrl: string }> };
 }
 
 type ParsedCommand =
@@ -25,6 +26,7 @@ type ParsedCommand =
   | { readonly kind: 'version' }
   | { readonly kind: 'update' }
   | { readonly kind: 'setup' }
+  | { readonly kind: 'dashboard-foreground' }
   | { readonly kind: 'status'; readonly json: boolean };
 
 export const helpText = `MioBridge ${CLI_VERSION}
@@ -35,6 +37,8 @@ Commands:
   setup           Discover and optionally install managed dependencies
   update          Generate subscription artifacts
   status [--json] Show headless runtime status
+  dashboard foreground
+                  Run the installed dashboard in the foreground
 
 Options:
   -h, --help      Show help
@@ -61,6 +65,10 @@ export function parseCommand(args: readonly string[]): ParsedCommand {
     if (args.length === 1) return { kind: 'status', json: false };
     if (args.length === 2 && args[1] === '--json') return { kind: 'status', json: true };
     throw new Error(`Unexpected argument: ${args[1]}`);
+  }
+  if (args[0] === 'dashboard') {
+    if (args.length === 2 && args[1] === 'foreground') return { kind: 'dashboard-foreground' };
+    throw new Error(args.length === 1 ? 'Missing dashboard action' : `Unknown dashboard action: ${args[1]}`);
   }
   throw new Error(`Unknown command: ${args[0]}`);
 }
@@ -106,6 +114,12 @@ export async function runCli(args: readonly string[], dependencies: CliDependenc
       if (!dependencies.setup) throw new Error('Setup adapters are unavailable');
       dependencies.output.stdout(formatSetupStatus(await dependencies.setup.run()));
       return 0;
+    }
+    if (command.kind === 'dashboard-foreground') {
+      if (!dependencies.dashboard) throw new Error('Dashboard lifecycle adapters are unavailable');
+      const result = await dependencies.dashboard.foreground();
+      if (result.exitCode !== 0) dependencies.output.stderr(`Dashboard exited with status ${result.exitCode}`);
+      return result.exitCode;
     }
     const core = dependencies.createCore();
     if (command.kind === 'update') {

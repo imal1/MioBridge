@@ -35,8 +35,18 @@ describe('CLI command contract', () => {
     expect(parseCommand(['status', '--json'])).toEqual({ kind: 'status', json: true });
     expect(parseCommand(['--help'])).toEqual({ kind: 'help' });
     expect(parseCommand(['--version'])).toEqual({ kind: 'version' });
+    expect(parseCommand(['dashboard', 'foreground'])).toEqual({ kind: 'dashboard-foreground' });
     expect(() => parseCommand(['status', '--verbose'])).toThrow('Unexpected argument');
-    expect(() => parseCommand(['dashboard'])).toThrow('Unknown command');
+    expect(() => parseCommand(['dashboard'])).toThrow('Missing dashboard action');
+  });
+
+  it('runs dashboard foreground without composing core and forwards its status', async () => {
+    const run = harness({ updateSubscription: vi.fn(), getStatus: vi.fn() } as unknown as CliCore);
+    const foreground = vi.fn(async () => ({ exitCode: 23, healthUrl: 'http://127.0.0.1:3000/health' }));
+    expect(await runCli(['dashboard', 'foreground'], { ...run.dependencies, dashboard: { foreground } })).toBe(23);
+    expect(foreground).toHaveBeenCalledOnce();
+    expect(run.createCore).not.toHaveBeenCalled();
+    expect(run.stderr).toEqual(['Dashboard exited with status 23']);
   });
 
   it('runs setup without composing core', async () => {
