@@ -38,9 +38,8 @@ Split the mixed `NodeManager` into core Agent HTTP, registry/repository, and agg
 - [ ] Existing nodes data and offline/status shapes remain readable and equivalent without migration.
 
 ## Done summary
-TBD
-
+拆分了无 SSH/部署依赖的 AgentClient、NodeRepository 和 NodeAggregationService；新增 frontend NodeOperationsAdapter 保持部署回调归属与兼容行为。
 ## Evidence
 - Commits:
-- Tests:
+- Tests: bun run core:typecheck, bun run core:test (21 passed), bunx vitest run frontend/src/server/services/__tests__/nodeManager.test.ts frontend/src/server/services/__tests__/deploy-integration.test.ts frontend/src/server/middleware/__tests__/hmac.test.ts (90 passed)
 - PRs:

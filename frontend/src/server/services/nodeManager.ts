@@ -7,6 +7,7 @@ import { getMioBridgeBaseDir } from '../runtimePaths';
 import { getStateStore } from './stateStore';
 import { validateUploadedPrivateKey } from './sshCredential';
 import { dedupeProxySources, type CollectedProxySource } from './proxySources';
+import { NodeOperationsAdapter, type NodeDeployDelegate } from './nodeOperationsAdapter';
 import {
   KERNEL_TYPES,
   validateKernelConfigs,
@@ -53,7 +54,9 @@ export class NodeManager {
   private watcher: fs.FSWatcher | null = null;
   private watchDebounceTimer: ReturnType<typeof setTimeout> | null = null;
   /** 部署委托：加载节点后，对有 SSH 配置但 agent 未部署的节点自动触发部署 */
-  private deployDelegate: ((node: NodeConfig) => Promise<{ success: boolean; message: string }>) | null = null;
+  private readonly operations = new NodeOperationsAdapter();
+  /** @deprecated Compatibility probe; operational behavior is owned by operations. */
+  private deployDelegate: NodeDeployDelegate | null = null;
 
   private constructor() {
     this.localService = MioBridgeService.getInstance();
@@ -67,8 +70,9 @@ export class NodeManager {
   }
 
   /** 设置部署委托（由 DeployManager 注册） */
-  setDeployDelegate(delegate: (node: NodeConfig) => Promise<{ success: boolean; message: string }>): void {
+  setDeployDelegate(delegate: NodeDeployDelegate): void {
     this.deployDelegate = delegate;
+    this.operations.setDeployDelegate(delegate);
   }
 
   /** 读取 nodes.yaml 原文（文件或 Redis 后端） */
@@ -511,9 +515,9 @@ export class NodeManager {
     await this.loadNodes({ triggerDeploy: false });
 
     // 如果有 SSH 配置且 agent 未部署，触发自动部署
-    if (this.deployDelegate && node.kernels.length > 0 && node.ssh && node.agent?.status === 'not_deployed') {
+    if (this.operations.canAutoDeploy(node)) {
       logger.info(`NodeManager: 触发自动部署节点 ${node.id}`);
-      this.deployDelegate(node).catch(err => {
+      this.operations.deploy(node)?.catch(err => {
         logger.error(`NodeManager: 自动部署节点 ${node.id} 失败: ${err.message}`);
       });
     }
@@ -593,13 +597,13 @@ export class NodeManager {
     logger.info(`NodeManager: 加载了 ${this.nodes.length} 个节点`);
 
     // 自动部署：对已配置 SSH 但 agent 未部署的节点触发部署
-    if (options.triggerDeploy !== false && this.deployDelegate) {
+    if (options.triggerDeploy !== false) {
       const deployable = this.nodes.filter(
-        n => n.kernels.length > 0 && n.ssh && n.agent?.status === 'not_deployed',
+        n => this.operations.canAutoDeploy(n),
       );
       for (const node of deployable) {
         logger.info(`NodeManager: 触发自动部署节点 ${node.id}`);
-        this.deployDelegate(node).catch(err => {
+        this.operations.deploy(node)?.catch(err => {
           logger.error(`NodeManager: 自动部署节点 ${node.id} 失败: ${err.message}`);
         });
       }

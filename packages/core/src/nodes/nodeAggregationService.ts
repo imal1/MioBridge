@@ -1,0 +1,62 @@
+import { dedupeProxySources, type CollectedProxySource } from '../artifacts/sources.js';
+import { KERNEL_TYPES } from '../kernels/types.js';
+import { AgentClient } from './agentClient.js';
+import { NodeRepository } from './nodeRepository.js';
+import type { ClusterStatus, KernelRuntimeStatus, NodeConfig, NodeStatus } from './types.js';
+
+export interface RemoteSourceCollection { sources: CollectedProxySource[]; errors: string[] }
+
+export class NodeAggregationService {
+  private readonly cache = new Map<string, NodeStatus>();
+  constructor(private readonly repository: NodeRepository, private readonly agent: AgentClient) {}
+  getNodeCache(): ReadonlyMap<string, NodeStatus> { return this.cache; }
+
+  async collectRemoteNodeSources(): Promise<RemoteSourceCollection> {
+    const nodes = await this.repository.list();
+    const results = await Promise.all(nodes.map(node => this.collectSources(node)));
+    return { sources: results.flatMap(r => r.sources), errors: results.flatMap(r => r.errors) };
+  }
+
+  async getClusterStatus(): Promise<ClusterStatus> {
+    const nodes = await this.repository.list();
+    const [statuses, collection] = await Promise.all([Promise.all(nodes.map(node => this.status(node))), Promise.all(nodes.map(node => this.collectSources(node)))]);
+    const sources = collection.flatMap(result => result.sources);
+    return { totalNodes: statuses.length, onlineNodes: statuses.filter(s => s.online).length, totalProxies: dedupeProxySources(sources).length, nodes: statuses, lastUpdated: new Date().toISOString() };
+  }
+
+  private async collectSources(node: NodeConfig): Promise<RemoteSourceCollection> {
+    try {
+      const json = await this.agent.get(node, '/api/urls') as Record<string, unknown>;
+      const data = (json.data ?? json) as Record<string, unknown>;
+      const kernels = this.agent.validateKernelStatuses(data.kernels);
+      if (!Array.isArray(data.sources)) throw new Error('Agent 返回了无效的代理来源');
+      const sources = data.sources.map(item => {
+        if (!item || typeof item !== 'object' || Array.isArray(item)) throw new Error('Agent 返回了无效的代理来源');
+        const source = item as Record<string, unknown>;
+        if (Object.keys(source).some(k => k !== 'kernel' && k !== 'url') || typeof source.kernel !== 'string' || !KERNEL_TYPES.includes(source.kernel as never) || typeof source.url !== 'string' || !source.url) throw new Error('Agent 返回了无效的代理来源');
+        return source as { kernel: typeof KERNEL_TYPES[number]; url: string };
+      });
+      if (new Set(sources.map(s => s.url)).size !== sources.length) throw new Error('Agent 返回了重复的代理来源');
+      for (const kernel of kernels) if (sources.filter(s => s.kernel === kernel.type).length !== kernel.nodesCount) throw new Error(`Agent 内核 ${kernel.type} 的来源数量与 nodesCount 不一致`);
+      const available = new Set(kernels.filter(k => k.monitored && k.accessible).map(k => k.type));
+      return { sources: sources.filter(s => available.has(s.kernel)).sort((a,b) => KERNEL_TYPES.indexOf(a.kernel)-KERNEL_TYPES.indexOf(b.kernel)).map(s => ({ ...s, nodeId: node.id, location: node.location })), errors: kernels.filter(k => (k.monitored && !k.accessible) || k.error).map(k => this.error(node, `内核 ${k.type}: ${k.error || '已监控但不可访问'}`)) };
+    } catch (error) { return { sources: [], errors: [this.error(node, error instanceof Error ? error.message : String(error))] }; }
+  }
+
+  private async status(node: NodeConfig): Promise<NodeStatus> {
+    const base: NodeStatus = { nodeId: node.id, name: node.name, configuredKernels: node.kernels, kernels: unavailable(node.kernels), location: node.location, online: false };
+    try {
+      const json = await this.agent.get(node, '/api/status') as Record<string, unknown>;
+      const data = (json.data ?? json) as Record<string, unknown>;
+      const kernels = this.agent.validateKernelStatuses(data.kernels);
+      const status: NodeStatus = { ...base, online: true, kernels, nodesCount: kernels.reduce((sum,k) => sum+k.nodesCount, 0), ...(node.agent ? { agent: node.agent } : {}), ...(typeof data.version === 'string' ? { version: data.version } : {}), ...(typeof data.uptime === 'number' ? { uptime: data.uptime } : {}) };
+      this.cache.set(node.id, status); return status;
+    } catch (error) { const status = { ...base, error: error instanceof Error && error.name === 'AbortError' ? '请求超时' : `连接失败: ${error instanceof Error ? error.message : String(error)}` }; this.cache.set(node.id, status); return status; }
+  }
+  private error(node: NodeConfig, message: string): string { return `节点 ${node.name} (${node.id}): ${message}`; }
+}
+
+function unavailable(configured: NodeConfig['kernels']): KernelRuntimeStatus[] {
+  const byType = new Map(configured.map(k => [k.type, k]));
+  return KERNEL_TYPES.map(type => ({ type, detected: false, monitored: byType.has(type), accessible: false, nodesCount: 0, configPaths: byType.get(type)?.configPath ? [byType.get(type)!.configPath!] : [] }));
+}
