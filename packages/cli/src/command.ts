@@ -1,5 +1,7 @@
 import type { StatusInfo, UpdateResult } from '@miobridge/core';
 import { formatSetupStatus, type DependencySetupService } from './setup/service.js';
+import { formatDashboardDaemonStatus, type DashboardDaemonAction } from './dashboard/commands.js';
+import type { DashboardDaemonStatus } from './dashboard/systemd.js';
 
 export const CLI_VERSION = '0.1.0';
 
@@ -18,7 +20,10 @@ export interface CliDependencies {
   readonly output: CliOutput;
   readonly version?: string;
   readonly setup?: Pick<DependencySetupService, 'run'>;
-  readonly dashboard?: { foreground(): Promise<{ readonly exitCode: number; readonly healthUrl: string }> };
+  readonly dashboard?: {
+    foreground(): Promise<{ readonly exitCode: number; readonly healthUrl: string }>;
+    daemon?(action: DashboardDaemonAction): Promise<DashboardDaemonStatus>;
+  };
 }
 
 type ParsedCommand =
@@ -27,6 +32,7 @@ type ParsedCommand =
   | { readonly kind: 'update' }
   | { readonly kind: 'setup' }
   | { readonly kind: 'dashboard-foreground' }
+  | { readonly kind: 'dashboard-daemon'; readonly action: DashboardDaemonAction; readonly json: boolean }
   | { readonly kind: 'status'; readonly json: boolean };
 
 export const helpText = `MioBridge ${CLI_VERSION}
@@ -39,6 +45,8 @@ Commands:
   status [--json] Show headless runtime status
   dashboard foreground
                   Run the installed dashboard in the foreground
+  dashboard start|stop|status [--json]
+                  Manage the persistent user dashboard service
 
 Options:
   -h, --help      Show help
@@ -68,6 +76,11 @@ export function parseCommand(args: readonly string[]): ParsedCommand {
   }
   if (args[0] === 'dashboard') {
     if (args.length === 2 && args[1] === 'foreground') return { kind: 'dashboard-foreground' };
+    if (args[1] === 'start' || args[1] === 'stop' || args[1] === 'status') {
+      if (args.length === 2) return { kind: 'dashboard-daemon', action: args[1], json: false };
+      if (args.length === 3 && args[2] === '--json') return { kind: 'dashboard-daemon', action: args[1], json: true };
+      throw new Error(`Unexpected argument: ${args[2]}`);
+    }
     throw new Error(args.length === 1 ? 'Missing dashboard action' : `Unknown dashboard action: ${args[1]}`);
   }
   throw new Error(`Unknown command: ${args[0]}`);
@@ -120,6 +133,13 @@ export async function runCli(args: readonly string[], dependencies: CliDependenc
       const result = await dependencies.dashboard.foreground();
       if (result.exitCode !== 0) dependencies.output.stderr(`Dashboard exited with status ${result.exitCode}`);
       return result.exitCode;
+    }
+    if (command.kind === 'dashboard-daemon') {
+      const daemon = dependencies.dashboard?.daemon;
+      if (!daemon) throw new Error('Dashboard daemon adapters are unavailable');
+      const result = await daemon(command.action);
+      dependencies.output.stdout(command.json ? JSON.stringify(result) : formatDashboardDaemonStatus(result));
+      return result.state === 'unsupported' || result.state === 'broken' ? 1 : 0;
     }
     const core = dependencies.createCore();
     if (command.kind === 'update') {

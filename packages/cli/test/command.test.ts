@@ -36,8 +36,20 @@ describe('CLI command contract', () => {
     expect(parseCommand(['--help'])).toEqual({ kind: 'help' });
     expect(parseCommand(['--version'])).toEqual({ kind: 'version' });
     expect(parseCommand(['dashboard', 'foreground'])).toEqual({ kind: 'dashboard-foreground' });
+    expect(parseCommand(['dashboard', 'start'])).toEqual({ kind: 'dashboard-daemon', action: 'start', json: false });
+    expect(parseCommand(['dashboard', 'status', '--json'])).toEqual({ kind: 'dashboard-daemon', action: 'status', json: true });
     expect(() => parseCommand(['status', '--verbose'])).toThrow('Unexpected argument');
     expect(() => parseCommand(['dashboard'])).toThrow('Missing dashboard action');
+  });
+
+  it('keeps dashboard daemon JSON decoration-free and does not compose core', async () => {
+    const run = harness({ updateSubscription: vi.fn(), getStatus: vi.fn() } as unknown as CliCore);
+    const status = { state: 'running' as const, active: true, enabled: true, linger: true, unitPath: '/unit', journalCommand: 'journalctl --user -u unit', message: 'running' };
+    const daemon = vi.fn(async () => status);
+    expect(await runCli(['dashboard', 'status', '--json'], { ...run.dependencies, dashboard: { foreground: vi.fn(), daemon } })).toBe(0);
+    expect(run.stdout).toEqual([JSON.stringify(status)]);
+    expect(run.stderr).toEqual([]);
+    expect(run.createCore).not.toHaveBeenCalled();
   });
 
   it('runs dashboard foreground without composing core and forwards its status', async () => {

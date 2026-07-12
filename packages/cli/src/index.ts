@@ -9,3 +9,7 @@ export { DASHBOARD_MANIFEST_NAME, DASHBOARD_PROVIDER_SCHEMA_VERSION, loadDashboa
 export type { DashboardProviderManifest, LoadedDashboardProvider } from './dashboard/provider.js';
 export { DashboardForegroundService, createNodeForegroundAdapters, dashboardManifestPath } from './dashboard/foreground.js';
 export type { DashboardProcess, ForegroundAdapters, ForegroundOptions, ForegroundResult } from './dashboard/foreground.js';
+export { formatDashboardDaemonStatus, runDashboardDaemonCommand } from './dashboard/commands.js';
+export type { DashboardDaemonAction } from './dashboard/commands.js';
+export { DASHBOARD_UNIT_NAME, DashboardSystemdService, createNodeSystemdAdapters, renderDashboardUserUnit } from './dashboard/systemd.js';
+export type { CommandResult, DashboardDaemonOptions, DashboardDaemonState, DashboardDaemonStatus, SystemdAdapters } from './dashboard/systemd.js';

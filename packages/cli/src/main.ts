@@ -4,6 +4,7 @@ import { createNodeCore } from './composition.js';
 import { DependencySetupService } from './setup/service.js';
 import { createNodeSetupAdapters } from './setup/nodeAdapters.js';
 import { DashboardForegroundService, createNodeForegroundAdapters } from './dashboard/foreground.js';
+import { DashboardSystemdService, createNodeSystemdAdapters } from './dashboard/systemd.js';
 
 const output = {
   stdout(message: string) { process.stdout.write(`${message}\n`); },
@@ -20,6 +21,7 @@ const exitCode = await runCli(process.argv.slice(2), {
   } }),
   dashboard: {
     foreground: () => new DashboardForegroundService(composition.paths, createNodeForegroundAdapters()).run(),
+    daemon: action => new DashboardSystemdService(composition.paths, createNodeSystemdAdapters())[action](),
   },
   output,
   version: CLI_VERSION,
