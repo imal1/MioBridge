@@ -37,9 +37,8 @@ Implement idempotent persistent dashboard `start|stop|status` using a systemd us
 - [ ] Linux systemd integration evidence proves the service survives session exit and is discoverable after reconnect.
 
 ## Done summary
-TBD
-
+Implemented a framework-neutral systemd user dashboard lifecycle with a hardened, safely escaped unit; idempotent start/stop/status; explicit linger confirmation and manual guidance; legacy-service, occupied-port, unsupported-manager, and provider-failure diagnostics; human/JSON CLI output; and injected unit/command tests.
 ## Evidence
-- Commits:
-- Tests:
+- Commits: 939ad05
+- Tests: bun run cli:typecheck, bun run cli:test (7 files, 37 tests), bun run --cwd packages/cli test -- --run test/dashboard/systemd.test.ts test/command.test.ts (2 files, 14 tests), git diff --check
 - PRs:
