@@ -28,9 +28,8 @@ Produce self-contained linux-x64/linux-arm64 CLI release archives, checksum mani
 - [ ] Tests inspect archives, executable bits, architecture mapping, checksum enforcement, upgrade rollback, and external-cwd execution.
 
 ## Done summary
-TBD
-
+Packaged Bun-compiled linux-x64 and linux-arm64 CLI archives with deterministic release names and SHA256SUMS. Added a clone-free, pinned installer with architecture detection, checksum enforcement, transactional replacement, safe CLI-only uninstall, and release contract tests. Added the tag-driven GitHub Release workflow and workspace release commands.
 ## Evidence
-- Commits:
-- Tests:
+- Commits: f99a0f1
+- Tests: bun run cli:typecheck, bun run cli:test (4 files, 25 tests), bun run cli:release (real x64/arm64 cross-compilation), shasum -a 256 -c SHA256SUMS, flowctl validate --spec fn-2-miobridge-cli-with-guided-linux-install
 - PRs:
