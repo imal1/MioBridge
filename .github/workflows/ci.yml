@@ -3,6 +3,8 @@ name: CI
 on:
   pull_request:
     branches: [main]
+  push:
+    branches: [main]
   workflow_dispatch:
 
 concurrency:
@@ -16,95 +18,77 @@ jobs:
     timeout-minutes: 5
 
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Setup Bun
-        uses: oven-sh/setup-bun@v2
+      - uses: oven-sh/setup-bun@v2
         with:
           bun-version: 1.0.30
 
-      - name: Install dependencies
-        run: bun install
+      - run: bun install
 
-      - name: Run oxlint
-        run: bun run lint
+      - run: bun run lint
 
   typecheck:
-    name: Type Check (tsc)
+    name: Type Check
     needs: lint
     runs-on: ubuntu-latest
     timeout-minutes: 5
 
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Setup Bun
-        uses: oven-sh/setup-bun@v2
+      - uses: oven-sh/setup-bun@v2
         with:
           bun-version: 1.0.30
 
-      - name: Install dependencies
-        run: bun install
+      - run: bun install
 
-      - name: Type-check core
-        run: bun run core:typecheck
+      - run: bun run core:typecheck
 
-      - name: Type-check frontend
-        run: bun run typecheck
+      - run: bun run cli:typecheck
+
+      - run: bun run typecheck
 
   test:
-    name: Tests (core, frontend, Agent)
+    name: Tests
     needs: lint
     runs-on: ubuntu-latest
     timeout-minutes: 10
 
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Setup Bun
-        uses: oven-sh/setup-bun@v2
+      - uses: oven-sh/setup-bun@v2
         with:
           bun-version: 1.0.30
 
-      - name: Install dependencies
-        run: bun install
+      - run: bun install
 
-      - name: Test core
-        run: bun run core:test
+      - run: bun run core:test
 
-      - name: Test frontend
-        run: bun run --cwd frontend test
+      - run: bun run --cwd packages/frontend test
 
-      - name: Test Agent
-        run: bun run --cwd agent test
+      - run: bun run --cwd agent test
 
   cli:
-    name: CLI contracts and Linux release archives
+    name: CLI tests + release archives
     needs: lint
     runs-on: ubuntu-latest
     timeout-minutes: 15
 
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Setup Bun
-        uses: oven-sh/setup-bun@v2
+      - uses: oven-sh/setup-bun@v2
         with:
           bun-version: 1.0.30
 
-      - name: Install dependencies
-        run: bun install
 
-      - name: Type-check and test CLI contracts
-        run: |
-          bun run cli:typecheck
-          bun run cli:test
+      - run: bun run cli:typecheck
 
-      - name: Build and inspect x64 and arm64 release archives
+      - run: bun run cli:test
+
+      - name: Build and inspect release archives
         env:
           MIOBRIDGE_RELEASE_VERSION: 0.0.0-ci
         run: |
@@ -122,70 +106,62 @@ jobs:
           grep -F 'miobridge-0.0.0-ci-linux-arm64.tar.gz' dist/cli-release/SHA256SUMS
 
   build:
-    name: Build (Next.js standalone)
+    name: Build (Vite SPA)
     needs: [typecheck, test]
     runs-on: ubuntu-latest
     timeout-minutes: 10
 
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Setup Bun
-        uses: oven-sh/setup-bun@v2
+      - uses: oven-sh/setup-bun@v2
         with:
           bun-version: 1.0.30
 
-      - name: Setup Node
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
+      - run: bun install
 
-      - name: Install dependencies
-        run: bun install
+      - run: bun run build
 
-      - name: Build
-        run: bun run build
-
-      - name: Verify standalone trace and browser boundary
+      - name: Verify Vite bundle boundary
         run: |
           set -euo pipefail
-          STANDALONE=packages/packages/frontend/.next/standalone
-          test -f "$STANDALONE/packages/packages/frontend/server.js"
-          test -f "$STANDALONE/packages/core/dist/index.js"
-          test -d "$STANDALONE/packages/packages/frontend/.next/static"
-          if rg -l '@miobridge/core|MioBridgeCore|node:fs|node:child_process' packages/packages/frontend/.next/static; then
-            echo "Node-only core marker found in a client bundle" >&2
+          DIST=packages/frontend/dist
+          test -f "$DIST/index.html"
+          test -d "$DIST/assets"
+          if rg -l '@miobridge/core|node:fs|node:child_process|MioBridgeCore' "$DIST" 2>/dev/null; then
+            echo "Node-only marker found in client bundle" >&2
             exit 1
           fi
+          echo "Bundle boundary clean"
 
-      - name: Package dashboard provider artifact
-        run: |
-          set -euo pipefail
-          bash scripts/package-dashboard-provider.sh "$RUNNER_TEMP/dashboard-provider"
-          test -f "$RUNNER_TEMP/dashboard-provider/provider.json"
-          test -f "$RUNNER_TEMP/dashboard-provider/artifact/packages/packages/frontend/server.js"
-          node -e 'const fs = require("node:fs"); const manifest = JSON.parse(fs.readFileSync(process.argv[1], "utf8")); if (manifest.schemaVersion !== 1 || manifest.entrypoint !== "packages/packages/frontend/server.js") process.exit(1)' "$RUNNER_TEMP/dashboard-provider/provider.json"
+  deploy:
+    name: Deploy to Vercel
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    needs: [build, cli, test]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment:
+      name: production
+      url: https://miobridge.vercel.app
 
-      - name: Smoke-test standalone compatibility URLs
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.0.30
+
+      - name: Setup Vercel CLI
+        run: bun add -g vercel
+
+      - name: Pull Vercel environment
+        run: vercel pull --yes --environment=production --token=${{ secrets.VERCEL_TOKEN }}
+
+      - name: Build
+        run: bun run --cwd packages/frontend build
+
+      - name: Deploy to Vercel
         run: |
-          set -euo pipefail
-          export MIOBRIDGE_CONFIG_DIR="$RUNNER_TEMP/miobridge"
-          export PORT=3101
-          export HOSTNAME=127.0.0.1
-          export NODE_ENV=production
-          mkdir -p "$MIOBRIDGE_CONFIG_DIR/www"
-          printf 'vless://standalone-smoke\n' > "$MIOBRIDGE_CONFIG_DIR/www/raw.txt"
-          printf 'dmxlc3M6Ly9zdGFuZGFsb25lLXNtb2tlCg==\n' > "$MIOBRIDGE_CONFIG_DIR/www/subscription.txt"
-          printf 'proxies: []\n' > "$MIOBRIDGE_CONFIG_DIR/www/clash.yaml"
-          node packages/packages/frontend/.next/standalone/packages/packages/frontend/server.js > "$RUNNER_TEMP/standalone.log" 2>&1 &
-          server_pid=$!
-          trap 'kill "$server_pid" 2>/dev/null || true; cat "$RUNNER_TEMP/standalone.log"' EXIT
-          for attempt in {1..30}; do
-            curl -fsS "http://127.0.0.1:$PORT/health" >/dev/null && break
-            if [[ "$attempt" == 30 ]]; then exit 1; fi
-            sleep 1
-          done
-          for path in subscription.txt clash.yaml raw.txt health; do
-            curl -fsS "http://127.0.0.1:$PORT/$path" >/dev/null
-          done
+          vercel deploy --prod --cwd packages/frontend \
+            --token=${{ secrets.VERCEL_TOKEN }} \
+            --yes
