@@ -22,7 +22,7 @@ jobs:
 
       - uses: oven-sh/setup-bun@v2
         with:
-          bun-version: 1.0.30
+          bun-version: 1.2.13
 
       - run: bun install
 
@@ -39,7 +39,7 @@ jobs:
 
       - uses: oven-sh/setup-bun@v2
         with:
-          bun-version: 1.0.30
+          bun-version: 1.2.13
 
       - run: bun install
 
@@ -60,7 +60,7 @@ jobs:
 
       - uses: oven-sh/setup-bun@v2
         with:
-          bun-version: 1.0.30
+          bun-version: 1.2.13
 
       - run: bun install
 
@@ -81,7 +81,7 @@ jobs:
 
       - uses: oven-sh/setup-bun@v2
         with:
-          bun-version: 1.0.30
+          bun-version: 1.2.13
 
 
       - run: bun run cli:typecheck
@@ -116,7 +116,7 @@ jobs:
 
       - uses: oven-sh/setup-bun@v2
         with:
-          bun-version: 1.0.30
+          bun-version: 1.2.13
 
       - run: bun install
 
@@ -149,7 +149,7 @@ jobs:
 
       - uses: oven-sh/setup-bun@v2
         with:
-          bun-version: 1.0.30
+          bun-version: 1.2.13
 
       - name: Setup Vercel CLI
         run: bun add -g vercel
