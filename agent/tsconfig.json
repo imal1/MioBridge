@@ -9,11 +9,11 @@
     "skipLibCheck": true,
     "baseUrl": ".",
     "paths": {
-      "@adapters/*": ["../frontend/src/server/services/adapters/*"],
-      "@middleware/*": ["../frontend/src/server/middleware/*"],
-      "@types/*": ["../frontend/src/server/types/*"]
+      "@adapters/*": ["../packages/frontend/src/server/services/adapters/*"],
+      "@middleware/*": ["../packages/frontend/src/server/middleware/*"],
+      "@types/*": ["../packages/frontend/src/server/types/*"]
     }
   },
-  "include": ["src/**/*.ts", "../frontend/src/server/services/adapters/**/*.ts", "../frontend/src/server/middleware/**/*.ts", "../frontend/src/server/types/**/*.ts"],
+  "include": ["src/**/*.ts", "../packages/frontend/src/server/services/adapters/**/*.ts", "../packages/frontend/src/server/middleware/**/*.ts", "../packages/frontend/src/server/types/**/*.ts"],
   "exclude": ["node_modules", "src/**/__tests__/**"]
 }

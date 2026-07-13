@@ -7,10 +7,10 @@ metadata:
 
 # Project Architecture
 
-- The active service is one Next.js Pages Router app under `frontend/`, using
+- The active service is one Next.js Pages Router app under `packages/frontend/`, using
   Node runtime and standalone output.
-- Backend services are framework-independent singletons in
-  `frontend/src/server/**`.
+- Framework-independent backend services live in the private `@miobridge/core`
+  workspace package; `packages/frontend/src/server/core.ts` is its Node composition adapter.
 - SSR uses direct service calls from `getServerSideProps`.
 - mihomo is the local conversion engine; yq v4 handles YAML/config operations.
 - Main node owns generated subscription artifacts; child nodes only expose Agent
@@ -24,3 +24,16 @@ metadata:
   sources plus per-kernel runtime status to the main node.
 - Cluster proxy totals and generated artifacts use exact-URL global deduplication;
   Clash-only naming prefixes region and appends the source URL on name conflicts.
+- `@miobridge/core` composes artifact generation and status through the explicit
+  `MioBridgeCore` facade; runtime paths, state, kernels, metadata, clock, and
+  source collectors are injected without frontend imports or module singletons.
+## 2026-07-12 — Frontend core composition
+
+- `packages/frontend/src/server/core.ts` is the Node-only composition adapter for `@miobridge/core`; API routes and SSR consume its `MioBridgeCore`/node aggregation instances, while deployment and SSH lifecycle behavior remains frontend-owned.
+
+## 2026-07-12 — CLI dashboard provider boundary
+
+- `packages/cli` consumes public `@miobridge/core` exports headlessly. Its
+  versioned dashboard provider manifest and user-systemd launcher own only
+  optional dashboard lifecycle; provider removal preserves core config/data and
+  allows fn-4 to replace the artifact without changing CLI commands.

@@ -1,0 +1,50 @@
+name: CLI Release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Semantic version to package
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  cli:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.0.30
+      - run: bun install --frozen-lockfile
+      - name: Package self-contained Linux CLIs
+        env:
+          MIOBRIDGE_RELEASE_VERSION: ${{ inputs.version || github.ref_name }}
+        run: |
+          export MIOBRIDGE_RELEASE_VERSION="${MIOBRIDGE_RELEASE_VERSION#v}"
+          rm -rf packages/core/dist packages/cli/dist dist/cli-release
+          bun run cli:release
+      - name: Verify release contracts
+        run: bun run cli:test
+      - name: Inspect both release archives
+        run: |
+          set -euo pipefail
+          for arch in x64 arm64; do
+            archive="$(find dist/cli-release -maxdepth 1 -name "miobridge-*-linux-$arch.tar.gz" -print -quit)"
+            test -n "$archive"
+            tar -tzf "$archive" | sort | diff -u <(printf 'VERSION\nmiobridge\n') -
+            directory="$(mktemp -d)"
+            tar -xzf "$archive" -C "$directory"
+            test -x "$directory/miobridge"
+          done
+          test -s dist/cli-release/SHA256SUMS
+      - uses: softprops/action-gh-release@v2
+        if: startsWith(github.ref, 'refs/tags/v')
+        with:
+          files: |
+            dist/cli-release/miobridge-*.tar.gz
+            dist/cli-release/SHA256SUMS

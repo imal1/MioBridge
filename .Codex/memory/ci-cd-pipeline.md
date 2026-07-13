@@ -20,16 +20,32 @@ removed.
 ## 2026-07-01 — Type check runs in the Next.js workspace
 
 The repository root still contains a migration-era `tsconfig.json` that points
-at root `src/**/*`. The active application lives under `frontend/`, so CI must
+at root `src/**/*`. The active application lives under `packages/frontend/`, so CI must
 run TypeScript checks from that workspace.
 
 Current PR gate:
 
 ```bash
 bun run lint
-cd frontend && bunx tsc --noEmit
+bun run core:typecheck
+bun run core:test
+bun run typecheck
+cd frontend && bun run test
+cd ../agent && bun test
+cd ..
 bun run build
 ```
 
-The root `package.json` exposes `bun run typecheck` as a convenience wrapper
-for the frontend command.
+The build gate also checks the traced core package and static assets, rejects
+Node/core markers in client chunks, starts the standalone server, and requests
+all four public compatibility URLs.
+
+## 2026-07-12 — Linux CLI release and user-systemd gates
+
+`ci.yml` now type-checks/tests `packages/cli`, cross-compiles and inspects
+checksum-covered Linux x64/arm64 archives, and packages the dashboard provider.
+`cli-systemd-e2e.yml` runs the compiled CLI in a disposable Linux systemd host
+with explicit linger, separate-shell reconnect, idempotent lifecycle, four URL
+smoke checks, failure journal guidance, and provider-removal headless status.
+Tag-only `release.yml` uploads the two archives plus `SHA256SUMS`; Vercel
+production deployment remains Git Integration.

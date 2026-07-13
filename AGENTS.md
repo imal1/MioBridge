@@ -5,13 +5,15 @@ Keep this file small. It is loaded often.
 ## Project
 
 MioBridge is a TypeScript subscription converter. The active app is a single
-Next.js full-stack service under `frontend/` using Pages Router, Node runtime,
+Next.js full-stack service under `packages/frontend/` using Pages Router, Node runtime,
 SSR, and `output: 'standalone'`. There is no separate Express server.
 
 ## Architecture Rules
 
-- Backend logic lives in `frontend/src/server/**` and is framework-independent.
-  Use `XxxService.getInstance()` and expose new behavior through thin API routes.
+- Framework-independent backend logic lives in `packages/core`; expose it through
+  explicit `@miobridge/core` exports and the `MioBridgeCore` facade.
+- `packages/frontend/src/server/**` owns the Node composition root plus Next, logging,
+  SSH/deployment, and dashboard lifecycle adapters. Keep API routes thin.
 - SSR pages call services directly in `getServerSideProps`; do not self-call HTTP
   inside the same process.
 - Node-only modules belong in `server/`, `pages/api/`, or
@@ -34,28 +36,31 @@ SSR, and `output: 'standalone'`. There is no separate Express server.
 bun install
 bun run dev                 # cd frontend && next dev -p 3001
 bun run build               # Next standalone build
-bun run start               # node frontend/.next/standalone/frontend/server.js
-bun run lint                # oxlint frontend/src
+bun run start               # node packages/frontend/.next/standalone/packages/frontend/server.js
+bun run lint                # oxlint packages/frontend/src
 bun run typecheck           # frontend TypeScript check
+bun run core:typecheck      # core package TypeScript check
+bun run core:test           # compiled Bun/Node headless and unit tests
+cd frontend && bun run test
 cd agent && bun test
 cd agent && bun build src/server.ts --compile --target=bun-linux-x64 --outfile miobridge-agent
 ```
 
-Do not run root `npx tsc --noEmit`; the active TS project is `frontend/`.
+Do not run root `npx tsc --noEmit`; use the frontend and core workspace commands.
 
 ## Deployment Notes
 
 - Production runs Node with `PORT`, `HOSTNAME=0.0.0.0`, and
   `NODE_ENV=production`.
 - `scripts/manage.sh install` builds and installs standalone output to
-  `~/.config/miobridge/dist/frontend/server.js`.
+  `~/.config/miobridge/dist/packages/frontend/server.js`.
 - Standalone output needs `.next/static` and `public` copied into the runtime
   directory; preserve that in build/deploy changes.
 
 ## UI
 
 Use the existing Botanical Garden design tokens from
-`frontend/src/styles/globals.css`. Avoid hard-coded colors and Tailwind gray
+`packages/frontend/src/styles/globals.css`. Avoid hard-coded colors and Tailwind gray
 palette classes in components; prefer CSS variables and existing UI patterns.
 
 ## Memory

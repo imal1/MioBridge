@@ -4,7 +4,8 @@ Production runs on Vercel at `https://miobridge.vercel.app/`.
 
 ## Runtime
 
-- App: Next.js Pages Router service under `frontend/`
+- App: Next.js Pages Router service under `packages/frontend/`, composing the traced
+  `@miobridge/core` workspace package on the server only
 - Runtime: Vercel Node.js functions
 - Project link: `.vercel/project.json`
 - Public health check: `https://miobridge.vercel.app/api/health`
@@ -30,6 +31,8 @@ secrets or a Vercel CLI token.
 ```bash
 bun install
 bun run lint
+bun run core:typecheck
+bun run core:test
 bun run typecheck
 bun run build
 ```
@@ -44,3 +47,11 @@ Use the Vercel dashboard for deployment status, runtime logs, rollbacks, and
 project settings.
 
 The old systemd/Nginx server flow is no longer used for the main node.
+
+## Self-hosted Linux CLI
+
+This Vercel deployment guide does not install or manage a Linux dashboard
+daemon. The self-contained `miobridge` release CLI and its optional
+provider-backed user-systemd service are documented in [CLI.md](./CLI.md).
+They retain state under the user's `~/.config/miobridge` and do not alter the
+Vercel production deployment.
