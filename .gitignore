@@ -101,3 +101,4 @@ agent/miobridge-agent
 config/nginx.conf
 # Added by code-review-graph
 .code-review-graph/
+.env*
