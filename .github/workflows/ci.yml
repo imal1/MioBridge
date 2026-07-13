@@ -25,7 +25,6 @@ jobs:
           bun-version: 1.2.13
 
       - run: bun install
-      - run: bun install
 
       - run: bun run lint
 
@@ -43,14 +42,12 @@ jobs:
           bun-version: 1.2.13
 
       - run: bun install
-      - run: bun install
 
       - run: bun run core:typecheck
 
       - run: bun run core:build
       - run: bun run cli:typecheck
 
-      - run: bun run typecheck
 
   test:
     name: Tests
@@ -65,7 +62,6 @@ jobs:
         with:
           bun-version: 1.2.13
 
-      - run: bun install
       - run: bun install
 
       - run: bun run core:test
@@ -124,7 +120,6 @@ jobs:
         with:
           bun-version: 1.2.13
 
-      - run: bun install
       - run: bun install
 
       - run: bun run build
