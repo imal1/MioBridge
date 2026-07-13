@@ -162,6 +162,6 @@ jobs:
 
       - name: Deploy to Vercel
         run: |
-          vercel deploy --prod --cwd packages/frontend \
+          vercel deploy --prod --prebuilt --cwd packages/frontend \
             --token=${{ secrets.VERCEL_TOKEN }} \
             --yes
