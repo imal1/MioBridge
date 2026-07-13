@@ -6,12 +6,6 @@
     "lib": [
       "ES2022"
     ],
-    "types": [
-      "node"
-    ],
-    "typeRoots": [
-      "../../node_modules/@types"
-    ],
     "rootDir": "src",
     "outDir": "dist",
     "declaration": true,
@@ -21,7 +15,13 @@
     "noUncheckedIndexedAccess": true,
     "exactOptionalPropertyTypes": true,
     "skipLibCheck": true,
-    "forceConsistentCasingInFileNames": true
+    "forceConsistentCasingInFileNames": true,
+    "types": [
+      "node"
+    ],
+    "typeRoots": [
+      "../../node_modules/@types"
+    ]
   },
   "include": [
     "src/**/*.ts"
