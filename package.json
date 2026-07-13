@@ -6,13 +6,12 @@
   "private": true,
   "packageManager": "bun@1.0.30",
   "workspaces": [
-    "frontend",
     "packages/*"
   ],
   "scripts": {
-    "dev": "cd frontend && bun run dev",
-    "build": "cd frontend && bun run build",
-    "typecheck": "cd frontend && bunx tsc --noEmit",
+    "dev": "cd packages/frontend && bun run dev",
+    "build": "cd packages/frontend && bun run build",
+    "typecheck": "cd packages/frontend && bunx tsc --noEmit",
     "core:build": "bun run --cwd packages/core build",
     "core:test": "bun run --cwd packages/core test",
     "core:typecheck": "bun run --cwd packages/core typecheck",
@@ -21,19 +20,18 @@
     "cli:test": "bun run --cwd packages/cli test",
     "cli:typecheck": "bun run --cwd packages/cli typecheck",
     "start": "echo \"Use CLI: miobridge dashboard start\"",
-    "lint": "oxlint frontend/src/",
-    "lint:fix": "oxlint --fix frontend/src/",
+    "lint": "oxlint packages/frontend/src/",
+    "lint:fix": "oxlint --fix packages/frontend/src/",
     "e2e:distributed": "bash scripts/e2e-distributed.sh",
     "e2e:browser": "node scripts/e2e-browser.mjs",
     "test": "echo 'Tests not configured'",
-    "clean": "rm -rf frontend/dist",
+    "clean": "rm -rf packages/frontend/dist",
     "install:deps": "bun install",
     "setup": "bun run install:deps && bun run build",
     "config:validate": "bun -e \"console.log('✅ 配置验证通过，当前使用 config.yaml 管理配置')\"",
-    "frontend:dev": "cd frontend && bun run dev",
-    "frontend:build": "cd frontend && bun run build",
-    "frontend:start": "cd frontend && bun run start",
-    "frontend:lint": "cd frontend && bun run lint"
+    "frontend:dev": "cd packages/frontend && bun run dev",
+    "frontend:build": "cd packages/frontend && bun run build",
+    "frontend:lint": "cd packages/frontend && bun run lint"
   },
   "keywords": [
     "miobridge",

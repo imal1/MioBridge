@@ -20,7 +20,7 @@ removed.
 ## 2026-07-01 — Type check runs in the Next.js workspace
 
 The repository root still contains a migration-era `tsconfig.json` that points
-at root `src/**/*`. The active application lives under `frontend/`, so CI must
+at root `src/**/*`. The active application lives under `packages/frontend/`, so CI must
 run TypeScript checks from that workspace.
 
 Current PR gate:

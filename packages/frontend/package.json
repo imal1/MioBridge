@@ -1,5 +1,5 @@
 {
-  "name": "miobridge-dashboard",
+  "name": "@miobridge/frontend",
   "version": "1.0.0",
   "description": "Dashboard for MioBridge — sing-box to Clash converter powered by mihomo",
   "private": true,

@@ -42,7 +42,7 @@ experience over account systems:
 
 v0.1 and v1.0 form the stable baseline:
 
-- Next.js Pages Router full-stack app under `frontend/`.
+- Next.js Pages Router full-stack app under `packages/frontend/`.
 - Runtime data under `~/.config/miobridge`.
 - Main node generates `raw.txt`, `subscription.txt`, and `clash.yaml`.
 - Child nodes run Agent/kernel and expose source URLs.

@@ -2,9 +2,9 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-SOURCE="$ROOT_DIR/frontend/.next/standalone"
+SOURCE="$ROOT_DIR/packages/frontend/.next/standalone"
 OUTPUT="${1:-$ROOT_DIR/dist/dashboard-provider}"
-VERSION="${MIOBRIDGE_DASHBOARD_VERSION:-$(node -p "require('$ROOT_DIR/frontend/package.json').version")}"
+VERSION="${MIOBRIDGE_DASHBOARD_VERSION:-$(node -p "require('$ROOT_DIR/packages/frontend/package.json').version")}"
 
 if [[ ! -f "$SOURCE/frontend/server.js" ]]; then
   echo "standalone dashboard not found; run 'bun run build' first" >&2

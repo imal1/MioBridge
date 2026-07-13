@@ -34,7 +34,7 @@ Run the checks relevant to your change before opening a PR.
 
 - Branch from `main`.
 - Use Conventional Commits, for example `feat: add node status filter`.
-- Open PRs against `main`; CI runs lint, core/frontend/CLI typechecks and
+- Open PRs against `main`; CI runs lint, core/packages/frontend/CLI typechecks and
   contracts, Agent tests, x64/arm64 release archive checks, a standalone build,
   provider artifact packaging, a client-bundle boundary scan, and live
   compatibility-URL smoke tests. A disposable Linux systemd job verifies user

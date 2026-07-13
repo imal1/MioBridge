@@ -150,11 +150,11 @@ jobs:
       - name: Verify standalone trace and browser boundary
         run: |
           set -euo pipefail
-          STANDALONE=frontend/.next/standalone
-          test -f "$STANDALONE/frontend/server.js"
+          STANDALONE=packages/packages/frontend/.next/standalone
+          test -f "$STANDALONE/packages/packages/frontend/server.js"
           test -f "$STANDALONE/packages/core/dist/index.js"
-          test -d "$STANDALONE/frontend/.next/static"
-          if rg -l '@miobridge/core|MioBridgeCore|node:fs|node:child_process' frontend/.next/static; then
+          test -d "$STANDALONE/packages/packages/frontend/.next/static"
+          if rg -l '@miobridge/core|MioBridgeCore|node:fs|node:child_process' packages/packages/frontend/.next/static; then
             echo "Node-only core marker found in a client bundle" >&2
             exit 1
           fi
@@ -164,8 +164,8 @@ jobs:
           set -euo pipefail
           bash scripts/package-dashboard-provider.sh "$RUNNER_TEMP/dashboard-provider"
           test -f "$RUNNER_TEMP/dashboard-provider/provider.json"
-          test -f "$RUNNER_TEMP/dashboard-provider/artifact/frontend/server.js"
-          node -e 'const fs = require("node:fs"); const manifest = JSON.parse(fs.readFileSync(process.argv[1], "utf8")); if (manifest.schemaVersion !== 1 || manifest.entrypoint !== "frontend/server.js") process.exit(1)' "$RUNNER_TEMP/dashboard-provider/provider.json"
+          test -f "$RUNNER_TEMP/dashboard-provider/artifact/packages/packages/frontend/server.js"
+          node -e 'const fs = require("node:fs"); const manifest = JSON.parse(fs.readFileSync(process.argv[1], "utf8")); if (manifest.schemaVersion !== 1 || manifest.entrypoint !== "packages/packages/frontend/server.js") process.exit(1)' "$RUNNER_TEMP/dashboard-provider/provider.json"
 
       - name: Smoke-test standalone compatibility URLs
         run: |
@@ -178,7 +178,7 @@ jobs:
           printf 'vless://standalone-smoke\n' > "$MIOBRIDGE_CONFIG_DIR/www/raw.txt"
           printf 'dmxlc3M6Ly9zdGFuZGFsb25lLXNtb2tlCg==\n' > "$MIOBRIDGE_CONFIG_DIR/www/subscription.txt"
           printf 'proxies: []\n' > "$MIOBRIDGE_CONFIG_DIR/www/clash.yaml"
-          node frontend/.next/standalone/frontend/server.js > "$RUNNER_TEMP/standalone.log" 2>&1 &
+          node packages/packages/frontend/.next/standalone/packages/packages/frontend/server.js > "$RUNNER_TEMP/standalone.log" 2>&1 &
           server_pid=$!
           trap 'kill "$server_pid" 2>/dev/null || true; cat "$RUNNER_TEMP/standalone.log"' EXIT
           for attempt in {1..30}; do

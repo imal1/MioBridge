@@ -7,10 +7,10 @@ metadata:
 
 # Project Architecture
 
-- The active service is one Next.js Pages Router app under `frontend/`, using
+- The active service is one Next.js Pages Router app under `packages/frontend/`, using
   Node runtime and standalone output.
 - Framework-independent backend services live in the private `@miobridge/core`
-  workspace package; `frontend/src/server/core.ts` is its Node composition adapter.
+  workspace package; `packages/frontend/src/server/core.ts` is its Node composition adapter.
 - SSR uses direct service calls from `getServerSideProps`.
 - mihomo is the local conversion engine; yq v4 handles YAML/config operations.
 - Main node owns generated subscription artifacts; child nodes only expose Agent
@@ -29,7 +29,7 @@ metadata:
   source collectors are injected without frontend imports or module singletons.
 ## 2026-07-12 — Frontend core composition
 
-- `frontend/src/server/core.ts` is the Node-only composition adapter for `@miobridge/core`; API routes and SSR consume its `MioBridgeCore`/node aggregation instances, while deployment and SSH lifecycle behavior remains frontend-owned.
+- `packages/frontend/src/server/core.ts` is the Node-only composition adapter for `@miobridge/core`; API routes and SSR consume its `MioBridgeCore`/node aggregation instances, while deployment and SSH lifecycle behavior remains frontend-owned.
 
 ## 2026-07-12 — CLI dashboard provider boundary
 

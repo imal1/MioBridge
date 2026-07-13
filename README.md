@@ -4,83 +4,62 @@
 
 > A distributed subscription converter and control plane powered by mihomo.
 > MioBridge aggregates sing-box, Xray, and V2Ray node sources into
-> Clash-compatible outputs with an SSR dashboard, remote Agent support, and
-> Vercel production deployment.
+> Clash-compatible outputs with a SPA dashboard, remote Agent support,
+> and a single-binary Linux CLI.
 
-MioBridge deploys as a single Next.js full-stack service. Its framework-independent
-Node backend is the private Bun workspace package `@miobridge/core`; the dashboard,
-thin API/SSR boundaries, scheduled jobs, logging, and SSH/deployment adapters live
-under `frontend/`. Production runs the Next standalone output directly, with no
-separate Express server.
+## Install
 
-## Highlights
+```bash
+curl -fsSL https://raw.githubusercontent.com/imal1/MioBridge/main/scripts/install.sh | bash
+```
 
-- **Multi-protocol aggregation**: vless, vmess, trojan, hysteria2, tuic, shadowsocks
-- **Clash-compatible outputs**: `raw.txt`, `subscription.txt`, and `clash.yaml`
-- **Distributed nodes**: remote nodes expose source URLs through a lightweight Agent
-- **Multi-kernel Agents**: one child can monitor sing-box, Xray, and V2Ray together
-- **HMAC control plane**: the main node talks to Agents over signed HTTP requests
-- **SSR dashboard**: Next.js Pages Router UI using the Botanical Garden theme
-- **Scheduled refresh**: automatic subscription updates plus manual API/UI triggers
-- **Vercel deployment**: Vercel Git Integration deploys pushes to production
-- **Linux CLI**: checksum-verified headless release command with an optional
-  provider-backed dashboard lifecycle
+Guided setup: downloads Bun and mihomo, builds the project, and optionally
+configures systemd. Everything lives under `~/.config/miobridge/`.
 
-## Stack
+## CLI
 
-| Layer | Tech |
-| --- | --- |
-| Runtime | Node.js 18+ in production, Bun for development and builds |
-| App | Next.js Pages Router, Node runtime, standalone output |
-| UI | React, Tailwind CSS, Botanical Garden design tokens |
-| Conversion | mihomo |
-| Config | YAML files under `~/.config/miobridge` |
-| Agent | Bun-compiled remote node service |
-| Deploy | Vercel, GitHub Actions |
+```bash
+miobridge update              # refresh subscription
+miobridge status --json       # print service status
+miobridge dashboard start     # serve dashboard + API on :3000
+miobridge dashboard stop      # stop the dashboard server
+miobridge dashboard status    # check if dashboard is running
+miobridge --help              # list all commands
+```
 
-## Quick Start
+The `dashboard` command starts a single process that serves the static Vite
+SPA and all API routes. No SSR, no Node.js, no separate web server.
+
+## Uninstall
+
+```bash
+# Stop and remove the systemd service (Linux)
+sudo systemctl disable --now miobridge
+sudo rm /etc/systemd/system/miobridge.service
+sudo systemctl daemon-reload
+
+# Remove all data
+rm -rf ~/.config/miobridge
+```
+
+## Development
 
 ```bash
 git clone https://github.com/imal1/MioBridge.git
 cd MioBridge
 bun install
-bun run dev
-```
 
-Open `http://localhost:3001`.
+# Dashboard (Vite dev server, port 5173)
+cd packages/frontend && bun run dev
 
-Production build and standalone start:
+# CLI server (port 3000, proxies /api to it)
+cd packages/cli && bun run dev -- dashboard start
 
-```bash
-bun run build
-bun run start
-```
-
-Runtime config and generated files live outside the repository:
-
-```text
-~/.config/miobridge/
-  config.yaml
-  nodes.yaml
-  raw.txt
-  subscription.txt
-  clash.yaml
-  log/
-  bin/
-```
-
-## Common Commands
-
-```bash
-bun run lint
+# Tests
 bun run core:test
-bun run core:typecheck
-bun run typecheck
-bun run build
-cd frontend && bun run test
-cd agent && bun test
-bun run cli:typecheck
 bun run cli:test
+cd packages/frontend && bun run test
+cd agent && bun test
 ```
 
 Build the remote Agent binary:
@@ -89,6 +68,46 @@ Build the remote Agent binary:
 cd agent
 bun build src/server.ts --compile --target=bun-linux-x64 --outfile miobridge-agent
 ```
+
+## Stack
+
+| Layer | Tech |
+| --- | --- |
+| CLI | Bun-compiled single binary |
+| Core | `@miobridge/core` (headless config, state, conversion, artifacts) |
+| Dashboard | Vite React SPA, React Router, Botanical Garden tokens |
+| Conversion | mihomo |
+| Agent | Bun-compiled remote node service |
+| Config | YAML under `~/.config/miobridge/` |
+
+## Public Endpoints
+
+| Endpoint | Purpose |
+| --- | --- |
+| `/` | SPA dashboard |
+| `/api/health` | health check |
+| `/api/status` | service status |
+| `/api/update` | trigger subscription refresh |
+| `/api/convert` | convert supplied subscription content |
+| `/subscription.txt` | base64 subscription output |
+| `/clash.yaml` | Clash YAML output |
+| `/raw.txt` | raw node list output |
+
+## Project Layout
+
+```text
+packages/cli/                CLI binary, dashboard server, HTTP adapters, SSE
+packages/core/               headless config, state, conversion, artifacts
+packages/frontend/            Vite React SPA (static bundle consumed by CLI)
+agent/                       remote node Agent
+scripts/                     install, manage, and deploy helpers
+docs/                        deployment and operations documentation
+```
+
+`MioBridgeCore` is the headless composition facade. The CLI server wraps it
+with thin HTTP adapters and serves the static Vite bundle from `packages/frontend/dist/`.
+The dashboard SPA talks to the CLI over typed HTTP clients — no SSR, no
+Next.js, no Express.
 
 ## Multi-kernel Agents
 
@@ -120,67 +139,11 @@ Clash subscription are prefixed with the child node's `location`. If multiple
 sources still produce the same name, MioBridge appends the source URL in
 brackets so every generated proxy name remains unique.
 
-## Public Endpoints
-
-| Endpoint | Purpose |
-| --- | --- |
-| `/` | SSR dashboard |
-| `/api/health` | health check |
-| `/api/status` | service status |
-| `/api/update` | trigger subscription refresh |
-| `/api/convert` | convert supplied subscription content |
-| `/subscription.txt` | base64 subscription output |
-| `/clash.yaml` | Clash YAML output |
-| `/raw.txt` | raw node list output |
-
-Compatibility paths are served by Next rewrites, so public URLs stay stable
-while implementation remains inside API routes.
-
-## Project Layout
-
-```text
-frontend/
-  src/pages/                 Next pages and API routes
-  src/server/                Next composition and operations adapters
-  src/components/            dashboard UI
-  next.config.js             standalone output and rewrites
-packages/core/               headless config, state, conversion, artifacts, nodes
-agent/                       remote node Agent
-scripts/                     install, manage, and deploy helpers
-docs/                        deployment and operations documentation
-.github/workflows/           CI/CD workflows
-```
-
-`MioBridgeCore` is the headless composition facade. Agent HTTP/HMAC access, the
-node repository, and node aggregation are core APIs. SSH, remote installation,
-and deployment callbacks remain frontend-owned operations. The separately
-distributed Linux CLI composes the same public core API; its optional dashboard
-provider and user-systemd lifecycle are framework-neutral.
-
-## Linux CLI and optional dashboard
-
-The repository dashboard and Vercel deployment are not required for CLI
-operation. A release binary runs `miobridge update` and `miobridge status --json`
-headlessly with runtime state under `~/.config/miobridge`. Install, upgrade,
-managed dependency, provider, user-systemd, removal, and troubleshooting details
-are in [docs/CLI.md](./docs/CLI.md). Chinese instructions are in
-[docs/CLI.zh-CN.md](./docs/CLI.zh-CN.md).
-
-## Deployment
-
-Production deployments are normally triggered by pushing `main`. Vercel Git
-Integration builds the connected project and promotes the production deployment.
-
-Detailed setup is in [docs/DEPLOYMENT.md](./docs/DEPLOYMENT.md). CI/CD notes are
-in [docs/CI-CD.md](./docs/CI-CD.md). These describe Vercel production; self-hosted
-Linux CLI/dashboard operation is documented separately in [docs/CLI.md](./docs/CLI.md).
-
 ## Operations
 
-Useful production checks:
-
 ```bash
-curl -fsS https://miobridge.vercel.app/api/health
+curl -fsS http://localhost:3000/api/health
+miobridge status --json
 ```
 
 For troubleshooting, see [TROUBLESHOOTING.md](./TROUBLESHOOTING.md).
