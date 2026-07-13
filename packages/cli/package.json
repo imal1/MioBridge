@@ -19,7 +19,7 @@
     "build": "bun run --cwd ../core build && tsc -p tsconfig.json",
     "build:release": "bash ../../scripts/package-cli-release.sh",
     "test": "bun run build && vitest run",
-    "typecheck": "tsc -b --force"
+    "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
     "@miobridge/core": "workspace:*"
