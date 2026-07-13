@@ -45,6 +45,7 @@ jobs:
 
       - run: bun run core:typecheck
 
+      - run: bun run core:build
       - run: bun run cli:typecheck
 
       - run: bun run typecheck
@@ -84,6 +85,7 @@ jobs:
           bun-version: 1.2.13
 
 
+      - run: bun run core:build
       - run: bun run cli:typecheck
 
       - run: bun run cli:test
