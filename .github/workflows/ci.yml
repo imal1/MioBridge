@@ -157,6 +157,12 @@ jobs:
       - name: Build
         run: bun run --cwd packages/frontend build
 
+      - name: Prepare Vercel output
+        run: |
+          mkdir -p packages/frontend/.vercel/output/static
+          cp -r packages/frontend/dist/* packages/frontend/.vercel/output/static/
+          echo '{"version":3}' > packages/frontend/.vercel/output/config.json
+
       - name: Deploy to Vercel
         run: |
           bunx vercel deploy --prod --prebuilt --cwd packages/frontend \

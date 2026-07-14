@@ -1,7 +1,7 @@
 {
   "name": "@miobridge/frontend",
   "version": "1.0.0",
-  "description": "Dashboard for MioBridge — sing-box to Clash converter powered by mihomo",
+  "description": "Dashboard for MioBridge \u2014 sing-box to Clash converter powered by mihomo",
   "private": true,
   "packageManager": "bun@1.0.30",
   "scripts": {
@@ -13,7 +13,6 @@
   },
   "dependencies": {
     "@iconify/react": "^6.0.0",
-    "@miobridge/core": "workspace:*",
     "@monaco-editor/react": "^4.7.0",
     "@radix-ui/react-dialog": "^1.1.14",
     "@radix-ui/react-progress": "^1.1.11",
