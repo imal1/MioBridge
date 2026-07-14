@@ -7,6 +7,8 @@ metadata:
 
 # Bug Fixes
 
+- 2026-07-14: The frontend declares Vite directly so Vercel installs the
+  `vite` executable before running the production build.
 - 2026-07-12: Core composition preserves configured mihomo/backup paths, resolves
   application and sing-box binaries independently of cwd, and rejects Agent
   sources tied to unmonitored or inaccessible kernels.
