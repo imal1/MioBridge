@@ -47,12 +47,11 @@ function quote(value: string): string {
 export function renderDashboardUserUnit(input: {
   readonly cliPath: string;
   readonly baseDir: string;
-  readonly configFile: string;
   readonly host: string;
   readonly port: number;
   readonly effectivePath: string;
 }): string {
-  return `[Unit]\nDescription=MioBridge dashboard\nAfter=network-online.target\nWants=network-online.target\n\n[Service]\nType=simple\nExecStart=${quote(input.cliPath)} dashboard foreground\nRestart=on-failure\nRestartSec=5s\nTimeoutStopSec=30s\nNoNewPrivileges=true\nPrivateTmp=true\nEnvironment=${quote(`MIOBRIDGE_CONFIG_DIR=${input.baseDir}`)}\nEnvironment=${quote(`CONFIG_FILE=${input.configFile}`)}\nEnvironment=${quote(`HOSTNAME=${input.host}`)}\nEnvironment=${quote(`PORT=${input.port}`)}\nEnvironment=${quote(`PATH=${input.effectivePath}`)}\n\n[Install]\nWantedBy=default.target\n`;
+  return `[Unit]\nDescription=MioBridge dashboard\nAfter=network-online.target\nWants=network-online.target\n\n[Service]\nType=simple\nExecStart=${quote(input.cliPath)} dashboard foreground\nRestart=on-failure\nRestartSec=5s\nTimeoutStopSec=30s\nNoNewPrivileges=true\nPrivateTmp=true\nEnvironment=${quote(`MIOBRIDGE_CONFIG_DIR=${input.baseDir}`)}\nEnvironment=${quote(`MIOBRIDGE_DASHBOARD_HOST=${input.host}`)}\nEnvironment=${quote(`MIOBRIDGE_DASHBOARD_PORT=${input.port}`)}\nEnvironment=${quote(`PATH=${input.effectivePath}`)}\n\n[Install]\nWantedBy=default.target\n`;
 }
 
 function output(result: CommandResult): string { return `${result.stdout}\n${result.stderr}`.trim(); }
@@ -61,7 +60,7 @@ export class DashboardSystemdService {
   readonly unitPath: string;
 
   constructor(
-    private readonly paths: Pick<RuntimePaths, 'baseDir' | 'configFile' | 'distDir'>,
+    private readonly paths: Pick<RuntimePaths, 'baseDir' | 'distDir'>,
     private readonly adapters: SystemdAdapters,
     private readonly options: DashboardDaemonOptions = {},
   ) {
@@ -79,11 +78,6 @@ export class DashboardSystemdService {
   private async lingerEnabled(): Promise<boolean> {
     const result = await this.adapters.run('loginctl', ['show-user', this.adapters.username, '--property=Linger', '--value']);
     return result.exitCode === 0 && result.stdout.trim() === 'yes';
-  }
-
-  private async legacyConflict(): Promise<boolean> {
-    const result = await this.adapters.run('systemctl', ['show', 'miobridge.service', '--property=LoadState', '--value']);
-    return result.exitCode === 0 && result.stdout.trim() !== 'not-found' && result.stdout.trim() !== '';
   }
 
   async status(): Promise<DashboardDaemonStatus> {
@@ -109,12 +103,15 @@ export class DashboardSystemdService {
     const current = await this.status();
     if (current.state === 'unsupported' || current.state === 'broken') throw new Error(current.message);
     if (current.active) return current;
-    if (await this.legacyConflict()) throw new Error('Legacy system service miobridge.service exists. Stop and disable it before starting the user dashboard service.');
     const host = this.options.host ?? '0.0.0.0';
     const port = this.options.port ?? 3000;
     if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error(`Invalid dashboard port: ${port}`);
     if (!(await this.adapters.isPortAvailable(host, port))) throw new Error(`Dashboard port ${port} is already occupied. Stop the conflicting process or choose another port.`);
-    await loadDashboardProvider(dashboardManifestPath(this.paths));
+    try {
+      await loadDashboardProvider(dashboardManifestPath(this.paths));
+    } catch (error) {
+      throw new Error(`${error instanceof Error ? error.message : String(error)} Logs: ${this.journalCommand()}`);
+    }
     if (!current.linger) {
       if (!(await this.adapters.confirmEnableLinger(this.adapters.username))) {
         throw new Error(`Lingering is disabled. Run "sudo loginctl enable-linger ${this.adapters.username}" to keep the dashboard running after logout.`);
@@ -122,7 +119,7 @@ export class DashboardSystemdService {
       const enabled = await this.adapters.run('loginctl', ['enable-linger', this.adapters.username]);
       if (enabled.exitCode !== 0) throw new Error(`Could not enable lingering. Run "sudo loginctl enable-linger ${this.adapters.username}" manually. ${output(enabled)}`.trim());
     }
-    await this.adapters.writeAtomic(this.unitPath, renderDashboardUserUnit({ cliPath: this.adapters.cliPath, baseDir: this.paths.baseDir, configFile: this.paths.configFile, host, port, effectivePath: this.adapters.effectivePath }));
+    await this.adapters.writeAtomic(this.unitPath, renderDashboardUserUnit({ cliPath: this.adapters.cliPath, baseDir: this.paths.baseDir, host, port, effectivePath: this.adapters.effectivePath }));
     for (const args of [['--user', 'daemon-reload'], ['--user', 'enable', '--now', DASHBOARD_UNIT_NAME]] as const) {
       const result = await this.adapters.run('systemctl', args);
       if (result.exitCode !== 0) throw new Error(`systemctl ${args.slice(1).join(' ')} failed: ${output(result) || 'unknown error'}`);

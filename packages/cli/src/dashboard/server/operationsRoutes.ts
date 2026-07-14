@@ -45,9 +45,9 @@ export function registerOperationsRoutes(
     },
   });
 
-  // GET /api/cluster/update?node=
+  // POST /api/cluster/update?node=
   registrar.register({
-    method: 'GET',
+    method: 'POST',
     path: '/api/cluster/update',
     handler: async (req: DashboardRequest, res: DashboardResponse) => {
       try {
@@ -57,6 +57,26 @@ export function registerOperationsRoutes(
       } catch (error: unknown) {
         const msg = error instanceof Error ? error.message : 'Unknown error';
         res.status(500).json({ success: false, error: msg, timestamp: NOW() });
+      }
+    },
+  });
+
+  // PUT /api/cluster/nodes
+  registrar.register({
+    method: 'PUT',
+    path: '/api/cluster/nodes',
+    handler: async (req: DashboardRequest, res: DashboardResponse) => {
+      try {
+        const { nodeId, kernels } = (req.body as Record<string, unknown>) || {};
+        if (typeof nodeId !== 'string' || !nodeId) {
+          res.status(400).json({ success: false, error: '缺少 nodeId', timestamp: NOW() });
+          return;
+        }
+        const result = await ops.updateNodeKernels(nodeId, kernels);
+        res.json({ success: true, data: result.data, timestamp: NOW() });
+      } catch (error: unknown) {
+        const msg = error instanceof Error ? error.message : 'Unknown error';
+        res.status(400).json({ success: false, error: msg, timestamp: NOW() });
       }
     },
   });
@@ -83,23 +103,30 @@ export function registerOperationsRoutes(
 
   // ── Agent lifecycle ────────────────────────────────────────────────
 
-  const agentActions: Array<{ action: string; path: string; label: string }> = [
-    { action: 'restart', path: '/api/cluster/agent/restart', label: '重启' },
-    { action: 'start', path: '/api/cluster/agent/start', label: '启动' },
-    { action: 'stop', path: '/api/cluster/agent/stop', label: '停止' },
-    { action: 'uninstall', path: '/api/cluster/agent/uninstall', label: '卸载' },
-    { action: 'update', path: '/api/cluster/agent/update', label: '更新' },
+  const agentActions: Array<{
+    method: 'restartAgent' | 'startAgent' | 'stopAgent' | 'uninstallAgent' | 'updateAgent';
+    path: string;
+    label: string;
+  }> = [
+    { method: 'restartAgent', path: '/api/cluster/agent/restart', label: '重启' },
+    { method: 'startAgent', path: '/api/cluster/agent/start', label: '启动' },
+    { method: 'stopAgent', path: '/api/cluster/agent/stop', label: '停止' },
+    { method: 'uninstallAgent', path: '/api/cluster/agent/uninstall', label: '卸载' },
+    { method: 'updateAgent', path: '/api/cluster/agent/update', label: '更新' },
   ];
 
-  for (const { action, path, label } of agentActions) {
+  for (const { method, path, label } of agentActions) {
     registrar.register({
       method: 'POST',
       path,
       handler: async (req: DashboardRequest, res: DashboardResponse) => {
         try {
           const { nodeId } = (req.body as Record<string, unknown>) || {};
-          const fn = ops[action as keyof typeof ops] as ((nodeId: string) => Promise<unknown>) | undefined;
-          if (fn) await fn(String(nodeId));
+          if (typeof nodeId !== 'string' || !nodeId) {
+            res.status(400).json({ success: false, error: '缺少 nodeId', timestamp: NOW() });
+            return;
+          }
+          await ops[method](nodeId);
           res.json({ success: true, message: `节点 ${nodeId} Agent ${label}任务已提交`, timestamp: NOW() });
         } catch (error: unknown) {
           const msg = error instanceof Error ? error.message : 'Unknown error';
@@ -122,8 +149,8 @@ export function registerOperationsRoutes(
           res.status(400).json({ success: false, error: '缺少 nodeId', timestamp: NOW() });
           return;
         }
-        await ops.deployToNode(String(nodeId), kernels);
-        res.status(202).json({ success: true, message: '部署已启动', timestamp: NOW() });
+        const result = await ops.deployToNode(String(nodeId), kernels);
+        res.status(202).json({ success: true, data: result.data, message: '部署已启动', timestamp: NOW() });
       } catch (error: unknown) {
         const msg = error instanceof Error ? error.message : 'Unknown error';
         res.status(500).json({ success: false, error: msg, timestamp: NOW() });
@@ -187,8 +214,12 @@ export function registerOperationsRoutes(
     path: '/api/cluster/kernel/install',
     handler: async (req: DashboardRequest, res: DashboardResponse) => {
       try {
-        const { kernelType } = (req.body as Record<string, unknown>) || {};
-        const result = await ops.installKernel(String(kernelType));
+        const { nodeId, kernelType } = (req.body as Record<string, unknown>) || {};
+        if (!nodeId || !kernelType) {
+          res.status(400).json({ success: false, error: '缺少 nodeId 或 kernelType', timestamp: NOW() });
+          return;
+        }
+        const result = await ops.installKernel(String(nodeId), String(kernelType));
         res.json({ success: true, data: result.data, timestamp: NOW() });
       } catch (error: unknown) {
         const msg = error instanceof Error ? error.message : 'Unknown error';

@@ -1,6 +1,6 @@
-import { execFileSync } from 'node:child_process';
-import { copyFileSync, existsSync, mkdirSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
+import { parse, stringify } from 'yaml';
 import type { CoreLogger } from '../index.js';
 import type { RuntimePaths } from '../runtime/runtimePaths.js';
 import type { FullConfig } from '../types/config.js';
@@ -12,25 +12,23 @@ const silentLogger: CoreLogger = {
 export interface YamlServiceOptions {
   readonly paths: RuntimePaths;
   readonly logger?: CoreLogger;
-  readonly command?: typeof execFileSync;
 }
 
 export class YamlService {
   private readonly logger: CoreLogger;
-  private readonly command: typeof execFileSync;
 
   constructor(private readonly options: YamlServiceOptions) {
     this.logger = options.logger ?? silentLogger;
-    this.command = options.command ?? execFileSync;
   }
 
   getBaseDir(): string { return this.options.paths.baseDir; }
   configExists(): boolean { return existsSync(this.options.paths.configFile); }
 
   validateConfig(): boolean {
-    if (!this.configExists() || !existsSync(this.yqPath())) return false;
+    if (!this.configExists()) return false;
     try {
-      this.runYq(['eval', '.', this.options.paths.configFile]);
+      const value = parse(readFileSync(this.options.paths.configFile, 'utf8'));
+      if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('config root must be an object');
       this.logger.info('YAML configuration validated');
       return true;
     } catch (error) {
@@ -42,18 +40,20 @@ export class YamlService {
   generateConfig(templatePath: string, outputPath = this.options.paths.configFile): boolean {
     try {
       if (!existsSync(templatePath)) throw new Error(`Template does not exist: ${templatePath}`);
-      if (!existsSync(this.yqPath())) throw new Error(`yq does not exist: ${this.yqPath()}`);
       mkdirSync(dirname(outputPath), { recursive: true });
       copyFileSync(templatePath, outputPath);
-      const paths = this.options.paths;
-      const assignments = [
-        ['.directories.base_dir', paths.baseDir], ['.directories.data_dir', paths.dataDir],
-        ['.directories.log_dir', paths.logDir], ['.directories.dist_dir', paths.distDir],
-        ['.binaries.mihomo_path', paths.managedBinDir], ['.binaries.bun_path', paths.managedBinDir],
-      ];
-      for (const [field, value] of assignments) {
-        this.runYq(['eval', `${field} = ${JSON.stringify(value)}`, '-i', outputPath]);
-      }
+      const document = this.readDocument(outputPath);
+      document.directories = {
+        ...(document.directories as Record<string, unknown> | undefined),
+        data_dir: this.options.paths.dataDir,
+        log_dir: this.options.paths.logDir,
+        backup_dir: this.options.paths.backupDir,
+      };
+      document.binaries = {
+        ...(document.binaries as Record<string, unknown> | undefined),
+        mihomo_path: this.options.paths.managedBinDir,
+      };
+      writeFileSync(outputPath, stringify(document, { lineWidth: 0 }), 'utf8');
       return true;
     } catch (error) {
       this.logger.error('Failed to generate YAML configuration', { error });
@@ -62,20 +62,29 @@ export class YamlService {
   }
 
   getFullConfig(): FullConfig {
-    if (!this.configExists() || !existsSync(this.yqPath())) return {};
+    if (!this.configExists()) return {};
     try {
-      return JSON.parse(this.runYq(['eval', '.', this.options.paths.configFile, '--output-format=json'])) as FullConfig;
+      return this.readDocument(this.options.paths.configFile) as FullConfig;
     } catch (error) {
       this.logger.error('Failed to read YAML configuration', { error });
       return {};
     }
   }
 
-  private yqPath(): string {
-    const candidates = this.options.paths.binaryCandidates('yq');
-    return candidates.find(candidate => existsSync(candidate)) ?? candidates[0]!;
+  updateSingBoxConfigs(configs: readonly string[]): void {
+    if (configs.length === 0 || configs.some(value => !value.trim())) throw new Error('配置列表不能为空');
+    const document = this.configExists() ? this.readDocument(this.options.paths.configFile) : {};
+    document.protocols = {
+      ...(document.protocols as Record<string, unknown> | undefined),
+      sing_box_configs: [...configs],
+    };
+    mkdirSync(dirname(this.options.paths.configFile), { recursive: true });
+    writeFileSync(this.options.paths.configFile, stringify(document, { lineWidth: 0 }), 'utf8');
   }
-  private runYq(args: string[]): string {
-    return this.command(this.yqPath(), args, { encoding: 'utf8', stdio: 'pipe' });
+
+  private readDocument(path: string): Record<string, unknown> {
+    const value = parse(readFileSync(path, 'utf8'));
+    if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('config root must be an object');
+    return value as Record<string, unknown>;
   }
 }

@@ -5,11 +5,11 @@ import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it } from 'vitest';
 import { ArtifactService } from '../src/index.js';
 
-const fixturePath = fileURLToPath(new URL('./fixtures/migration-before.json', import.meta.url));
+const fixturePath = fileURLToPath(new URL('./fixtures/behavior-contract.json', import.meta.url));
 const roots: string[] = [];
 afterEach(async () => Promise.all(roots.splice(0).map(root => rm(root, { recursive: true, force: true }))));
 
-describe('migration-before behavior contract', () => {
+describe('artifact behavior contract', () => {
   it('freezes artifact bytes and source ordering/deduplication/naming', async () => {
     const fixture = JSON.parse(await readFile(fixturePath, 'utf8'));
 

@@ -13,8 +13,9 @@
 curl -fsSL https://raw.githubusercontent.com/imal1/MioBridge/main/scripts/install.sh | bash
 ```
 
-Guided setup: downloads Bun and mihomo, builds the project, and optionally
-configures systemd. Everything lives under `~/.config/miobridge/`.
+The bootstrap installs the verified Linux CLI and its static dashboard, then
+the CLI installs pinned runtime dependencies. It does not clone or build the
+source tree. Runtime files live under `~/.config/miobridge/`.
 
 ## CLI
 
@@ -24,22 +25,18 @@ miobridge status --json       # print service status
 miobridge dashboard start     # serve dashboard + API on :3000
 miobridge dashboard stop      # stop the dashboard server
 miobridge dashboard status    # check if dashboard is running
+miobridge upgrade             # install the latest verified CLI release
 miobridge --help              # list all commands
 ```
 
 The `dashboard` command starts a single process that serves the static Vite
-SPA and all API routes. No SSR, no Node.js, no separate web server.
+SPA and API routes. It needs no Node.js runtime or separate web server.
 
 ## Uninstall
 
 ```bash
-# Stop and remove the systemd service (Linux)
-sudo systemctl disable --now miobridge
-sudo rm /etc/systemd/system/miobridge.service
-sudo systemctl daemon-reload
-
-# Remove all data
-rm -rf ~/.config/miobridge
+miobridge dashboard stop
+miobridge uninstall           # preserve config, data, logs, and backups
 ```
 
 ## Development
@@ -49,24 +46,18 @@ git clone https://github.com/imal1/MioBridge.git
 cd MioBridge
 bun install
 
-# Dashboard (Vite dev server, port 5173)
-cd packages/frontend && bun run dev
+# Terminal 1: dashboard (Vite dev server, port 5173)
+bun run dev
 
-# CLI server (port 3000, proxies /api to it)
-cd packages/cli && bun run dev -- dashboard start
+# Terminal 2 from the repository root: CLI server (port 3000)
+bun run core:build
+bun packages/cli/src/main.ts dashboard foreground
 
 # Tests
 bun run core:test
 bun run cli:test
-cd packages/frontend && bun run test
-cd agent && bun test
-```
-
-Build the remote Agent binary:
-
-```bash
-cd agent
-bun build src/server.ts --compile --target=bun-linux-x64 --outfile miobridge-agent
+bun run --cwd packages/frontend test
+bun run --cwd agent test
 ```
 
 ## Stack
@@ -85,7 +76,7 @@ bun build src/server.ts --compile --target=bun-linux-x64 --outfile miobridge-age
 | Endpoint | Purpose |
 | --- | --- |
 | `/` | SPA dashboard |
-| `/api/health` | health check |
+| `/health` | health check |
 | `/api/status` | service status |
 | `/api/update` | trigger subscription refresh |
 | `/api/convert` | convert supplied subscription content |
@@ -96,18 +87,18 @@ bun build src/server.ts --compile --target=bun-linux-x64 --outfile miobridge-age
 ## Project Layout
 
 ```text
-packages/cli/                CLI binary, dashboard server, HTTP adapters, SSE
+packages/cli/                CLI binary, dashboard server, HTTP and SSH adapters
 packages/core/               headless config, state, conversion, artifacts
 packages/frontend/            Vite React SPA (static bundle consumed by CLI)
 agent/                       remote node Agent
-scripts/                     install, manage, and deploy helpers
+scripts/                     installer, release packaging, and E2E helpers
 docs/                        deployment and operations documentation
 ```
 
 `MioBridgeCore` is the headless composition facade. The CLI server wraps it
 with thin HTTP adapters and serves the static Vite bundle from `packages/frontend/dist/`.
-The dashboard SPA talks to the CLI over typed HTTP clients — no SSR, no
-Next.js, no Express.
+The dashboard is a browser-only SPA that talks to the CLI over typed HTTP
+clients. The CLI binary owns the API and static-file server.
 
 ## Multi-kernel Agents
 
@@ -142,7 +133,7 @@ brackets so every generated proxy name remains unique.
 ## Operations
 
 ```bash
-curl -fsS http://localhost:3000/api/health
+curl -fsS http://localhost:3000/health
 miobridge status --json
 ```
 

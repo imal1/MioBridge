@@ -12,8 +12,8 @@
 curl -fsSL https://raw.githubusercontent.com/imal1/MioBridge/main/scripts/install.sh | bash
 ```
 
-引导式安装：下载 Bun 和 mihomo，构建项目，可选配置 systemd。
-所有文件位于 `~/.config/miobridge/`。
+引导脚本安装经过校验的 Linux CLI 与静态仪表盘，随后由 CLI 安装固定版本的运行依赖；
+不会克隆或构建源码仓库。运行数据位于 `~/.config/miobridge/`。
 
 ## CLI
 
@@ -23,22 +23,18 @@ miobridge status --json       # 查看服务状态
 miobridge dashboard start     # 启动仪表盘 + API（端口 3000）
 miobridge dashboard stop      # 停止仪表盘
 miobridge dashboard status    # 查看仪表盘状态
+miobridge upgrade             # 升级到最新的已校验 CLI release
 miobridge --help              # 列出所有命令
 ```
 
-`dashboard` 命令以单进程托管静态 Vite SPA 和全部 API 路由。无 SSR、无
-Node.js、无独立 web 服务器。
+`dashboard` 命令以单进程托管静态 Vite SPA 和 API 路由，无需 Node.js 运行时
+或独立 web 服务器。
 
 ## 卸载
 
 ```bash
-# 停止并移除 systemd 服务（Linux）
-sudo systemctl disable --now miobridge
-sudo rm /etc/systemd/system/miobridge.service
-sudo systemctl daemon-reload
-
-# 删除全部数据
-rm -rf ~/.config/miobridge
+miobridge dashboard stop
+miobridge uninstall           # 保留配置、数据、日志和备份
 ```
 
 ## 开发
@@ -48,24 +44,18 @@ git clone https://github.com/imal1/MioBridge.git
 cd MioBridge
 bun install
 
-# 仪表盘（Vite 开发服务器，端口 5173）
-cd packages/frontend && bun run dev
+# 终端 1：仪表盘（Vite 开发服务器，端口 5173）
+bun run dev
 
-# CLI 服务端（端口 3000，仪表盘将 /api 代理至此）
-cd packages/cli && bun run dev -- dashboard start
+# 终端 2（仓库根目录）：CLI 服务端（端口 3000）
+bun run core:build
+bun packages/cli/src/main.ts dashboard foreground
 
 # 测试
 bun run core:test
 bun run cli:test
-cd packages/frontend && bun run test
-cd agent && bun test
-```
-
-构建远程 Agent 二进制：
-
-```bash
-cd agent
-bun build src/server.ts --compile --target=bun-linux-x64 --outfile miobridge-agent
+bun run --cwd packages/frontend test
+bun run --cwd agent test
 ```
 
 ## 技术栈
@@ -84,7 +74,7 @@ bun build src/server.ts --compile --target=bun-linux-x64 --outfile miobridge-age
 | 端点 | 用途 |
 | --- | --- |
 | `/` | SPA 仪表盘 |
-| `/api/health` | 健康检查 |
+| `/health` | 健康检查 |
 | `/api/status` | 服务状态 |
 | `/api/update` | 触发订阅刷新 |
 | `/api/convert` | 转换传入的订阅内容 |
@@ -95,17 +85,17 @@ bun build src/server.ts --compile --target=bun-linux-x64 --outfile miobridge-age
 ## 项目结构
 
 ```text
-packages/cli/                CLI 二进制、仪表盘服务端、HTTP 适配器、SSE
+packages/cli/                CLI 二进制、仪表盘服务端、HTTP 与 SSH 适配器
 packages/core/               无头配置、状态、转换、产物
 packages/frontend/            Vite React SPA（CLI 消费的静态产物）
 agent/                       远程节点 Agent
-scripts/                     安装、管理和部署脚本
+scripts/                     安装器、release 打包与 E2E 辅助脚本
 docs/                        部署和运维文档
 ```
 
 `MioBridgeCore` 是无头组合 facade。CLI 服务端对其做薄 HTTP 封装，并托管
 `packages/frontend/dist/` 中的静态 Vite 包。仪表盘 SPA 仅通过类型化 HTTP 客户端与
-CLI 通信——无 SSR、无 Next.js、无 Express。
+CLI 通信。CLI 二进制统一负责 API 与静态文件服务。
 
 ## 多内核 Agent
 
@@ -135,7 +125,7 @@ URL，保证生成的代理名称唯一。
 ## 运维
 
 ```bash
-curl -fsS http://localhost:3000/api/health
+curl -fsS http://localhost:3000/health
 miobridge status --json
 ```
 

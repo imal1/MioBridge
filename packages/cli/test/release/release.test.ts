@@ -6,7 +6,7 @@ import { describe, expect, it } from 'vitest';
 
 const root = resolve(import.meta.dirname, '../../../..');
 const packageScript = join(root, 'scripts/package-cli-release.sh');
-const installer = join(root, 'scripts/install-cli.sh');
+const installer = join(root, 'scripts/install.sh');
 
 function fixture() {
   const dir = mkdtempSync(join(tmpdir(), 'miobridge-release-test-'));
@@ -14,6 +14,10 @@ function fixture() {
   const release = join(dir, 'release');
   mkdirSync(binaries);
   mkdirSync(release);
+  const provider = join(dir, 'provider');
+  mkdirSync(join(provider, 'artifact'), { recursive: true });
+  writeFileSync(join(provider, 'provider.json'), '{"schemaVersion":2,"dashboardVersion":"test","artifactRoot":"artifact","reservedPaths":[]}\n');
+  writeFileSync(join(provider, 'artifact', 'index.html'), '<main>MioBridge</main>\n');
   for (const arch of ['x64', 'arm64']) {
     const file = join(binaries, arch);
     writeFileSync(file, `#!/bin/sh\necho ${arch}-v1\n`);
@@ -26,6 +30,7 @@ function fixture() {
       MIOBRIDGE_RELEASE_DIR: release,
       MIOBRIDGE_BINARY_X64: join(binaries, 'x64'),
       MIOBRIDGE_BINARY_ARM64: join(binaries, 'arm64'),
+      MIOBRIDGE_DASHBOARD_PROVIDER_DIR: provider,
     },
   });
   return { dir, release };
@@ -48,9 +53,13 @@ describe('CLI release distribution', () => {
     const log = join(sandbox, 'bun.log');
     const fakeBun = join(sandbox, 'bun');
     const release = join(sandbox, 'release');
+    const provider = join(sandbox, 'provider');
     mkdirSync(join(sandbox, 'scripts'), { recursive: true });
     mkdirSync(join(coreDir, 'dist'), { recursive: true });
     mkdirSync(join(sandbox, 'packages', 'cli', 'src'), { recursive: true });
+    mkdirSync(join(provider, 'artifact'), { recursive: true });
+    writeFileSync(join(provider, 'provider.json'), '{"schemaVersion":2,"dashboardVersion":"test","artifactRoot":"artifact","reservedPaths":[]}\n');
+    writeFileSync(join(provider, 'artifact', 'index.html'), '<main>MioBridge</main>\n');
     writeFileSync(join(coreDir, 'dist', 'stale.js'), 'stale');
     writeFileSync(join(sandbox, 'packages', 'cli', 'src', 'main.ts'), 'fixture');
     copyFileSync(packageScript, sandboxScript);
@@ -78,7 +87,7 @@ describe('CLI release distribution', () => {
     ].join('\n'));
     chmodSync(fakeBun, 0o755);
     execFileSync('bash', [sandboxScript, '1.2.4'], {
-      env: { ...process.env, FAKE_BUN_LOG: log, MIOBRIDGE_BUN_CMD: fakeBun, MIOBRIDGE_RELEASE_DIR: release },
+      env: { ...process.env, FAKE_BUN_LOG: log, MIOBRIDGE_BUN_CMD: fakeBun, MIOBRIDGE_RELEASE_DIR: release, MIOBRIDGE_DASHBOARD_PROVIDER_DIR: provider },
     });
     expect(readFileSync(log, 'utf8').trim().split('\n')).toEqual([
       `run --cwd ${coreDir} build`,
@@ -105,12 +114,15 @@ describe('CLI release distribution', () => {
     const installDir = join(dir, 'installed');
     const cwd = join(dir, 'external');
     mkdirSync(cwd);
-    execFileSync('sh', [installer, '--version', '1.2.3', '--base-url', `file://${release}`, '--install-dir', installDir], {
+    const output = execFileSync('sh', [installer, '--version', '1.2.3', '--base-url', `file://${release}`, '--install-dir', installDir], {
       cwd,
-      env: { ...process.env, PATH: fakePlatform(dir, machine) },
+      env: { ...process.env, HOME: dir, PATH: fakePlatform(dir, machine) },
+      encoding: 'utf8',
     });
+    expect(output).toContain('Installing required runtime dependencies through the CLI');
     expect(execFileSync(join(installDir, 'miobridge'), { encoding: 'utf8' }).trim()).toBe(`${expected}-v1`);
     expect(statSync(join(installDir, 'miobridge')).mode & 0o111).not.toBe(0);
+    expect(readFileSync(join(dir, '.config/miobridge/dist/dashboard/artifact/index.html'), 'utf8')).toContain('MioBridge');
   });
 
   it('rejects a bad checksum without replacing the installed version', () => {
@@ -121,7 +133,7 @@ describe('CLI release distribution', () => {
     writeFileSync(binary, '#!/bin/sh\necho previous\n');
     chmodSync(binary, 0o755);
     writeFileSync(join(release, 'SHA256SUMS'), `0000000000000000000000000000000000000000000000000000000000000000  miobridge-1.2.3-linux-x64.tar.gz\n`);
-    const result = spawnSync('sh', [installer, '--version', '1.2.3', '--base-url', `file://${release}`, '--install-dir', installDir], {
+    const result = spawnSync('sh', [installer, '--version', '1.2.3', '--base-url', `file://${release}`, '--install-dir', installDir, '--skip-setup'], {
       cwd: tmpdir(), env: { ...process.env, PATH: fakePlatform(dir, 'x86_64') }, encoding: 'utf8',
     });
     expect(result.status).not.toBe(0);
@@ -129,7 +141,7 @@ describe('CLI release distribution', () => {
     expect(execFileSync(binary, { encoding: 'utf8' }).trim()).toBe('previous');
   });
 
-  it('uninstalls only CLI-owned files and preserves user configuration', () => {
+  it('replaces only CLI-owned files and preserves user configuration', () => {
     const { dir } = fixture();
     const installDir = join(dir, 'installed');
     const configDir = join(dir, '.config/miobridge');
@@ -138,8 +150,11 @@ describe('CLI release distribution', () => {
     writeFileSync(join(installDir, 'miobridge'), 'owned');
     writeFileSync(join(installDir, '.miobridge-cli-version'), '1.2.3\n');
     writeFileSync(join(configDir, 'config.yaml'), 'preserve: true\n');
-    execFileSync('sh', [installer, '--uninstall', '--install-dir', installDir], { env: { ...process.env, HOME: dir } });
+    const { release } = fixture();
+    execFileSync('sh', [installer, '--version', '1.2.3', '--base-url', `file://${release}`, '--install-dir', installDir, '--skip-setup'], {
+      env: { ...process.env, HOME: dir, PATH: fakePlatform(dir, 'x86_64') },
+    });
     expect(readFileSync(join(configDir, 'config.yaml'), 'utf8')).toContain('preserve');
-    expect(() => statSync(join(installDir, 'miobridge'))).toThrow();
+    expect(execFileSync(join(installDir, 'miobridge'), { encoding: 'utf8' }).trim()).toBe('x64-v1');
   });
 });

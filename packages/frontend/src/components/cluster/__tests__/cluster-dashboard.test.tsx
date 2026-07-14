@@ -1,29 +1,9 @@
 // @vitest-environment jsdom
-// Phase C GREEN: Cluster Dashboard integration tests
-// Tests verify Dashboard renders cluster view with SSE updates
+// Dashboard integration tests
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { fireEvent, render, screen } from '@testing-library/react';
 import React from 'react';
-
-// Mock EventSource for SSE
-class MockEventSource {
-  url: string;
-  onmessage: ((e: any) => void) | null = null;
-  onerror: ((e: any) => void) | null = null;
-  onopen: ((e: any) => void) | null = null;
-  readyState: number = 0;
-  static instances: MockEventSource[] = [];
-
-  constructor(url: string) {
-    this.url = url;
-    MockEventSource.instances.push(this);
-  }
-
-  close() {
-    this.readyState = 2;
-  }
-}
 
 // Mock apiService for action callbacks
 const mockTriggerClusterUpdate = vi.fn().mockResolvedValue({ success: true, data: {} });
@@ -38,11 +18,6 @@ vi.mock('@/lib/api', () => ({
     triggerClusterUpdate: (...args: any[]) => mockTriggerClusterUpdate(...args),
     clusterHealthCheck: (...args: any[]) => mockClusterHealthCheck(...args),
   },
-}));
-
-// Mock SSE hook to return controlled data
-vi.mock('@/lib/useClusterSSE', () => ({
-  useClusterSSE: (initial: any) => initial,
 }));
 
 const mockStatusData = {
@@ -84,10 +59,8 @@ const mockClusterData = {
   lastUpdated: new Date().toISOString(),
 };
 
-describe('Phase C: Cluster Dashboard Page', () => {
+describe('Cluster Dashboard Page', () => {
   beforeEach(() => {
-    MockEventSource.instances = [];
-    (globalThis as any).EventSource = MockEventSource;
     mockTriggerClusterUpdate.mockClear();
     mockClusterHealthCheck.mockClear();
   });

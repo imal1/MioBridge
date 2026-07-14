@@ -3,7 +3,7 @@ import { formatSetupStatus, type DependencySetupService } from './setup/service.
 import { formatDashboardDaemonStatus, type DashboardDaemonAction } from './dashboard/commands.js';
 import type { DashboardDaemonStatus } from './dashboard/systemd.js';
 
-export const CLI_VERSION = '0.1.0';
+export const CLI_VERSION = process.env.MIOBRIDGE_BUILD_VERSION ?? '0.1.0';
 
 export interface CliCore {
   updateSubscription(): Promise<UpdateResult>;
@@ -20,6 +20,10 @@ export interface CliDependencies {
   readonly output: CliOutput;
   readonly version?: string;
   readonly setup?: Pick<DependencySetupService, 'run'>;
+  readonly maintenance?: {
+    upgrade(): Promise<string>;
+    uninstall(): Promise<string>;
+  };
   readonly dashboard?: {
     foreground(): Promise<{ readonly exitCode: number; readonly healthUrl: string }>;
     daemon?(action: DashboardDaemonAction): Promise<DashboardDaemonStatus>;
@@ -30,7 +34,9 @@ type ParsedCommand =
   | { readonly kind: 'help' }
   | { readonly kind: 'version' }
   | { readonly kind: 'update' }
-  | { readonly kind: 'setup' }
+  | { readonly kind: 'setup'; readonly assumeYes: boolean }
+  | { readonly kind: 'upgrade' }
+  | { readonly kind: 'uninstall' }
   | { readonly kind: 'dashboard-foreground' }
   | { readonly kind: 'dashboard-daemon'; readonly action: DashboardDaemonAction; readonly json: boolean }
   | { readonly kind: 'status'; readonly json: boolean };
@@ -40,7 +46,9 @@ export const helpText = `MioBridge ${CLI_VERSION}
 Usage: miobridge <command> [options]
 
 Commands:
-  setup           Discover and optionally install managed dependencies
+  setup [--yes]   Discover and install managed dependencies
+  upgrade         Upgrade this CLI to the latest verified release
+  uninstall       Remove this CLI; preserve configuration and data
   update          Generate subscription artifacts
   status [--json] Show headless runtime status
   dashboard foreground
@@ -66,8 +74,13 @@ export function parseCommand(args: readonly string[]): ParsedCommand {
     return { kind: 'update' };
   }
   if (args[0] === 'setup') {
+    if (args.length === 1) return { kind: 'setup', assumeYes: false };
+    if (args.length === 2 && (args[1] === '--yes' || args[1] === '-y')) return { kind: 'setup', assumeYes: true };
+    throw new Error(`Unexpected argument: ${args[1]}`);
+  }
+  if (args[0] === 'upgrade' || args[0] === 'uninstall') {
     if (args.length > 1) throw new Error(`Unexpected argument: ${args[1]}`);
-    return { kind: 'setup' };
+    return { kind: args[0] };
   }
   if (args[0] === 'status') {
     if (args.length === 1) return { kind: 'status', json: false };
@@ -125,7 +138,12 @@ export async function runCli(args: readonly string[], dependencies: CliDependenc
   try {
     if (command.kind === 'setup') {
       if (!dependencies.setup) throw new Error('Setup adapters are unavailable');
-      dependencies.output.stdout(formatSetupStatus(await dependencies.setup.run()));
+      dependencies.output.stdout(formatSetupStatus(await dependencies.setup.run({ assumeYes: command.assumeYes })));
+      return 0;
+    }
+    if (command.kind === 'upgrade' || command.kind === 'uninstall') {
+      if (!dependencies.maintenance) throw new Error('CLI maintenance adapters are unavailable');
+      dependencies.output.stdout(await dependencies.maintenance[command.kind]());
       return 0;
     }
     if (command.kind === 'dashboard-foreground') {

@@ -5,7 +5,7 @@ const NOW = () => new Date().toISOString();
 
 /**
  * Register core status, update, health, and artifact-file routes.
- * Method/status/body/header contracts mirror the frozen Next.js handlers.
+ * Method/status/body/header contracts implement the stable dashboard API.
  */
 export function registerCoreRoutes(
   registrar: DashboardRouteRegistrar,

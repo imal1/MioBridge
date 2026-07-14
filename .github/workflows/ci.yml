@@ -47,6 +47,8 @@ jobs:
 
       - run: bun run core:build
       - run: bun run cli:typecheck
+      - run: bun run typecheck
+      - run: bun run --cwd agent typecheck
 
 
   test:
@@ -66,7 +68,7 @@ jobs:
 
       - run: bun run core:test
 
-      - run: bun run --cwd packages/frontend test || true
+      - run: bun run --cwd packages/frontend test
 
       - run: bun run --cwd agent test
 
@@ -99,7 +101,10 @@ jobs:
           for arch in x64 arm64; do
             archive="dist/cli-release/miobridge-0.0.0-ci-linux-$arch.tar.gz"
             test -f "$archive"
-            tar -tzf "$archive" | sort | diff -u <(printf 'VERSION\nmiobridge\n') -
+            tar -tzf "$archive" | grep -Fx 'VERSION'
+            tar -tzf "$archive" | grep -Fx 'miobridge'
+            tar -tzf "$archive" | grep -Fx 'dashboard/provider.json'
+            tar -tzf "$archive" | grep -Fx 'dashboard/artifact/index.html'
             mkdir -p "$RUNNER_TEMP/$arch"
             tar -xzf "$archive" -C "$RUNNER_TEMP/$arch"
             test -x "$RUNNER_TEMP/$arch/miobridge"
@@ -135,36 +140,3 @@ jobs:
             exit 1
           fi
           echo "Bundle boundary clean"
-
-  deploy:
-    name: Deploy to Vercel
-    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
-    needs: [build, cli, test]
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    environment:
-      name: production
-      url: https://miobridge.vercel.app
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: oven-sh/setup-bun@v2
-        with:
-          bun-version: 1.2.13
-
-      - run: bun install
-      - name: Build
-        run: bun run --cwd packages/frontend build
-
-      - name: Prepare Vercel output
-        run: |
-          mkdir -p packages/frontend/.vercel/output/static
-          cp -r packages/frontend/dist/* packages/frontend/.vercel/output/static/
-          echo '{"version":3}' > packages/frontend/.vercel/output/config.json
-
-      - name: Deploy to Vercel
-        run: |
-          bunx vercel deploy --prod --prebuilt --cwd packages/frontend \
-            --token=${{ secrets.VERCEL_TOKEN }} \
-            --yes

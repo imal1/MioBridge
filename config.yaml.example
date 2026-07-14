@@ -1,13 +1,8 @@
 # ===============================================
 # MioBridge 配置文件模板
 # ===============================================
-# 这是配置文件模板，在项目安装时会自动复制为 config.yaml 文件并填入默认值
-# 
-# 安装脚本说明:
-# - 主安装脚本: bash scripts/install.sh
-# - 服务更新: bash scripts/update.sh  
-# - 生产部署: bash scripts/deploy.sh
-# - 前端构建: bash scripts/build-frontend.sh
+# 运行时由 miobridge CLI 读取。首次引导后，setup、update、dashboard 生命周期、
+# upgrade 和 uninstall 都通过 miobridge 命令完成，不依赖服务器端管理脚本。
 # ===============================================
 
 # 服务基础配置
@@ -15,7 +10,7 @@
 app:
   name: miobridge               # 应用名称
   version: 0.2.0                  # 应用版本
-  port: 3001                      # API 服务端口
+  port: 3000                      # 仪表盘与 API 端口
   environment: production         # 运行环境: development/production
 
 # 协议配置管理
@@ -36,22 +31,9 @@ binaries:
   # 留空则使用默认路径: $BASE_DIR/bin/mihomo
   mihomo_path: ""
   
-  # bun 运行时二进制文件路径  
-  # 留空则使用默认路径: $BASE_DIR/bin/bun
-  bun_path: ""
-
 # 目录结构配置
 # ---------------------------------------------
 directories:
-  # 项目基础目录 - 所有数据文件的根目录
-  # 默认: $HOME/.config/subscription
-  # 安装脚本会自动创建以下子目录:
-  #   - $BASE_DIR/www      (静态文件)
-  #   - $BASE_DIR/log      (日志文件)  
-  #   - $BASE_DIR/dist     (构建文件)
-  #   - $BASE_DIR/bin      (二进制文件)
-  base_dir: ""
-  
   # 静态文件目录 (网站数据目录)
   # 默认: $BASE_DIR/www
   # 存储订阅文件、配置文件等静态资源
@@ -65,44 +47,7 @@ directories:
   # 备份文件目录
   # 默认: $BASE_DIR/backup
   backup_dir: ""
-  
-  # 构建输出目录
-  # 默认: $BASE_DIR/dist
-  # 存储编译后的前端和后端文件
-  dist_dir: ""
-
-# 自动化配置
-# ---------------------------------------------
-automation:
-  # 定时任务配置 (cron 格式)
-  # 0 */2 * * * = 每2小时执行一次
-  auto_update_cron: "0 */2 * * *"
-
-# 网络端口配置
+# 网络配置
 # ---------------------------------------------
 network:
-  nginx_port: 3080              # Nginx 静态文件服务端口
-  nginx_proxy_port: 3888        # Nginx 反向代理端口 (推荐访问端口)
-  max_retries: 3                # 网络请求最大重试次数
   request_timeout: 30000        # 请求超时时间 (毫秒)
-
-# 外部访问配置
-# ---------------------------------------------
-external:
-  # 外部访问主机地址 - 重要配置项！
-  # 本地开发: localhost
-  # 服务器部署: your-server.example.com 或 IP地址
-  # Docker 部署: 容器IP或域名
-  # 云平台部署: 平台提供的域名
-  # 此配置影响所有脚本中显示的访问地址
-  host: localhost
-
-# 跨域资源共享配置
-# ---------------------------------------------
-cors:
-  origin: "*"                   # 允许的跨域源，* 表示允许所有
-
-# 日志配置
-# ---------------------------------------------
-logging:
-  level: info                   # 日志级别: error, warn, info, debug

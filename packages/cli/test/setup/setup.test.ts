@@ -10,7 +10,7 @@ import type { ArtifactCatalog, SetupAdapters } from '../../src/setup/types.js';
 
 const bytes = new Uint8Array([1, 2, 3]);
 const artifact = { version: 'v1.2.3', url: 'https://user:secret@example.test/download?token=private', sha256: 'trusted', archive: 'binary' as const, versionArgs: ['--version'] };
-const artifacts: ArtifactCatalog = { mihomo: { x64: artifact, arm64: artifact }, bun: { x64: artifact, arm64: artifact }, yq: { x64: artifact, arm64: artifact } };
+const artifacts: ArtifactCatalog = { mihomo: { x64: artifact, arm64: artifact } };
 
 function harness(overrides: Partial<SetupAdapters> = {}, executable = new Set<string>()) {
   const installed: string[] = [];
@@ -31,17 +31,23 @@ describe('Linux platform detection', () => {
 
 describe('DependencySetupService', () => {
   it('reports configured, managed, PATH, and missing origins', async () => {
-    const { service } = harness({}, new Set(['/configured/mihomo', '/runtime/bin/bun', '/usr/bin/yq']));
-    expect((await service.run()).map(item => [item.name, item.origin])).toEqual([['mihomo', 'configured'], ['bun', 'managed'], ['yq', 'PATH'], ['sing-box', 'missing']]);
+    const { service } = harness({}, new Set(['/configured/mihomo']));
+    expect((await service.run()).map(item => [item.name, item.origin])).toEqual([['mihomo', 'configured'], ['sing-box', 'missing']]);
   });
   it('requires explicit confirmation and refusal performs no write', async () => {
     const confirm = vi.fn(async () => false); const installAtomic = vi.fn(); const { service } = harness({ confirm, installAtomic });
     expect((await service.run()).filter(item => item.required).every(item => item.origin === 'missing')).toBe(true);
-    expect(confirm).toHaveBeenCalledTimes(3); expect(installAtomic).not.toHaveBeenCalled();
+    expect(confirm).toHaveBeenCalledTimes(1); expect(installAtomic).not.toHaveBeenCalled();
   });
   it('verifies, validates and installs required dependencies atomically', async () => {
     const { service, installed } = harness({ confirm: async () => true }); const result = await service.run();
-    expect(installed).toEqual(['/runtime/bin/mihomo', '/runtime/bin/bun', '/runtime/bin/yq']); expect(result.filter(item => item.installed)).toHaveLength(3);
+    expect(installed).toEqual(['/runtime/bin/mihomo']); expect(result.filter(item => item.installed)).toHaveLength(1);
+  });
+  it('supports non-interactive confirmed setup from the bootstrap installer', async () => {
+    const confirm = vi.fn(async () => false); const { service, installed } = harness({ confirm });
+    await service.run({ assumeYes: true });
+    expect(installed).toEqual(['/runtime/bin/mihomo']);
+    expect(confirm).not.toHaveBeenCalled();
   });
   it('rejects checksum mismatch before installation', async () => {
     const installAtomic = vi.fn(); const { service } = harness({ confirm: async () => true, sha256: async () => 'wrong', installAtomic });

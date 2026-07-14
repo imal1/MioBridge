@@ -5,11 +5,9 @@ Keep this document short; workflow files are the source of truth.
 ## Workflows
 
 - `ci.yml`: PR gate. Runs lint; core/frontend typechecks; core, frontend, and
-  Agent tests; CLI typechecks/contracts; then builds and starts the standalone
-  output. It cross-compiles/inspects x64 and arm64 CLI archives, packages the
-  dashboard provider, checks the traced core package/static assets/browser
-  boundary, and requests `/subscription.txt`, `/clash.yaml`, `/raw.txt`, and
-  `/health`.
+  Agent tests; CLI typechecks/contracts; builds the Vite SPA; cross-compiles and
+  inspects x64/arm64 CLI archives; packages the static dashboard provider; and
+  checks the browser bundle boundary.
 - `cli-systemd-e2e.yml`: PR and manual Linux gate. It starts a disposable
   systemd host, enables linger for a disposable user, runs compiled CLI
   dashboard start/stop/status across separate shells, verifies all compatibility
@@ -30,9 +28,8 @@ bun run core:test
 bun run typecheck
 bun run cli:typecheck
 bun run cli:test
-cd frontend && bun run test
-cd ../agent && bun test
-cd ..
+bun run --cwd packages/frontend test
+bun run --cwd agent test
 bun run build
 ```
 

@@ -7,19 +7,15 @@ metadata:
 
 # Project Architecture
 
-- The active service is one Next.js Pages Router app under `packages/frontend/`, using
-  Node runtime and standalone output.
-- Framework-independent backend services live in the private `@miobridge/core`
-  workspace package; `packages/frontend/src/server/core.ts` is its Node composition adapter.
-- SSR uses direct service calls from `getServerSideProps`.
-- mihomo is the local conversion engine; yq v4 handles YAML/config operations.
+- The compiled Linux CLI under `packages/cli` is the self-hosted composition
+  root. It owns commands, the dashboard API/static server, and lifecycle.
+- `packages/frontend` is a browser-only Vite SPA served as a static provider.
+- Framework-independent backend services live in `@miobridge/core` and are
+  exposed through explicit exports and the `MioBridgeCore` facade.
+- mihomo is the local conversion engine; Core reads and writes YAML directly.
 - Main node owns generated subscription artifacts; child nodes only expose Agent
   source URLs.
-- Cluster state (nodes.yaml, deploy progress) goes through the `StateStore`
-  abstraction (`stateStore.ts`): file backend under `~/.config/miobridge` when
-  self-hosted, Upstash/Vercel-KV Redis REST backend when
-  `UPSTASH_REDIS_REST_URL/TOKEN` or `KV_REST_API_URL/TOKEN` are set (required
-  on Vercel, where function instances share no filesystem).
+- Cluster state goes through `StateStore` under `~/.config/miobridge`.
 - A child Agent can monitor multiple kernels and returns structured, kernel-tagged
   sources plus per-kernel runtime status to the main node.
 - Cluster proxy totals and generated artifacts use exact-URL global deduplication;
@@ -27,13 +23,25 @@ metadata:
 - `@miobridge/core` composes artifact generation and status through the explicit
   `MioBridgeCore` facade; runtime paths, state, kernels, metadata, clock, and
   source collectors are injected without frontend imports or module singletons.
-## 2026-07-12 — Frontend core composition
-
-- `packages/frontend/src/server/core.ts` is the Node-only composition adapter for `@miobridge/core`; API routes and SSR consume its `MioBridgeCore`/node aggregation instances, while deployment and SSH lifecycle behavior remains frontend-owned.
-
 ## 2026-07-12 — CLI dashboard provider boundary
 
 - `packages/cli` consumes public `@miobridge/core` exports headlessly. Its
-  versioned dashboard provider manifest and user-systemd launcher own only
-  optional dashboard lifecycle; provider removal preserves core config/data and
-  allows fn-4 to replace the artifact without changing CLI commands.
+  static dashboard manifest and user-systemd launcher own dashboard lifecycle;
+  provider removal preserves core config and data.
+
+## 2026-07-14 — CLI-first server lifecycle
+
+- `scripts/install.sh` is the only server bootstrap shell. It installs a verified
+  release binary and invokes non-interactive CLI setup; setup, update, dashboard
+  lifecycle, upgrade, and uninstall are thereafter `miobridge` commands.
+- Shell remains only for bootstrap, development packaging, and CI/E2E
+  orchestration.
+
+## 2026-07-14 — Static dashboard boundary
+
+- The dashboard is a Vite SPA. Browser pages fetch the CLI API directly; all
+  server routes and composition live in `packages/cli`.
+- The former frontend server tree, framework runtime configuration, root server
+  TypeScript configuration, and unused server dependencies were removed.
+- Linux release archives contain both the compiled CLI and static dashboard.
+  Install and self-upgrade replace both without requiring a server runtime.

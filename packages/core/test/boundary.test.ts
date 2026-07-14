@@ -21,7 +21,7 @@ describe('@miobridge/core package boundary', () => {
     const files = await sourceFiles(join(packageDir, 'src'));
     const sources = await Promise.all(files.map(file => readFile(file, 'utf8')));
     const importSpecifiers = sources.join('\n').matchAll(/(?:from\s+|import\s*\()['"]([^'"]+)/g);
-    const forbidden = /^(?:next(?:\/|$)|react(?:\/|$)|frontend\/|@\/|node-ssh(?:\/|$))|(?:ssh|deploy|systemd)/i;
+    const forbidden = /^(?:react(?:\/|$)|frontend\/|@\/|node-ssh(?:\/|$))|(?:ssh|deploy|systemd)/i;
 
     expect([...importSpecifiers].map(match => match[1]).filter(Boolean)).not.toEqual(
       expect.arrayContaining([expect.stringMatching(forbidden)]),

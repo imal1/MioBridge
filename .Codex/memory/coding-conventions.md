@@ -9,8 +9,8 @@ metadata:
 
 - Prefer existing service and UI patterns.
 - Keep API routes thin. Put framework-independent business logic in
-  `packages/core`; keep Next composition, logging, SSH/deployment, and dashboard
-  lifecycle adapters in `packages/frontend/src/server/**`.
+  `packages/core`; keep Linux composition, SSH/deployment, HTTP, and dashboard
+  lifecycle adapters in `packages/cli`.
 - Keep Markdown short. Move only durable, current facts into memory files.
-- Run `bun run lint`, both workspace typechecks, and relevant core/packages/frontend/Agent
+- Run `bun run lint`, workspace typechecks, and relevant core/CLI/frontend/Agent
   tests before handoff when code changes warrant it.

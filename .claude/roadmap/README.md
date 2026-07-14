@@ -14,7 +14,7 @@ rules in `AGENTS.md`, `README.md`, `CHANGELOG.md`, and `.Codex/memory/`.
 
 | Version | Theme | Status | Notes |
 | --- | --- | --- | --- |
-| v0.1 | Minimum usable subscription converter | ✅ | Single Next.js service, mihomo conversion, generated outputs, SSR dashboard |
+| v0.1 | Minimum usable subscription converter | ✅ | mihomo conversion, generated outputs, and dashboard |
 | v0.2 | AI memory and contributor docs | ✅ | Moved durable memory to `.Codex/memory/`; docs were intentionally shortened |
 | v1.0 | Distributed node control plane | ✅ | Main node, Agent, HMAC, NodeManager, remote deployment, adapters |
 | v1.1 | Auth and API keys | ⏸ | Deferred while the product is single-user; revisit before public/multi-user use |
@@ -23,7 +23,7 @@ rules in `AGENTS.md`, `README.md`, `CHANGELOG.md`, and `.Codex/memory/`.
 | v1.4 | Output customization and rules | 🔲 | Clash templates, proxy groups, DNS, rule editing, export variants |
 | v1.5 | Monitoring and alerts | 🟡 | Logs UI exists; metrics, history, alert rules, webhook notifications pending |
 | v1.6 | API docs and API consistency | 🟡 | API page exists; OpenAPI spec, zod validation, standard errors pending |
-| v1.7 | Performance and cache | 🔲 | Artifact caching, update locks, SSE/progress, cleanup jobs |
+| v1.7 | Performance and cache | 🔲 | Artifact caching, update locks, progress cleanup jobs |
 | v1.8 | Production quality | 🟡 | Unit tests exist; coverage gates, E2E, CI test job, reports still pending |
 
 ## Current Direction
@@ -34,7 +34,7 @@ experience over account systems:
 1. Make Mio Garden the primary web control surface.
 2. Keep all UI on shadcn/ui primitives, Iconify icons, Botanical Garden tokens,
    and focused motion interactions.
-3. Prefer direct service calls in SSR and thin API routes.
+3. Keep HTTP routes in the CLI runtime and framework-independent logic in `packages/core`.
 4. Preserve compatibility URLs: `/subscription.txt`, `/clash.yaml`, `/raw.txt`,
    and `/health`.
 
@@ -42,12 +42,13 @@ experience over account systems:
 
 v0.1 and v1.0 form the stable baseline:
 
-- Next.js Pages Router full-stack app under `packages/frontend/`.
+- One compiled `miobridge` binary owns lifecycle commands and the dashboard HTTP server.
+- The dashboard UI is a Vite SPA under `packages/frontend/` and ships with the binary release.
 - Runtime data under `~/.config/miobridge`.
 - Main node generates `raw.txt`, `subscription.txt`, and `clash.yaml`.
 - Child nodes run Agent/kernel and expose source URLs.
 - Remote checks use public Agent HTTP plus HMAC; SSH is for deploy/diagnosis.
-- GitHub Actions build standalone output and deploy atomically.
+- GitHub Actions build checksummed CLI archives containing the dashboard assets.
 
 ## Active Work
 

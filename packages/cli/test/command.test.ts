@@ -29,7 +29,10 @@ const status = {
 
 describe('CLI command contract', () => {
   it('parses the stable command surface and rejects invalid options', () => {
-    expect(parseCommand(['setup'])).toEqual({ kind: 'setup' });
+    expect(parseCommand(['setup'])).toEqual({ kind: 'setup', assumeYes: false });
+    expect(parseCommand(['setup', '--yes'])).toEqual({ kind: 'setup', assumeYes: true });
+    expect(parseCommand(['upgrade'])).toEqual({ kind: 'upgrade' });
+    expect(parseCommand(['uninstall'])).toEqual({ kind: 'uninstall' });
     expect(parseCommand(['update'])).toEqual({ kind: 'update' });
     expect(parseCommand(['status'])).toEqual({ kind: 'status', json: false });
     expect(parseCommand(['status', '--json'])).toEqual({ kind: 'status', json: true });
@@ -63,10 +66,21 @@ describe('CLI command contract', () => {
 
   it('runs setup without composing core', async () => {
     const run = harness({ updateSubscription: vi.fn(), getStatus: vi.fn() } as unknown as CliCore);
-    const dependencies = { ...run.dependencies, setup: { run: vi.fn(async () => [{ name: 'sing-box' as const, required: false, capability: 'optional', origin: 'missing' as const }]) } };
+    const setup = { run: vi.fn(async () => [{ name: 'sing-box' as const, required: false, capability: 'optional', origin: 'missing' as const }]) };
+    const dependencies = { ...run.dependencies, setup };
     expect(await runCli(['setup'], dependencies)).toBe(0);
+    expect(setup.run).toHaveBeenCalledWith({ assumeYes: false });
     expect(run.createCore).not.toHaveBeenCalled();
     expect(run.stdout[0]).toContain('sing-box: missing');
+  });
+
+  it('runs upgrade and uninstall through binary maintenance adapters', async () => {
+    const run = harness({ updateSubscription: vi.fn(), getStatus: vi.fn() } as unknown as CliCore);
+    const maintenance = { upgrade: vi.fn(async () => 'upgraded'), uninstall: vi.fn(async () => 'removed') };
+    expect(await runCli(['upgrade'], { ...run.dependencies, maintenance })).toBe(0);
+    expect(await runCli(['uninstall'], { ...run.dependencies, maintenance })).toBe(0);
+    expect(run.stdout).toEqual(['upgraded', 'removed']);
+    expect(run.createCore).not.toHaveBeenCalled();
   });
 
   it('handles help and version without composing core', async () => {

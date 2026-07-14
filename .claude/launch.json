@@ -2,10 +2,10 @@
   "version": "0.0.1",
   "configurations": [
     {
-      "name": "Next.js dev server",
+      "name": "Vite dashboard",
       "runtimeExecutable": "bun",
       "runtimeArgs": ["run", "dev"],
-      "port": 3001
+      "port": 5173
     }
   ]
 }

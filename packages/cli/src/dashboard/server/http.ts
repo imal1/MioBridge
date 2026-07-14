@@ -3,8 +3,8 @@
  *
  * Keep this module deliberately small: Node's incoming/outgoing message
  * adapters belong at the CLI runtime edge, while route implementations only
- * depend on these values.  The test helpers are also used to replay frozen
- * legacy contracts without booting Next.
+ * depend on these values. The test helpers replay frozen HTTP contracts without
+ * starting a network listener.
  */
 export type DashboardHttpMethod = 'GET' | 'HEAD' | 'POST' | 'PUT' | 'PATCH' | 'DELETE' | 'OPTIONS';
 
@@ -25,7 +25,7 @@ export interface DashboardResponse {
   header(name: string, value: string): this;
   json(value: unknown): void;
   text(value: string): void;
-  write(value: string): void;
+  write(value: string | Uint8Array): void;
   end(): void;
 }
 
@@ -103,7 +103,7 @@ export function createDashboardTestResponse(): DashboardTestResponse {
     header(name, value) { headers[name.toLowerCase()] = value; return this; },
     json(value) { this.header('Content-Type', 'application/json; charset=utf-8'); body += JSON.stringify(value); ended = true; },
     text(value) { body += value; ended = true; },
-    write(value) { body += value; },
+    write(value) { body += typeof value === 'string' ? value : new TextDecoder().decode(value); },
     end() { ended = true; },
   };
 

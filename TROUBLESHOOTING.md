@@ -1,31 +1,34 @@
 # Troubleshooting
 
-Start with the service and app logs:
+Start with the CLI-owned service state:
 
 ```bash
-sudo systemctl status miobridge
-sudo journalctl -u miobridge -n 100 --no-pager
-tail -n 100 ~/.config/miobridge/log/combined.log
-curl -fsS http://127.0.0.1:3001/api/health
+miobridge status --json
+miobridge dashboard status --json
+journalctl --user -u miobridge-dashboard.service -n 100 --no-pager
+curl -fsS http://127.0.0.1:3000/health
 ```
 
-## Common Checks
+## Common checks
 
-- `clash.yaml` missing: verify `mihomo` and `yq` are executable and run
-  `/api/update`.
-- Status resets to empty: check `/api/status` response shape and browser console.
-- Service will not start: check port conflicts, binary paths, and ownership of
-  `~/.config/miobridge`.
-- Remote Agent offline: verify public Agent port is reachable; normal checks do
-  not use SSH fallback.
-- Deploy failed: inspect the latest GitHub Actions log and
-  `journalctl -u miobridge -n 200`.
+- `clash.yaml` is missing: run `miobridge setup`, verify mihomo is available,
+  then run `miobridge update`.
+- The dashboard will not start: inspect `miobridge dashboard status` for provider
+  or port errors and then check its user journal.
+- A remote Agent is offline: verify its public Agent port is reachable. Normal
+  health and source checks use Agent HTTP plus HMAC, not SSH fallback.
+- SSH detection or deployment failed: verify the saved SSH credential, host key,
+  sudo access, and outbound access to the Agent source archive. On the child node,
+  inspect `journalctl -u miobridge-agent -n 100 --no-pager`.
+- `Dashboard provider is not installed`: reinstall the release or use
+  `miobridge upgrade` when a newer release is available.
 
-## Rollback
+## Install a specific release
+
+Use the same verified release path as upgrade:
 
 ```bash
-cd ~/.config/miobridge
-ls -lt releases/
-ln -sfn releases/<old-release> dist
-sudo systemctl restart miobridge
+MIOBRIDGE_VERSION=0.2.0 miobridge upgrade
 ```
+
+The command verifies `SHA256SUMS` before replacing the CLI and dashboard.

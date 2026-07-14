@@ -23,11 +23,6 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/comp
 import SignalPage from '@/components/shared/SignalPage'
 import { KernelRuntimeDetails, KernelStatusPills, kernelLabels } from '@/components/cluster/KernelStatus'
 
-interface NodesPageProps {
-  initialCluster: ClusterStatus | null
-  initialError: string | null
-}
-
 type Filter = 'all' | 'online' | 'offline' | 'undeployed'
 
 interface KernelEditorState {
@@ -62,8 +57,13 @@ function kernelSummary(node: NodeStatus) {
   return node.online ? desired : `${desired} · 状态未知`
 }
 
-export default function NodesPage({ initialCluster, initialError }: NodesPageProps) {
-  const [cluster, setCluster] = useState(initialCluster)
+interface NodesPageProps {
+  initialCluster?: ClusterStatus | null
+  initialError?: string | null
+}
+
+export default function NodesPage({ initialCluster, initialError = null }: NodesPageProps = {}) {
+  const [cluster, setCluster] = useState<ClusterStatus | null>(initialCluster ?? null)
   const [error, setError] = useState<string | null>(initialError)
   const [filter, setFilter] = useState<Filter>('all')
   const [selectedNode, setSelectedNode] = useState<NodeStatus | null>(null)
@@ -72,19 +72,25 @@ export default function NodesPage({ initialCluster, initialError }: NodesPagePro
   const [kernelEditor, setKernelEditor] = useState<KernelEditorState | null>(null)
   const editLockRef = useRef(false)
 
-  useEffect(() => {
-    if (initialCluster) return
-    refresh().catch((err: unknown) => {
-      const message = err instanceof Error ? err.message : "加载失败"
-      setError(message)
-    })
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
-
   const refresh = useCallback(async () => {
     const result = await apiService.getClusterStatus()
     if (result.success) setCluster(result.data as ClusterStatus)
   }, [])
+
+  useEffect(() => {
+    if (initialCluster !== undefined) return
+    let active = true
+    apiService.getClusterStatus()
+      .then(result => {
+        if (active && result.success) setCluster(result.data as ClusterStatus)
+      })
+      .catch((err: unknown) => {
+        if (!active) return
+        const message = err instanceof Error ? err.message : '加载失败'
+        setError(message)
+      })
+    return () => { active = false }
+  }, [initialCluster])
 
   const nodes = useMemo(() => {
     const list = cluster?.nodes || []
@@ -214,7 +220,7 @@ export default function NodesPage({ initialCluster, initialError }: NodesPagePro
                 <TooltipTrigger asChild>
                   <Icon icon="ph:info-bold" className="h-3.5 w-3.5 cursor-help" />
                 </TooltipTrigger>
-                <TooltipContent>Vercel 控制面只聚合与转换，不作为子节点参与统计</TooltipContent>
+                <TooltipContent>本机控制面只聚合与转换，不作为子节点参与统计</TooltipContent>
               </Tooltip>
             </CardDescription>
           </div>

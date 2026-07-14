@@ -83,7 +83,11 @@ function createKernelFileSystem() {
 export interface NodeCoreComposition {
   readonly core: MioBridgeCore;
   readonly paths: RuntimePaths;
-  readonly configuredBinaries: Readonly<{ mihomo?: string; bun?: string; 'sing-box'?: string }>;
+  readonly repository: NodeRepository;
+  readonly aggregation: NodeAggregationService;
+  readonly agent: AgentClient;
+  readonly mihomo: ClashConverter & StatusKernel;
+  readonly configuredBinaries: Readonly<{ mihomo?: string; 'sing-box'?: string }>;
 }
 
 export function createNodeCore(options: NodeCoreOptions = {}): NodeCoreComposition {
@@ -109,7 +113,9 @@ export function createNodeCore(options: NodeCoreOptions = {}): NodeCoreCompositi
       ? { configuredPath: fullConfig.binaries.sing_box_path }
       : {}),
   });
-  const remote = options.remote ?? new NodeAggregationService(repository, new AgentClient());
+  const agent = new AgentClient();
+  const aggregation = new NodeAggregationService(repository, agent);
+  const remote = options.remote ?? aggregation;
   const mihomo = options.mihomo ?? new MihomoAdapter({
     paths, process: processRunner, fs: createKernelFileSystem(), logger,
     runtimeDir: join(tmpdir(), 'miobridge-mihomo'), configuredPath: config.mihomoPath,
@@ -120,9 +126,8 @@ export function createNodeCore(options: NodeCoreOptions = {}): NodeCoreCompositi
     local, remote, mihomo,
     ...(options.uptime ? { uptime: options.uptime } : {}),
   });
-  return { core, paths, configuredBinaries: {
+  return { core, paths, repository, aggregation, agent, mihomo, configuredBinaries: {
     ...(fullConfig.binaries?.mihomo_path ? { mihomo: fullConfig.binaries.mihomo_path } : {}),
-    ...(fullConfig.binaries?.bun_path ? { bun: fullConfig.binaries.bun_path } : {}),
     ...(fullConfig.binaries?.sing_box_path ? { 'sing-box': fullConfig.binaries.sing_box_path } : {}),
   } };
 }

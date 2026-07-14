@@ -3,7 +3,7 @@ import * as crypto from 'node:crypto';
 const TIME_WINDOW_MS = 30_000; // ±30s
 const CLEANUP_INTERVAL_MS = 60_000;
 
-/** Framework-agnostic HMAC request shape — mirrors the Next.js HMAC contract. */
+/** Framework-agnostic HMAC request shape for dashboard routes. */
 export interface HmacRequest {
   readonly method: string;
   readonly path: string;

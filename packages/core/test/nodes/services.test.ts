@@ -22,7 +22,7 @@ describe('node core services', () => {
     expect(client.sign({ ...node, host: '127.0.0.1' }, 'GET', '/api/status')).toEqual({});
   });
 
-  it('reads existing nodes.yaml without migration and filters disabled nodes', async () => {
+  it('reads nodes.yaml directly and filters disabled nodes', async () => {
     const repository = new NodeRepository(memoryStore(`nodes:\n  - id: node-a\n    name: A\n    host: example\n    secret: secret\n    kernels:\n      - type: xray\n    location: HK\n    enabled: true\n  - id: off\n    name: Off\n    host: off\n    secret: x\n    kernels: []\n    location: HK\n    enabled: false\n`));
     expect((await repository.list()).map(n => n.id)).toEqual(['node-a']);
     expect((await repository.list({ enabledOnly: false })).map(n => n.id)).toEqual(['node-a', 'off']);

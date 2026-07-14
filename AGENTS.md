@@ -4,27 +4,24 @@ Keep this file small. It is loaded often.
 
 ## Project
 
-MioBridge is a TypeScript subscription converter. The active app is a single
-Next.js full-stack service under `packages/frontend/` using Pages Router, Node runtime,
-SSR, and `output: 'standalone'`. There is no separate Express server.
+MioBridge is a TypeScript subscription converter. The primary self-hosted runtime
+is the compiled Linux CLI under `packages/cli/`; `packages/frontend/` is the Vite
+dashboard, and `packages/core/` owns framework-independent behavior.
 
 ## Architecture Rules
 
 - Framework-independent backend logic lives in `packages/core`; expose it through
   explicit `@miobridge/core` exports and the `MioBridgeCore` facade.
-- `packages/frontend/src/server/**` owns the Node composition root plus Next, logging,
-  SSH/deployment, and dashboard lifecycle adapters. Keep API routes thin.
-- SSR pages call services directly in `getServerSideProps`; do not self-call HTTP
-  inside the same process.
-- Node-only modules belong in `server/`, `pages/api/`, or
-  `instrumentation-node.ts`. Keep `instrumentation.ts` guarded by
-  `NEXT_RUNTIME === 'nodejs'` before dynamic import.
+- `packages/cli` is the Linux composition root and owns setup, subscription,
+  status, dashboard lifecycle, upgrade, and uninstall commands.
+- Server operations after bootstrap must be exposed through the `miobridge`
+  binary, not new management shell scripts.
 - Runtime config/data/logs/backups live under `~/.config/miobridge`, independent
   of cwd. Config is `~/.config/miobridge/config.yaml`.
-- External binaries are `mihomo`, `yq`, and optionally `sing-box`; prefer
+- External binaries are `mihomo` and optionally `sing-box`; prefer
   `~/.config/miobridge/bin/`, then repo `bin/`, then PATH.
-- Public compatibility URLs `/subscription.txt`, `/clash.yaml`, `/raw.txt`, and
-  `/health` are Next rewrites to internal API routes.
+- Public compatibility URLs are `/subscription.txt`, `/clash.yaml`, `/raw.txt`,
+  and `/health`.
 - Main node generates `raw.txt`, `subscription.txt`, and `clash.yaml`. Child nodes
   only run the Agent/kernel and expose source URLs.
 - Normal remote Agent checks use public `http://<host>:<agentPort>` plus HMAC.
@@ -34,28 +31,28 @@ SSR, and `output: 'standalone'`. There is no separate Express server.
 
 ```bash
 bun install
-bun run dev                 # cd frontend && next dev -p 3001
-bun run build               # Next standalone build
-bun run start               # node packages/frontend/.next/standalone/packages/frontend/server.js
+bun run dev                 # packages/frontend Vite dev server
+bun run build               # Vite dashboard build
 bun run lint                # oxlint packages/frontend/src
 bun run typecheck           # frontend TypeScript check
 bun run core:typecheck      # core package TypeScript check
 bun run core:test           # compiled Bun/Node headless and unit tests
-cd frontend && bun run test
-cd agent && bun test
-cd agent && bun build src/server.ts --compile --target=bun-linux-x64 --outfile miobridge-agent
+bun run cli:typecheck
+bun run cli:test
+bun run --cwd packages/frontend test
+bun run --cwd agent typecheck
+bun run --cwd agent test
+bun build agent/src/server.ts --compile --target=bun-linux-x64 --outfile agent/miobridge-agent
 ```
 
-Do not run root `npx tsc --noEmit`; use the frontend and core workspace commands.
+Do not run root `npx tsc --noEmit`; use the frontend, CLI, and core workspace commands.
 
 ## Deployment Notes
 
-- Production runs Node with `PORT`, `HOSTNAME=0.0.0.0`, and
-  `NODE_ENV=production`.
-- `scripts/manage.sh install` builds and installs standalone output to
-  `~/.config/miobridge/dist/packages/frontend/server.js`.
-- Standalone output needs `.next/static` and `public` copied into the runtime
-  directory; preserve that in build/deploy changes.
+- `scripts/install.sh` is the sole server bootstrap shell and installs a verified
+  release CLI to `~/.local/bin/miobridge` plus its static dashboard provider.
+- After bootstrap, lifecycle operations use `miobridge` commands only.
+- Release archives and checksums are produced by `scripts/package-cli-release.sh`.
 
 ## UI
 

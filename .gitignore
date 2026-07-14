@@ -1,13 +1,7 @@
 # Dependencies
 node_modules/
 
-# Environment files (legacy, no longer used)
-# .env files are deprecated in favor of config.yaml
-# .env
-# .env.local
-# .env.development.local
-# .env.test.local
-# .env.production.localfiles
+# Lockfiles are intentionally not committed
 bun.lock
 bun.lockb
 
@@ -41,11 +35,7 @@ dist/
 .env.test.local
 .env.production.local
 
-# Generated configuration files
-config/nginx.conf
-config/subscription-api-ts.service
-
-# Legacy project root config (to be migrated)
+# Local project-root override; production config lives under ~/.config/miobridge
 config.yaml
 
 # Logs
@@ -81,24 +71,13 @@ temp/
 build/
 out/
 
-# Next.js build output
-.next/
-frontend/.next/
-frontend/out/
-frontend/dist/
-
-# Next.js cache
-.next/cache
-frontend/.next/cache
-
 # Agent binary (built from source)
 agent/miobridge-agent
 
 # Session-local memory (not for commit)
 .remember/
 
-# Nginx configuration files
-config/nginx.conf
 # Added by code-review-graph
 .code-review-graph/
+graphify-out/
 .env*

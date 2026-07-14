@@ -1,7 +1,7 @@
 import type { DashboardRouteRegistrar, DashboardServerDependencies } from './composition.js';
 
 /**
- * Compatibility URL routes that mirror Next.js rewrites.
+ * Stable compatibility URL routes for subscription clients.
  * These must be registered before any static/history fallback so they
  * are never intercepted by the SPA catch-all.
  */

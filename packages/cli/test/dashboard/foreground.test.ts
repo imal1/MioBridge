@@ -1,11 +1,30 @@
-import { chmod, mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { basename, dirname, join } from 'node:path';
-import { afterEach, describe, expect, it } from 'vitest';
-import { DashboardForegroundService, createNodeForegroundAdapters, resolveDashboardRuntime } from '../../src/index.js';
+import { join } from 'node:path';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { DashboardForegroundService, createNodeCore } from '../../src/index.js';
+import { createNodeDashboardDependencies } from '../../src/dashboard/server/nodeDependencies.js';
+import { runNodeDashboardServer } from '../../src/dashboard/server/nodeServer.js';
 
 const roots: string[] = [];
 afterEach(async () => Promise.all(roots.splice(0).map(root => rm(root, { recursive: true, force: true }))));
+
+async function providerFixture(): Promise<{ baseDir: string; root: string }> {
+  const baseDir = await mkdtemp(join(tmpdir(), 'miobridge-dashboard-'));
+  roots.push(baseDir);
+  const dashboard = join(baseDir, 'dist', 'dashboard');
+  const root = join(dashboard, 'artifact');
+  await mkdir(root, { recursive: true });
+  await writeFile(join(root, 'index.html'), '<main>MioBridge</main>');
+  await writeFile(join(dashboard, 'provider.json'), JSON.stringify({
+    schemaVersion: 2,
+    dashboardVersion: 'test',
+    artifactRoot: 'artifact',
+    spaFallback: true,
+    reservedPaths: ['/api', '/health', '/subscription.txt', '/clash.yaml', '/raw.txt'],
+  }));
+  return { baseDir, root };
+}
 
 async function freePort(): Promise<number> {
   const { createServer } = await import('node:net');
@@ -18,90 +37,57 @@ async function freePort(): Promise<number> {
 }
 
 describe('dashboard foreground lifecycle', () => {
-  it('resolves configured, managed, then PATH Bun while preserving an effective child PATH', async () => {
-    const root = await mkdtemp(join(tmpdir(), 'miobridge-dashboard-bun-'));
-    roots.push(root);
-    const configured = join(root, 'configured');
-    const managed = join(root, 'managed');
-    const pathBin = join(root, 'path');
-    await Promise.all([mkdir(configured), mkdir(managed), mkdir(pathBin)]);
-    for (const file of [join(configured, 'bun'), join(managed, 'bun'), join(pathBin, 'bun')]) {
-      await writeFile(file, '#!/bin/sh\nexit 0\n');
-      await chmod(file, 0o755);
-    }
-    const paths = { managedBinDir: managed, pathDirectories: [pathBin] };
-    await expect(resolveDashboardRuntime(paths, configured, { PATH: pathBin })).resolves.toMatchObject({
-      executables: { bun: join(configured, 'bun') },
-      effectivePath: expect.stringMatching(new RegExp(`^${configured}`)),
-    });
-    await rm(join(configured, 'bun'));
-    await expect(resolveDashboardRuntime(paths, configured, { PATH: pathBin })).resolves.toMatchObject({ executables: { bun: join(managed, 'bun') } });
-    await rm(join(managed, 'bun'));
-    await expect(resolveDashboardRuntime(paths, undefined, { PATH: pathBin })).resolves.toMatchObject({ executables: { bun: join(pathBin, 'bun') } });
+  it('loads the static provider and delegates serving to the CLI adapter', async () => {
+    const { baseDir } = await providerFixture();
+    const serve = vi.fn(async () => 7);
+    const result = await new DashboardForegroundService({ distDir: join(baseDir, 'dist') }, { serve }).run({ host: '127.0.0.1', port: 4321 });
+    expect(serve).toHaveBeenCalledWith(expect.objectContaining({ host: '127.0.0.1', port: 4321 }));
+    expect(serve.mock.calls[0]?.[0].provider.root).toMatch(/miobridge-dashboard-.+\/dist\/dashboard\/artifact$/);
+    expect(result).toMatchObject({ exitCode: 7, healthUrl: 'http://127.0.0.1:4321/health' });
   });
 
-  it('injects runtime ownership and serves every compatibility URL', async () => {
-    const baseDir = await mkdtemp(join(tmpdir(), 'miobridge-dashboard-'));
-    roots.push(baseDir);
-    const providerDir = join(baseDir, 'dist', 'dashboard');
-    const artifact = join(providerDir, 'artifact');
-    await mkdir(artifact, { recursive: true });
-    await writeFile(join(artifact, 'server.js'), `
-      const http = require('node:http');
-      const expected = new Set(['/health', '/subscription.txt', '/clash.yaml', '/raw.txt']);
-      if (!process.env.MIOBRIDGE_CONFIG_DIR || !process.env.CONFIG_FILE) process.exit(41);
-      const server = http.createServer((request, response) => {
-        if (!expected.delete(request.url)) { response.statusCode = 404; response.end('missing'); return; }
-        response.end(request.url === '/health' ? 'ok' : 'fixture');
-        if (expected.size === 0) setTimeout(() => server.close(() => process.exit(0)), 10);
-      });
-      server.listen(Number(process.env.PORT), process.env.HOSTNAME);
-    `);
-    const manifest = {
-      schemaVersion: 1, dashboardVersion: 'test', artifactRoot: 'artifact', executable: basename(process.execPath),
-      entrypoint: 'server.js', args: [],
-      environment: { host: 'HOSTNAME', port: 'PORT', configDir: 'MIOBRIDGE_CONFIG_DIR', configFile: 'CONFIG_FILE' },
-      healthUrl: 'http://{host}:{port}/health',
-      compatibilityUrls: ['/health', '/subscription.txt', '/clash.yaml', '/raw.txt'].map(path => `http://{host}:{port}${path}`),
-    };
-    await writeFile(join(providerDir, 'provider.json'), JSON.stringify(manifest));
-    const adapters = createNodeForegroundAdapters({ ...process.env, PATH: `${dirname(process.execPath)}:${process.env.PATH ?? ''}` });
+  it('serves core APIs, compatibility files, and SPA routes in one process', async () => {
+    const { root } = await providerFixture();
     const port = await freePort();
-    const running = new DashboardForegroundService({ baseDir, configFile: join(baseDir, 'config.yaml'), distDir: join(baseDir, 'dist') }, adapters).run({ host: '127.0.0.1', port });
+    const controller = new AbortController();
+    const dataDirectory = join(root, '..', '..', '..', 'www');
+    await mkdir(dataDirectory, { recursive: true });
+    await writeFile(join(dataDirectory, 'subscription.txt'), 'subscription');
+    await writeFile(join(dataDirectory, 'clash.yaml'), 'proxies: []');
+    await writeFile(join(dataDirectory, 'raw.txt'), 'raw');
+    const composition = createNodeCore({
+      platformBaseDir: join(root, '..', '..', '..'),
+      mihomo: {
+        checkHealth: async () => true,
+        getVersion: async () => ({ version: 'test' }),
+        convertToClashByContent: async () => 'proxies: []',
+      },
+      local: { isAvailable: async () => false, extractNodeUrls: async () => [] },
+      remote: { collectRemoteNodeSources: async () => ({ sources: [], errors: [] }) },
+    });
+    const running = runNodeDashboardServer({
+      host: '127.0.0.1', port, root,
+      reservedPaths: ['/api', '/health', '/subscription.txt', '/clash.yaml', '/raw.txt'],
+      fallbackToIndex: true,
+      signal: controller.signal,
+      dependencies: createNodeDashboardDependencies(composition),
+    });
 
-    let ready = false;
-    for (let attempt = 0; attempt < 50 && !ready; attempt += 1) {
-      try { const response = await fetch(`http://127.0.0.1:${port}/health`); ready = response.ok; } catch { await new Promise(resolve => setTimeout(resolve, 20)); }
+    for (let attempt = 0; attempt < 50; attempt += 1) {
+      try { if ((await fetch(`http://127.0.0.1:${port}/health`)).ok) break; } catch { await new Promise(resolve => setTimeout(resolve, 10)); }
     }
-    expect(ready).toBe(true);
-    for (const path of ['/subscription.txt', '/clash.yaml', '/raw.txt']) {
-      expect((await fetch(`http://127.0.0.1:${port}${path}`)).status).toBe(200);
-    }
-    await expect(running).resolves.toMatchObject({ exitCode: 0, healthUrl: `http://127.0.0.1:${port}/health` });
+    expect((await fetch(`http://127.0.0.1:${port}/api/status`)).status).toBe(200);
+    expect((await fetch(`http://127.0.0.1:${port}/api/cluster/status`)).status).toBe(200);
+    expect((await fetch(`http://127.0.0.1:${port}/api/yaml/frontend`)).status).toBe(200);
+    expect(await (await fetch(`http://127.0.0.1:${port}/subscription.txt`)).text()).toBe('subscription');
+    expect(await (await fetch(`http://127.0.0.1:${port}/nodes`)).text()).toContain('MioBridge');
+    controller.abort();
+    await expect(running).resolves.toBe(0);
   });
 
-  it('forwards termination signals and returns child status', async () => {
-    const baseDir = await mkdtemp(join(tmpdir(), 'miobridge-dashboard-fake-'));
-    roots.push(baseDir);
-    const providerDir = join(baseDir, 'dist', 'dashboard');
-    await mkdir(join(providerDir, 'artifact'), { recursive: true });
-    await writeFile(join(providerDir, 'artifact', 'server.js'), 'fixture');
-    await writeFile(join(providerDir, 'provider.json'), JSON.stringify({
-      schemaVersion: 1, dashboardVersion: 'test', artifactRoot: 'artifact', executable: 'runtime', entrypoint: 'server.js', args: ['--fixture'],
-      environment: { host: 'HOSTNAME', port: 'PORT', configDir: 'MIOBRIDGE_CONFIG_DIR', configFile: 'CONFIG_FILE' },
-      healthUrl: 'http://{host}:{port}/health', compatibilityUrls: ['/health', '/subscription.txt', '/clash.yaml', '/raw.txt'].map(path => `http://{host}:{port}${path}`),
-    }));
-    const signals: NodeJS.Signals[] = [];
-    const listeners = new Map<NodeJS.Signals, () => void>();
-    const spawned: Array<{ command: string; path?: string }> = [];
-    const result = new DashboardForegroundService({ baseDir, configFile: join(baseDir, 'config.yaml'), distDir: join(baseDir, 'dist') }, {
-      env: {}, resolveExecutable: async () => '/managed/runtime',
-      spawn: (command, _args, options) => { spawned.push({ command, path: options.env.PATH }); return { wait: async () => { listeners.get('SIGTERM')?.(); return 9; }, signal: signal => signals.push(signal) }; },
-      onSignal: (signal, listener) => { listeners.set(signal, listener); return () => listeners.delete(signal); },
-    }, { effectivePath: '/effective/bin', executables: { runtime: '/configured/runtime' } }).run();
-    await expect(result).resolves.toMatchObject({ exitCode: 9 });
-    expect(spawned).toEqual([{ command: '/configured/runtime', path: '/effective/bin' }]);
-    expect(signals).toEqual(['SIGTERM']);
-    expect(listeners.size).toBe(0);
+  it('rejects invalid ports before loading the provider', async () => {
+    const serve = vi.fn(async () => 0);
+    await expect(new DashboardForegroundService({ distDir: '/missing' }, { serve }).run({ port: 0 })).rejects.toThrow('Invalid dashboard port');
+    expect(serve).not.toHaveBeenCalled();
   });
 });

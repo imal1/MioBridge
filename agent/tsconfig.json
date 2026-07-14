@@ -7,13 +7,8 @@
     "noEmit": true,
     "esModuleInterop": true,
     "skipLibCheck": true,
-    "baseUrl": ".",
-    "paths": {
-      "@adapters/*": ["../packages/frontend/src/server/services/adapters/*"],
-      "@middleware/*": ["../packages/frontend/src/server/middleware/*"],
-      "@types/*": ["../packages/frontend/src/server/types/*"]
-    }
+    "types": ["bun", "node"]
   },
-  "include": ["src/**/*.ts", "../packages/frontend/src/server/services/adapters/**/*.ts", "../packages/frontend/src/server/middleware/**/*.ts", "../packages/frontend/src/server/types/**/*.ts"],
+  "include": ["src/**/*.ts"],
   "exclude": ["node_modules", "src/**/__tests__/**"]
 }

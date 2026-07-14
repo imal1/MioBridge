@@ -1,7 +1,7 @@
 import type { RuntimePaths } from '@miobridge/core';
 import type { LinuxPlatform } from '../platform/linux.js';
 
-export type DependencyName = 'mihomo' | 'bun' | 'yq' | 'sing-box';
+export type DependencyName = 'mihomo' | 'sing-box';
 export type DependencyOrigin = 'configured' | 'managed' | 'PATH' | 'missing';
 
 export interface DependencyStatus {

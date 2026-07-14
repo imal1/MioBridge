@@ -12,12 +12,6 @@ import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import SignalPage from '@/components/shared/SignalPage'
 
-interface DeployPageProps {
-  initialCluster: ClusterStatus | null
-  initialDeployments: Record<string, DeployStatus>
-  initialError: string | null
-}
-
 const stepLabels: Record<string, string> = {
   connect: '连接',
   upload: '上传',
@@ -41,10 +35,10 @@ function statusLabel(status?: DeployStatus['status']) {
   return '等待'
 }
 
-export default function DeployPage({ initialCluster, initialDeployments, initialError }: DeployPageProps) {
-  const [cluster, setCluster] = useState(initialCluster)
-  const [deployments, setDeployments] = useState(initialDeployments)
-  const [error, setError] = useState<string | null>(initialError)
+export default function DeployPage() {
+  const [cluster, setCluster] = useState<ClusterStatus | null>(null)
+  const [deployments, setDeployments] = useState<Record<string, DeployStatus>>({})
+  const [error, setError] = useState<string | null>(null)
   const [busyNode, setBusyNode] = useState<string | null>(null)
   const [filter, setFilter] = useState<'all' | 'running' | 'failed'>('all')
 
@@ -58,6 +52,9 @@ export default function DeployPage({ initialCluster, initialDeployments, initial
   }, [])
 
   useEffect(() => {
+    refresh().catch((caught: unknown) => {
+      setError(caught instanceof Error ? caught.message : '部署状态加载失败')
+    })
     const id = setInterval(() => {
       refresh().catch(() => {})
     }, 2000)

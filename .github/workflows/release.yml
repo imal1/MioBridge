@@ -20,12 +20,21 @@ jobs:
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: 1.2.13
-      - run: bun install --frozen-lockfile
+      - run: bun install
+      - name: Resolve release version
+        id: release
+        env:
+          REQUESTED_VERSION: ${{ inputs.version || github.ref_name }}
+        run: |
+          set -euo pipefail
+          version="${REQUESTED_VERSION#v}"
+          [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.-]+)?$ ]]
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "tag=v$version" >> "$GITHUB_OUTPUT"
       - name: Package self-contained Linux CLIs
         env:
-          MIOBRIDGE_RELEASE_VERSION: ${{ inputs.version || github.ref_name }}
+          MIOBRIDGE_RELEASE_VERSION: ${{ steps.release.outputs.version }}
         run: |
-          export MIOBRIDGE_RELEASE_VERSION="${MIOBRIDGE_RELEASE_VERSION#v}"
           rm -rf packages/core/dist packages/cli/dist dist/cli-release
           bun run cli:release
       - name: Verify release contracts
@@ -36,15 +45,19 @@ jobs:
           for arch in x64 arm64; do
             archive="$(find dist/cli-release -maxdepth 1 -name "miobridge-*-linux-$arch.tar.gz" -print -quit)"
             test -n "$archive"
-            tar -tzf "$archive" | sort | diff -u <(printf 'VERSION\nmiobridge\n') -
+            tar -tzf "$archive" | grep -Fx 'VERSION'
+            tar -tzf "$archive" | grep -Fx 'miobridge'
+            tar -tzf "$archive" | grep -Fx 'dashboard/provider.json'
+            tar -tzf "$archive" | grep -Fx 'dashboard/artifact/index.html'
             directory="$(mktemp -d)"
             tar -xzf "$archive" -C "$directory"
             test -x "$directory/miobridge"
           done
           test -s dist/cli-release/SHA256SUMS
       - uses: softprops/action-gh-release@v2
-        if: startsWith(github.ref, 'refs/tags/v')
         with:
+          tag_name: ${{ steps.release.outputs.tag }}
+          generate_release_notes: true
           files: |
             dist/cli-release/miobridge-*.tar.gz
             dist/cli-release/SHA256SUMS

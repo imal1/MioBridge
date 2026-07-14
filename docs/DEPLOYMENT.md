@@ -4,16 +4,14 @@ Production runs on Vercel at `https://miobridge.vercel.app/`.
 
 ## Runtime
 
-- App: Next.js Pages Router service under `packages/frontend/`, composing the traced
-  `@miobridge/core` workspace package on the server only
-- Runtime: Vercel Node.js functions
+- App: static Vite SPA built from `packages/frontend/`
+- Runtime: Vercel static hosting with SPA fallback to `index.html`
 - Project link: `.vercel/project.json`
-- Public health check: `https://miobridge.vercel.app/api/health`
+- Public page check: `https://miobridge.vercel.app/`
 
-Generated subscription artifacts still use the app runtime paths defined by the
-server services. Vercel deployments are ephemeral, so production persistence
-should be handled through Vercel-managed environment/config and durable external
-storage when that becomes necessary.
+The hosted SPA is a UI artifact only. Operational API routes, generated
+subscriptions, runtime configuration, and persistence belong to a self-hosted
+`miobridge` CLI dashboard process.
 
 ## Normal Flow
 
@@ -40,18 +38,16 @@ bun run build
 ## Checks
 
 ```bash
-curl -fsS https://miobridge.vercel.app/api/health
+curl -fsS https://miobridge.vercel.app/
 ```
 
-Use the Vercel dashboard for deployment status, runtime logs, rollbacks, and
-project settings.
-
-The old systemd/Nginx server flow is no longer used for the main node.
+Use the Vercel dashboard for deployment status, build logs, rollbacks, and
+project settings. Use `miobridge dashboard start` for a functional self-hosted
+control plane.
 
 ## Self-hosted Linux CLI
 
 This Vercel deployment guide does not install or manage a Linux dashboard
-daemon. The self-contained `miobridge` release CLI and its optional
-provider-backed user-systemd service are documented in [CLI.md](./CLI.md).
-They retain state under the user's `~/.config/miobridge` and do not alter the
-Vercel production deployment.
+daemon. The self-contained `miobridge` release CLI and bundled static provider
+are documented in [CLI.md](./CLI.md). They retain state under the user's
+`~/.config/miobridge` and do not alter the hosted SPA.

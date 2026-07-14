@@ -8,21 +8,6 @@ import { loadDashboardProvider, validateDashboardProviderManifest } from '../../
 const roots: string[] = [];
 afterEach(async () => Promise.all(roots.splice(0).map(root => rm(root, { recursive: true, force: true }))));
 
-function v1Manifest(overrides: Record<string, unknown> = {}) {
-  return {
-    schemaVersion: 1,
-    dashboardVersion: '2.0.0',
-    artifactRoot: 'artifact',
-    executable: 'node',
-    entrypoint: 'server.js',
-    args: [],
-    environment: { host: 'HOSTNAME', port: 'PORT', configDir: 'MIOBRIDGE_CONFIG_DIR', configFile: 'CONFIG_FILE' },
-    healthUrl: 'http://{host}:{port}/health',
-    compatibilityUrls: ['/health', '/subscription.txt', '/clash.yaml', '/raw.txt'].map(path => `http://{host}:{port}${path}`),
-    ...overrides,
-  };
-}
-
 function v2Manifest(overrides: Record<string, unknown> = {}) {
   return {
     schemaVersion: 2,
@@ -34,21 +19,15 @@ function v2Manifest(overrides: Record<string, unknown> = {}) {
 }
 
 describe('dashboard provider manifest', () => {
-  it('validates v1 provider contract', () => {
-    expect(validateDashboardProviderManifest(v1Manifest())).toMatchObject({ schemaVersion: 1, executable: 'node' });
-    expect(() => validateDashboardProviderManifest(v1Manifest({ schemaVersion: 3 }))).toThrow('Unsupported dashboard provider schema');
-    expect(() => validateDashboardProviderManifest(v1Manifest({ artifactRoot: '../outside' }))).toThrow('inside the provider root');
-    expect(() => validateDashboardProviderManifest(v1Manifest({ entrypoint: '/tmp/server.js' }))).toThrow('inside the provider root');
-    expect(() => validateDashboardProviderManifest(v1Manifest({ executable: '../node' }))).toThrow('command name');
-    expect(() => validateDashboardProviderManifest(v1Manifest({ healthUrl: 'javascript:{host}:{port}' }))).toThrow('valid HTTP URL');
-    expect(() => validateDashboardProviderManifest(v1Manifest({ compatibilityUrls: ['http://{host}:{port}/health'] }))).toThrow('missing /subscription.txt');
-  });
-
   it('validates v2 provider contract', () => {
     const m = validateDashboardProviderManifest(v2Manifest());
     expect(m).toMatchObject({ schemaVersion: 2, artifactRoot: 'dist' });
     // v2 auto-adds reserved paths
     expect('reservedPaths' in m).toBe(true);
+  });
+
+  it('rejects obsolete provider schemas', () => {
+    expect(() => validateDashboardProviderManifest(v2Manifest({ schemaVersion: 3 }))).toThrow('Unsupported dashboard provider schema');
   });
 
   it('rejects v2 with escape path', () => {

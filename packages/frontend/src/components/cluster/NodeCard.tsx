@@ -1,5 +1,3 @@
-"use client";
-
 import { useState } from 'react';
 import { Icon } from '@iconify/react';
 import type { NodeStatus } from '@/lib/types';

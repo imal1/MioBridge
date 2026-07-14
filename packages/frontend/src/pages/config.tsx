@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { Icon } from '@iconify/react'
 import { toast } from 'sonner'
 import { apiService, type ApiStatus } from '@/lib/api'
+import type { FrontendConfig } from '@/lib/configApi'
 import type { ClusterStatus, KernelType } from '@/lib/types'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
@@ -13,24 +14,30 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Textarea } from '@/components/ui/textarea'
 import SignalPage from '@/components/shared/SignalPage'
 
-interface ConfigPageProps {
-  initialStatus: ApiStatus | null
-  initialCluster: ClusterStatus | null
-  initialConfigs: string[]
-  frontendConfig: any
-  initialError: string | null
-}
-
 const kernelLabels: Record<KernelType, string> = {
   'sing-box': 'sing-box',
   xray: 'Xray',
   v2ray: 'V2Ray',
 }
 
-export default function ConfigPage({ initialStatus, initialCluster, initialConfigs, frontendConfig, initialError }: ConfigPageProps) {
-  const [configsText, setConfigsText] = useState(initialConfigs.join('\n'))
-  const [status, setStatus] = useState(initialStatus)
-  const [cluster, setCluster] = useState(initialCluster)
+type FrontendConfigSnapshot = Partial<Omit<FrontendConfig, 'app' | 'protocols'>> & {
+  app?: Partial<FrontendConfig['app']>
+  protocols?: Partial<FrontendConfig['protocols']>
+}
+
+interface ConfigPageProps {
+  initialConfigs?: string[]
+  initialStatus?: ApiStatus | null
+  initialCluster?: ClusterStatus | null
+  frontendConfig?: FrontendConfigSnapshot | null
+  initialError?: string | null
+}
+
+export default function ConfigPage({ initialConfigs, initialStatus, initialCluster, frontendConfig: initialFrontendConfig, initialError = null }: ConfigPageProps = {}) {
+  const [configsText, setConfigsText] = useState((initialConfigs ?? []).join('\n'))
+  const [status, setStatus] = useState<ApiStatus | null>(initialStatus ?? null)
+  const [cluster, setCluster] = useState<ClusterStatus | null>(initialCluster ?? null)
+  const [frontendConfig, setFrontendConfig] = useState<FrontendConfigSnapshot | null>(initialFrontendConfig ?? null)
   const [error, setError] = useState<string | null>(initialError)
   const [message, setMessage] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
@@ -68,9 +75,29 @@ export default function ConfigPage({ initialStatus, initialCluster, initialConfi
     toast.success('状态已刷新')
   }, [])
 
-  const network = frontendConfig?.network || {}
-  const app = frontendConfig?.app || {}
-  const protocols = frontendConfig?.protocols || {}
+  useEffect(() => {
+    if (initialConfigs !== undefined || initialStatus !== undefined || initialCluster !== undefined || initialFrontendConfig !== undefined) return
+    let active = true
+    Promise.all([
+      apiService.getStatus(),
+      apiService.getClusterStatus(),
+      apiService.getConfigs(),
+      apiService.getFrontendConfig(),
+    ]).then(([nextStatus, nextCluster, configs, configResponse]) => {
+      if (!active) return
+      setStatus(nextStatus)
+      if (nextCluster.success) setCluster(nextCluster.data as ClusterStatus)
+      setConfigsText(configs.join('\n'))
+      if (configResponse.success && configResponse.data) setFrontendConfig(configResponse.data)
+    }).catch((caught: unknown) => {
+      if (!active) return
+      setError(caught instanceof Error ? caught.message : '配置加载失败')
+    })
+    return () => { active = false }
+  }, [initialCluster, initialConfigs, initialFrontendConfig, initialStatus])
+
+  const app: Partial<FrontendConfig['app']> = frontendConfig?.app ?? {}
+  const protocols: Partial<FrontendConfig['protocols']> = frontendConfig?.protocols ?? {}
   const childNodes = cluster?.nodes || []
   const kernelCapabilities = (Object.keys(kernelLabels) as KernelType[]).map((kernel) => {
     const nodes = childNodes.filter(node => node.configuredKernels.some(config => config.type === kernel))
@@ -121,7 +148,7 @@ export default function ConfigPage({ initialStatus, initialCluster, initialConfi
 
       <div className="grid gap-5 md:grid-cols-3">
         <Card variant="elevated"><CardHeader className="pb-3"><CardDescription>环境</CardDescription><CardTitle className="text-2xl">{app.environment || '-'}</CardTitle></CardHeader></Card>
-        <Card variant="elevated"><CardHeader className="pb-3"><CardDescription>Web 端口</CardDescription><CardTitle className="signal-mono text-2xl">{network.nginx_port || '-'}</CardTitle></CardHeader></Card>
+        <Card variant="elevated"><CardHeader className="pb-3"><CardDescription>仪表盘端口</CardDescription><CardTitle className="signal-mono text-2xl">{app.port || 3000}</CardTitle></CardHeader></Card>
         <Card variant="elevated"><CardHeader className="pb-3"><CardDescription>版本</CardDescription><CardTitle className="truncate text-2xl">{status?.version || app.version || '-'}</CardTitle></CardHeader></Card>
       </div>
 

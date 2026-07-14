@@ -64,7 +64,7 @@ transition:
 
 - Route structure: `/`, `/subscription`, `/nodes`, `/deploy`, `/config`, `/logs`, `/api-docs`.
 - Chinese product copy and operational terms.
-- Existing Botanical token vocabulary can remain as a legacy theme reference, but the new visual direction is not botanical.
+- Existing Botanical token vocabulary can remain as a previous-theme reference, but the new visual direction is not botanical.
 - Thin status semantics: success, warning, danger, info.
 
 ### Retire
@@ -288,10 +288,9 @@ Day image: `./images/day-api-docs.jpg`
 
 ## Implementation guidance for a future pass
 
-- Work with the existing Next.js Pages Router and Tailwind v4.
-- Do not migrate frameworks.
-- Introduce the visual layer behind existing services and API routes.
-- Keep SSR service calls as they are.
+- Work with the existing Vite SPA, React Router, and Tailwind v4.
+- Keep server behavior in the CLI dashboard API.
+- Introduce the visual layer behind existing typed API clients.
 - Use URL-stable routes and existing Chinese copy.
 - Add the design system as tokens before component rewrites.
 - Build one page first, likely `/nodes` or `/subscription`, then expand.

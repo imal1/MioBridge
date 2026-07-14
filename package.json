@@ -2,11 +2,11 @@
   "name": "miobridge",
   "version": "0.2.0",
   "description": "MioBridge — sing-box to Clash subscription converter powered by mihomo, supporting vless/vmess/trojan/hysteria2/tuic",
-  "main": "dist/index.js",
   "private": true,
-  "packageManager": "bun@1.0.30",
+  "packageManager": "bun@1.2.13",
   "workspaces": [
-    "packages/*"
+    "packages/*",
+    "agent"
   ],
   "scripts": {
     "dev": "cd packages/frontend && bun run dev",
@@ -22,13 +22,7 @@
     "start": "echo \"Use CLI: miobridge dashboard start\"",
     "lint": "oxlint packages/frontend/src/",
     "lint:fix": "oxlint --fix packages/frontend/src/",
-    "e2e:distributed": "bash scripts/e2e-distributed.sh",
-    "e2e:browser": "node scripts/e2e-browser.mjs",
-    "test": "echo 'Tests not configured'",
     "clean": "rm -rf packages/frontend/dist",
-    "install:deps": "bun install",
-    "setup": "bun run install:deps && bun run build",
-    "config:validate": "bun -e \"console.log('✅ 配置验证通过，当前使用 config.yaml 管理配置')\"",
     "frontend:dev": "cd packages/frontend && bun run dev",
     "frontend:build": "cd packages/frontend && bun run build",
     "frontend:lint": "cd packages/frontend && bun run lint"
@@ -61,30 +55,9 @@
     "url": "https://github.com/imal1/miobridge/issues"
   },
   "homepage": "https://github.com/imal1/miobridge#readme",
-  "dependencies": {
-    "axios": "^1.10.0",
-    "compression": "^1.8.0",
-    "cors": "^2.8.5",
-    "express": "^5.1.0",
-    "fs-extra": "^11.3.0",
-    "helmet": "^8.1.0",
-    "node-cron": "^4.2.0",
-    "winston": "^3.17.0"
-  },
   "devDependencies": {
-    "@types/compression": "^1.8.1",
-    "@types/cors": "^2.8.19",
-    "@types/express": "^5.0.3",
-    "@types/fs-extra": "^11.0.4",
-    "@types/node": "^24.0.8",
-    "@types/node-cron": "^3.0.11",
-    "concurrently": "^9.1.0",
-    "nodemon": "^3.1.10",
     "oxlint": "^1.6.0",
-    "ts-node": "^10.9.2",
-    "tsc-alias": "^1.8.16",
-    "tsconfig-paths": "^4.2.0",
-    "typescript": "^5.8.3"
+    "typescript": "^6.0.3"
   },
   "engines": {
     "node": ">=18.0.0",

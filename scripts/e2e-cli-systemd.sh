@@ -39,25 +39,15 @@ uid="$(id -u "$TEST_USER")"
 wait_for 20 test -S "/run/user/$uid/bus" || fail "user systemd bus did not appear after enable-linger"
 
 provider_dir="$TEST_HOME/.config/miobridge/dist/dashboard"
-managed_bin="$TEST_HOME/.config/miobridge/bin"
-install -d -m 0755 -o "$TEST_USER" -g "$TEST_USER" "$provider_dir/artifact" "$managed_bin"
-cat > "$managed_bin/bun" <<'EOF'
-#!/bin/sh
-printf '%s\n' "$0 $*" > "$MIOBRIDGE_CONFIG_DIR/bun-provider-invocation"
-exec /usr/bin/node "$@"
-EOF
-chmod 0755 "$managed_bin/bun"
+data_dir="$TEST_HOME/.config/miobridge/www"
+install -d -m 0755 -o "$TEST_USER" -g "$TEST_USER" "$provider_dir/artifact" "$data_dir"
 cat > "$provider_dir/provider.json" <<'EOF'
-{"schemaVersion":1,"dashboardVersion":"e2e","artifactRoot":"artifact","executable":"bun","entrypoint":"server.js","args":[],"environment":{"host":"HOSTNAME","port":"PORT","configDir":"MIOBRIDGE_CONFIG_DIR","configFile":"CONFIG_FILE"},"healthUrl":"http://{host}:{port}/health","compatibilityUrls":["http://{host}:{port}/health","http://{host}:{port}/subscription.txt","http://{host}:{port}/clash.yaml","http://{host}:{port}/raw.txt"]}
+{"schemaVersion":2,"dashboardVersion":"e2e","artifactRoot":"artifact","spaFallback":true,"reservedPaths":["/api","/health","/subscription.txt","/clash.yaml","/raw.txt"]}
 EOF
-cat > "$provider_dir/artifact/server.js" <<'EOF'
-const http = require('node:http');
-const routes = new Set(['/health', '/subscription.txt', '/clash.yaml', '/raw.txt']);
-http.createServer((request, response) => {
-  response.statusCode = routes.has(request.url) ? 200 : 404;
-  response.end(request.url === '/health' ? 'ok' : 'fixture');
-}).listen(Number(process.env.PORT), process.env.HOSTNAME);
-EOF
+printf '<main>MioBridge E2E</main>\n' > "$provider_dir/artifact/index.html"
+printf 'subscription\n' > "$data_dir/subscription.txt"
+printf 'proxies: []\n' > "$data_dir/clash.yaml"
+printf 'raw\n' > "$data_dir/raw.txt"
 chown -R "$TEST_USER:$TEST_USER" "$TEST_HOME/.config"
 
 # Separate invocations model a fresh shell after logout/reconnect. Linger keeps
@@ -67,7 +57,6 @@ grep -q '"state":"stopped"' /tmp/status-before.json || fail "expected initially 
 run_as_user "$TEST_HOME/.local/bin/miobridge" dashboard start
 run_as_user "$TEST_HOME/.local/bin/miobridge" dashboard start
 wait_for 20 curl -fsS "http://127.0.0.1:$TEST_PORT/health" >/dev/null || fail "provider never became healthy"
-test -s "$TEST_HOME/.config/miobridge/bun-provider-invocation" || fail "provider did not use managed Bun"
 for path in /subscription.txt /clash.yaml /raw.txt; do
   curl -fsS "http://127.0.0.1:$TEST_PORT$path" >/dev/null || fail "compatibility URL failed: $path"
 done
@@ -81,8 +70,7 @@ grep -q '"state":"stopped"' /tmp/status-stopped.json || fail "idempotent stop fa
 
 # A failed provider must direct operators to its user journal. Unit-level tests
 # cover the stable broken-state payload; this proves real user-systemd guidance.
-printf 'process.exit(23);\n' > "$provider_dir/artifact/server.js"
-chown "$TEST_USER:$TEST_USER" "$provider_dir/artifact/server.js"
+rm -rf "$provider_dir/artifact"
 if run_as_user "$TEST_HOME/.local/bin/miobridge" dashboard start > /tmp/provider-failure.out 2>&1; then
   fail "broken provider unexpectedly started"
 fi

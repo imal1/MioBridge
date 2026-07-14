@@ -13,7 +13,6 @@ export { ConfigService } from './config/configService.js';
 export { YamlService, type YamlServiceOptions } from './config/yamlService.js';
 export {
   createRuntimePaths,
-  vercelRuntimeBaseDir,
   type RuntimeEnvironment,
   type RuntimePaths,
   type RuntimePathsOptions,

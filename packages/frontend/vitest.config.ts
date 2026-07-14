@@ -9,7 +9,7 @@ export default defineConfig({
     globals: true,
     setupFiles: ['./src/test-setup.ts'],
     include: ['src/**/*.{test,spec}.{ts,tsx}'],
-    exclude: ['node_modules', '.next', '../agent/**', 'src/server/**'],
+    exclude: ['node_modules', '../agent/**'],
     environmentMatchGlobs: [
       ['src/components/**', 'jsdom'],
     ],

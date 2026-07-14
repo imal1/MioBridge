@@ -16,7 +16,6 @@ import {
 import { registerOperationsRoutes } from '../../src/dashboard/server/operationsRoutes.js';
 import { registerConfigRoutes } from '../../src/dashboard/server/configRoutes.js';
 import { registerConvertRoutes } from '../../src/dashboard/server/convertRoutes.js';
-import { registerSseRoutes } from '../../src/dashboard/server/sseRoutes.js';
 
 const NOW = '2026-07-12T00:00:00.000Z';
 
@@ -33,6 +32,7 @@ const stubOps: DashboardOperationsPort = {
   getClusterHealth: async () => ok({ healthy: true }),
   triggerClusterUpdate: async () => ok({ updated: 1, results: {} }),
   addNode: async () => ok({ id: 'n1', name: 'new-node' }),
+  updateNodeKernels: async () => ok({ id: 'n1', kernels: [] }),
   restartAgent: async () => ok({}),
   startAgent: async () => ok({}),
   stopAgent: async () => ok({}),
@@ -92,7 +92,6 @@ async function dispatch(
     registerOperationsRoutes(registry, deps);
     registerConfigRoutes(registry, deps);
     registerConvertRoutes(registry, deps);
-    registerSseRoutes(registry, deps);
   });
   const req = createDashboardTestRequest({ method, path, body, query });
   const res = createDashboardTestResponse();
@@ -115,8 +114,8 @@ describe('operations routes', () => {
     expect(res.statusCode).toBe(200);
   });
 
-  it('GET /api/cluster/update', async () => {
-    const { handled, res } = await dispatch('GET', '/api/cluster/update');
+  it('POST /api/cluster/update', async () => {
+    const { handled, res } = await dispatch('POST', '/api/cluster/update');
     expect(handled).toBe(true);
     expect(res.statusCode).toBe(200);
   });
@@ -125,6 +124,18 @@ describe('operations routes', () => {
     const { handled, res } = await dispatch('POST', '/api/cluster/nodes', { name: 'n1', host: '10.0.0.1' });
     expect(handled).toBe(true);
     expect(res.statusCode).toBe(201);
+  });
+
+  it('PUT /api/cluster/nodes', async () => {
+    const { handled, res } = await dispatch('PUT', '/api/cluster/nodes', { nodeId: 'n1', kernels: [] });
+    expect(handled).toBe(true);
+    expect(res.statusCode).toBe(200);
+  });
+
+  it('PUT /api/cluster/nodes requires nodeId', async () => {
+    const { handled, res } = await dispatch('PUT', '/api/cluster/nodes', { kernels: [] });
+    expect(handled).toBe(true);
+    expect(res.statusCode).toBe(400);
   });
 
   it('POST /api/cluster/deploy returns 202', async () => {
@@ -159,12 +170,18 @@ describe('operations routes', () => {
     }
   });
 
+  it('agent lifecycle routes require nodeId', async () => {
+    const { handled, res } = await dispatch('POST', '/api/cluster/agent/restart', {});
+    expect(handled).toBe(true);
+    expect(res.statusCode).toBe(400);
+  });
+
   it('kernel routes', async () => {
     const { handled: h1, res: r1 } = await dispatch('POST', '/api/cluster/kernel/detect', { nodeId: 'n1' });
     expect(h1).toBe(true);
     expect(r1.statusCode).toBe(200);
 
-    const { handled: h2, res: r2 } = await dispatch('POST', '/api/cluster/kernel/install', { kernelType: 'sing-box' });
+    const { handled: h2, res: r2 } = await dispatch('POST', '/api/cluster/kernel/install', { nodeId: 'n1', kernelType: 'sing-box' });
     expect(h2).toBe(true);
     expect(r2.statusCode).toBe(200);
 
@@ -243,18 +260,5 @@ describe('convert routes', () => {
     const { handled, res } = await dispatch('GET', '/api/test/protocols');
     expect(handled).toBe(true);
     expect(res.statusCode).toBe(200);
-  });
-});
-
-describe('SSE route', () => {
-  it('GET /api/cluster/events sets SSE headers', async () => {
-    const { handled, res } = await dispatch('GET', '/api/cluster/events');
-    expect(handled).toBe(true);
-    expect(res.headers['content-type']).toBe('text/event-stream');
-    expect(res.headers['cache-control']).toBe('no-cache');
-    expect(res.headers['connection']).toBe('keep-alive');
-    // Initial heartbeat + data
-    expect(res.body).toContain(': heartbeat');
-    expect(res.body).toContain('data:');
   });
 });

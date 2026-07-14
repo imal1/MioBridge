@@ -4,8 +4,6 @@ import type { DependencyName, DependencyStatus, SetupOptions } from './types.js'
 
 const DEFINITIONS: readonly { name: DependencyName; required: boolean; capability: string }[] = [
   { name: 'mihomo', required: true, capability: 'Clash conversion and validation' },
-  { name: 'bun', required: true, capability: 'dashboard provider and maintenance tools' },
-  { name: 'yq', required: true, capability: 'configuration inspection and maintenance' },
   { name: 'sing-box', required: false, capability: 'optional local source discovery' },
 ];
 
@@ -35,14 +33,15 @@ export class DependencySetupService {
     return { ...definition, origin: 'missing' };
   }
 
-  async run(): Promise<readonly DependencyStatus[]> {
+  async run(options: { readonly assumeYes?: boolean } = {}): Promise<readonly DependencyStatus[]> {
     const platform = await this.options.adapters.platform();
     const results: DependencyStatus[] = [];
     for (const definition of DEFINITIONS) {
       let status = await this.discover(definition.name);
       if (status.origin !== 'missing' || definition.name === 'sing-box') { results.push(status); continue; }
       const artifact = (this.options.artifacts ?? PINNED_ARTIFACTS)[definition.name][platform.architecture];
-      const accepted = await this.options.adapters.confirm(`Install pinned ${definition.name} ${artifact.version} to ${this.options.paths.managedBinDir}?`);
+      const accepted = options.assumeYes
+        || await this.options.adapters.confirm(`Install pinned ${definition.name} ${artifact.version} to ${this.options.paths.managedBinDir}?`);
       if (!accepted) { results.push(status); continue; }
       try {
         const downloaded = await this.options.adapters.download(artifact.url);

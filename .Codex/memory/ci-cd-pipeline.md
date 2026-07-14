@@ -17,11 +17,10 @@ switching, systemd restart, or Vercel CLI.
 The old SSH `deploy.yml` and scheduled SSH `health-check.yml` workflows were
 removed.
 
-## 2026-07-01 — Type check runs in the Next.js workspace
+## 2026-07-14 — Workspace-local checks
 
-The repository root still contains a migration-era `tsconfig.json` that points
-at root `src/**/*`. The active application lives under `packages/frontend/`, so CI must
-run TypeScript checks from that workspace.
+Each active package owns its TypeScript configuration; the unused root server
+configuration has been removed.
 
 Current PR gate:
 
@@ -30,15 +29,17 @@ bun run lint
 bun run core:typecheck
 bun run core:test
 bun run typecheck
-cd frontend && bun run test
-cd ../agent && bun test
-cd ..
+bun run cli:typecheck
+bun run cli:test
+bun run --cwd packages/frontend test
+bun run --cwd agent typecheck
+bun run --cwd agent test
 bun run build
 ```
 
-The build gate also checks the traced core package and static assets, rejects
-Node/core markers in client chunks, starts the standalone server, and requests
-all four public compatibility URLs.
+The build gate builds the Vite SPA, packages its static provider, and rejects
+Node/core markers in client chunks. CLI systemd E2E owns live compatibility URL
+checks.
 
 ## 2026-07-12 — Linux CLI release and user-systemd gates
 
@@ -49,3 +50,11 @@ with explicit linger, separate-shell reconnect, idempotent lifecycle, four URL
 smoke checks, failure journal guidance, and provider-removal headless status.
 Tag-only `release.yml` uploads the two archives plus `SHA256SUMS`; Vercel
 production deployment remains Git Integration.
+
+## 2026-07-14 — Release version is embedded in the CLI
+
+`package-cli-release.sh` injects the requested release version during Bun
+compilation and includes the Vite provider in each architecture archive.
+Installer, self-upgrade validation, and `miobridge --version` share the same
+release identity. Manual `release.yml` dispatches create the version tag and
+GitHub Release instead of building assets without publishing them.

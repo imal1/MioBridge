@@ -5,6 +5,13 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 VERSION="${MIOBRIDGE_RELEASE_VERSION:-${1:-}}"
 OUTPUT_DIR="${MIOBRIDGE_RELEASE_DIR:-$ROOT_DIR/dist/cli-release}"
 BUN_CMD="${MIOBRIDGE_BUN_CMD:-bun}"
+DASHBOARD_PROVIDER_DIR="${MIOBRIDGE_DASHBOARD_PROVIDER_DIR:-}"
+GENERATED_DASHBOARD_ROOT=""
+
+cleanup() {
+  [[ -z "$GENERATED_DASHBOARD_ROOT" ]] || rm -rf "$GENERATED_DASHBOARD_ROOT"
+}
+trap cleanup EXIT
 
 if [[ -z "$VERSION" ]]; then
   VERSION="$(node -p "require('$ROOT_DIR/packages/cli/package.json').version" 2>/dev/null || true)"
@@ -25,10 +32,23 @@ build_core() {
   "$BUN_CMD" run --cwd "$ROOT_DIR/packages/core" build
 }
 
+build_dashboard() {
+  if [[ -n "$DASHBOARD_PROVIDER_DIR" ]]; then
+    [[ -f "$DASHBOARD_PROVIDER_DIR/provider.json" && -f "$DASHBOARD_PROVIDER_DIR/artifact/index.html" ]] \
+      || { echo "invalid dashboard provider: $DASHBOARD_PROVIDER_DIR" >&2; exit 1; }
+    return
+  fi
+  "$BUN_CMD" run --cwd "$ROOT_DIR/packages/frontend" build
+  GENERATED_DASHBOARD_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/miobridge-dashboard.XXXXXX")"
+  MIOBRIDGE_DASHBOARD_VERSION="$VERSION" bash "$ROOT_DIR/scripts/package-dashboard-provider.sh" "$GENERATED_DASHBOARD_ROOT/provider"
+  DASHBOARD_PROVIDER_DIR="$GENERATED_DASHBOARD_ROOT/provider"
+}
+
 if [[ -z "${MIOBRIDGE_BINARY_X64:-}" || -z "${MIOBRIDGE_BINARY_ARM64:-}" ]]; then
   need "$BUN_CMD"
   build_core
 fi
+build_dashboard
 
 mkdir -p "$OUTPUT_DIR"
 rm -f "$OUTPUT_DIR"/miobridge-"$VERSION"-linux-*.tar.gz "$OUTPUT_DIR/SHA256SUMS"
@@ -44,16 +64,19 @@ build_one() {
   if [[ -n "$override" ]]; then
     cp "$override" "$binary"
   else
-    "$BUN_CMD" build "$ROOT_DIR/packages/cli/src/main.ts" --compile --target="$target" --outfile "$binary"
+    "$BUN_CMD" build "$ROOT_DIR/packages/cli/src/main.ts" --compile --target="$target" \
+      --define "process.env.MIOBRIDGE_BUILD_VERSION='$VERSION'" --outfile "$binary"
   fi
   chmod 0755 "$binary"
   printf '%s\n' "$VERSION" > "$stage/VERSION"
+  cp -R "$DASHBOARD_PROVIDER_DIR" "$stage/dashboard"
   # Normalize inputs so repeated packaging produces stable archives on GNU tar.
+  find "$stage/dashboard" -exec touch -t 197001010000 {} + 2>/dev/null || true
   touch -t 197001010000 "$binary" "$stage/VERSION" 2>/dev/null || true
   if tar --version 2>/dev/null | grep -q 'GNU tar'; then
-    tar --sort=name --mtime='UTC 1970-01-01' --owner=0 --group=0 --numeric-owner -czf "$OUTPUT_DIR/$archive" -C "$stage" VERSION miobridge
+    tar --sort=name --mtime='UTC 1970-01-01' --owner=0 --group=0 --numeric-owner -czf "$OUTPUT_DIR/$archive" -C "$stage" VERSION dashboard miobridge
   else
-    COPYFILE_DISABLE=1 tar -czf "$OUTPUT_DIR/$archive" -C "$stage" VERSION miobridge
+    COPYFILE_DISABLE=1 tar -czf "$OUTPUT_DIR/$archive" -C "$stage" VERSION dashboard miobridge
   fi
   rm -rf "$stage"
   trap - RETURN

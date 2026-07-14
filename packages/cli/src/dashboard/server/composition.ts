@@ -30,6 +30,7 @@ export interface DashboardOperationsPort {
   readonly getClusterHealth: (nodeId?: string) => Promise<OperationsResult>;
   readonly triggerClusterUpdate: (nodeId?: string) => Promise<OperationsResult>;
   readonly addNode: (body: unknown) => Promise<OperationsResult>;
+  readonly updateNodeKernels: (nodeId: string, kernels: unknown) => Promise<OperationsResult>;
   readonly restartAgent: (nodeId: string) => Promise<OperationsResult>;
   readonly startAgent: (nodeId: string) => Promise<OperationsResult>;
   readonly stopAgent: (nodeId: string) => Promise<OperationsResult>;
@@ -39,7 +40,7 @@ export interface DashboardOperationsPort {
   readonly getDeployProgress: (nodeId: string) => Promise<OperationsResult>;
   readonly getAllDeployStatuses: (nodeIds?: string[]) => Promise<OperationsResult>;
   readonly detectKernels: (body: unknown) => Promise<OperationsResult>;
-  readonly installKernel: (kernelType: string) => Promise<OperationsResult>;
+  readonly installKernel: (nodeId: string, kernelType: string) => Promise<OperationsResult>;
   readonly uninstallKernel: (nodeId: string, kernelType: string) => Promise<OperationsResult>;
 }
 
@@ -92,8 +93,8 @@ export interface DashboardServerComposition extends DashboardServerDependencies 
 }
 
 /**
- * CLI-owned server seam.  No Next request types, frontend services, or hidden
- * globals may cross this boundary; later route ports register through it.
+ * CLI-owned server seam. No browser-package services or hidden globals may
+ * cross this boundary; route ports register through it.
  */
 export function createDashboardServerComposition(
   dependencies: DashboardServerDependencies,

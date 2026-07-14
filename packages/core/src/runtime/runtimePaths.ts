@@ -1,4 +1,4 @@
-import { homedir, tmpdir } from 'node:os';
+import { homedir } from 'node:os';
 import { delimiter, join, resolve, sep } from 'node:path';
 
 export interface RuntimeEnvironment {
@@ -71,9 +71,4 @@ export function createRuntimePaths(options: RuntimePathsOptions = {}): RuntimePa
       ];
     },
   });
-}
-
-/** Frontend adapter helper: core never infers Vercel from process.env. */
-export function vercelRuntimeBaseDir(tempDir = tmpdir()): string {
-  return join(tempDir, 'miobridge');
 }

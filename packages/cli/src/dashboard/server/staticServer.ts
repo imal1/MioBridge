@@ -64,8 +64,9 @@ async function serveFile(filePath: string, res: DashboardResponse): Promise<true
   }
 
   try {
-    const content = await readFile(filePath, 'utf-8');
-    res.text(content);
+    const content = await readFile(filePath);
+    res.write(content);
+    res.end();
     return true;
   } catch {
     res.status(500).text('Internal Server Error');

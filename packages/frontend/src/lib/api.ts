@@ -1,5 +1,6 @@
 import ky, { HTTPError } from 'ky';
 import { KERNEL_TYPES, type KernelDetection, type KernelType, type NodeConfig, type NodeKernelConfig, type SshAuthMethod } from '@/lib/types';
+import type { FrontendConfig } from '@/lib/configApi';
 
 export type DetectKernelsPayload =
   | { nodeId: string }
@@ -50,10 +51,8 @@ export function validateKernelDetections(value: unknown): KernelDetection[] {
   });
 }
 
-const API_BASE_URL =
-  process.env.NODE_ENV === "production"
-    ? "" // 在生产环境中使用相对路径
-    : "http://localhost:3001"; // 开发环境中使用 next dev 地址
+// Vite development proxies these same-origin paths to the CLI dashboard server.
+const API_BASE_URL = '';
 
 // 创建 ky 实例
 const apiClient = ky.create({
@@ -211,9 +210,9 @@ class ApiService {
     }
   }
 
-  async getFrontendConfig(): Promise<ApiResponse> {
+  async getFrontendConfig(): Promise<ApiResponse<FrontendConfig>> {
     try {
-      return await apiClient.get('api/yaml/frontend').json<ApiResponse>();
+      return await apiClient.get('api/yaml/frontend').json<ApiResponse<FrontendConfig>>();
     } catch (error) {
       return this.handleError(error);
     }
@@ -236,7 +235,7 @@ class ApiService {
   // 诊断Clash生成
   async diagnoseClash(): Promise<any> {
     try {
-      return await apiClient.get('api/diagnose/clash').json();
+      return await apiClient.get('api/diagnose/mihomo').json();
     } catch (error) {
       return this.handleError(error);
     }
@@ -331,7 +330,7 @@ class ApiService {
     }
   }
 
-  // 获取部署进度（聚合轮询，替代旧 SSE）
+  // 获取聚合部署进度
   async getDeployStatus(nodeId?: string): Promise<ApiResponse> {
     try {
       const url = nodeId
@@ -343,7 +342,7 @@ class ApiService {
     }
   }
 
-  // 获取单个节点部署进度（兼容旧接口）
+  // 获取单个节点部署进度
   async getDeployProgress(nodeId: string): Promise<ApiResponse> {
     try {
       return await apiClient.get(`api/cluster/deploy/progress?node=${encodeURIComponent(nodeId)}`).json<ApiResponse>();

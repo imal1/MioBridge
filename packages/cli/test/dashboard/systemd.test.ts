@@ -7,16 +7,15 @@ import { DashboardSystemdService, renderDashboardUserUnit, type CommandResult, t
 const roots: string[] = [];
 afterEach(async () => Promise.all(roots.splice(0).map(root => rm(root, { recursive: true, force: true }))));
 
-async function fixture(overrides: Partial<SystemdAdapters> = {}, state: { active?: boolean; activeStatus?: string; enabled?: boolean; linger?: boolean; legacy?: boolean; startFails?: boolean } = {}) {
+async function fixture(overrides: Partial<SystemdAdapters> = {}, state: { active?: boolean; activeStatus?: string; enabled?: boolean; linger?: boolean; startFails?: boolean } = {}) {
   const root = await mkdtemp(join(tmpdir(), 'miobridge-systemd-'));
   roots.push(root);
   const dashboard = join(root, 'dist', 'dashboard');
   await mkdir(join(dashboard, 'artifact'), { recursive: true });
-  await writeFile(join(dashboard, 'artifact', 'server.js'), 'fixture');
+  await writeFile(join(dashboard, 'artifact', 'index.html'), 'fixture');
   await writeFile(join(dashboard, 'provider.json'), JSON.stringify({
-    schemaVersion: 1, dashboardVersion: 'test', artifactRoot: 'artifact', executable: 'node', entrypoint: 'server.js', args: [],
-    environment: { host: 'HOSTNAME', port: 'PORT', configDir: 'MIOBRIDGE_CONFIG_DIR', configFile: 'CONFIG_FILE' },
-    healthUrl: 'http://{host}:{port}/health', compatibilityUrls: ['/health', '/subscription.txt', '/clash.yaml', '/raw.txt'].map(path => `http://{host}:{port}${path}`),
+    schemaVersion: 2, dashboardVersion: 'test', artifactRoot: 'artifact', spaFallback: true,
+    reservedPaths: ['/api', '/health', '/subscription.txt', '/clash.yaml', '/raw.txt'],
   }));
   const calls: Array<[string, readonly string[]]> = [];
   const files = new Map<string, string>();
@@ -28,7 +27,6 @@ async function fixture(overrides: Partial<SystemdAdapters> = {}, state: { active
       if (command === 'loginctl' && args[0] === 'show-user') return ok(state.linger === false ? 'no\n' : 'yes\n');
       if (command === 'loginctl' && args[0] === 'enable-linger') { state.linger = true; return ok(); }
       if (args.includes('show-environment')) return ok();
-      if (command === 'systemctl' && args[0] === 'show') return ok(state.legacy ? 'loaded\n' : 'not-found\n');
       if (args.includes('is-active')) {
         const status = state.activeStatus ?? (state.active ? 'active' : 'inactive');
         return status === 'active' ? ok('active\n') : { exitCode: status === 'activating' ? 0 : 3, stdout: `${status}\n`, stderr: '' };
@@ -51,9 +49,11 @@ async function fixture(overrides: Partial<SystemdAdapters> = {}, state: { active
 
 describe('dashboard systemd user lifecycle', () => {
   it('renders a hardened safely escaped unit with the stable CLI launcher', () => {
-    const unit = renderDashboardUserUnit({ cliPath: '/home/a user/bin/mio%bridge', baseDir: '/home/a user/.config/mio"bridge', configFile: '/config.yaml', host: '0.0.0.0', port: 3000, effectivePath: '/managed/bin:/usr/bin' });
+    const unit = renderDashboardUserUnit({ cliPath: '/home/a user/bin/mio%bridge', baseDir: '/home/a user/.config/mio"bridge', host: '0.0.0.0', port: 3000, effectivePath: '/managed/bin:/usr/bin' });
     expect(unit).toContain('ExecStart="/home/a user/bin/mio%%bridge" dashboard foreground');
     expect(unit).toContain('Environment="MIOBRIDGE_CONFIG_DIR=/home/a user/.config/mio\\"bridge"');
+    expect(unit).toContain('Environment="MIOBRIDGE_DASHBOARD_HOST=0.0.0.0"');
+    expect(unit).toContain('Environment="MIOBRIDGE_DASHBOARD_PORT=3000"');
     expect(unit).toContain('Restart=on-failure');
     expect(unit).toContain('Environment="PATH=/managed/bin:/usr/bin"');
     expect(unit).toContain('NoNewPrivileges=true');
@@ -94,9 +94,7 @@ describe('dashboard systemd user lifecycle', () => {
     await expect(failed.service.start()).rejects.toThrow('sudo loginctl enable-linger alice');
   });
 
-  it('blocks legacy services, occupied ports, and provider startup failure', async () => {
-    const legacy = await fixture({}, { legacy: true });
-    await expect(legacy.service.start()).rejects.toThrow('Legacy system service');
+  it('blocks occupied ports and reports provider startup failure', async () => {
     const occupied = await fixture({ isPortAvailable: async () => false });
     await expect(occupied.service.start()).rejects.toThrow('already occupied');
     const failure = await fixture({}, { startFails: true });

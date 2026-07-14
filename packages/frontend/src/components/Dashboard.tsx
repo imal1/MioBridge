@@ -1,10 +1,9 @@
 import { Icon } from '@iconify/react'
 import { useCallback, useEffect, useState } from 'react'
-import { Link } from 'react-router-dom'
 import { toast } from 'sonner'
 import { apiService, type ApiStatus, type UpdateResult } from '@/lib/api'
 import type { ClusterStatus } from '@/lib/types'
-import { useAppContext } from '@/context/AppContext'
+import { useBackendReachable } from '@/context/AppContext'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -46,21 +45,12 @@ function formatBytes(value?: number) {
 }
 
 export default function Dashboard({ initialCluster = null, initialStatus = null, initialError = null }: DashboardProps) {
-  const { backendReachable } = useAppContext()
+  const backendReachable = useBackendReachable()
   const [status, setStatus] = useState(initialStatus)
   const [cluster, setCluster] = useState(initialCluster)
   const [updateResult, setUpdateResult] = useState<UpdateResult | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(initialError)
-
-  useEffect(() => {
-    if (initialStatus || initialCluster) return
-    refresh().catch((err: unknown) => {
-      const message = err instanceof Error ? err.message : '加载失败'
-      setError(message)
-    })
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
 
   const refresh = useCallback(async () => {
     const [nextStatus, nextCluster] = await Promise.all([
@@ -70,6 +60,14 @@ export default function Dashboard({ initialCluster = null, initialStatus = null,
     setStatus(nextStatus)
     if (nextCluster.success) setCluster(nextCluster.data as ClusterStatus)
   }, [])
+
+  useEffect(() => {
+    if (initialStatus !== null || initialCluster !== null) return
+    refresh().catch((err: unknown) => {
+      const message = err instanceof Error ? err.message : '加载失败'
+      setError(message)
+    })
+  }, [initialCluster, initialStatus, refresh])
 
   const handleUpdate = useCallback(async () => {
     setLoading(true)
@@ -120,10 +118,10 @@ export default function Dashboard({ initialCluster = null, initialStatus = null,
             {loading ? '更新中' : '立即更新订阅'}
           </Button>
           <Button asChild variant="outline">
-            <Link to="/subscription">
+            <a href="/subscription">
               输出产物中心
               <span className="grid h-7 w-7 place-items-center rounded-full bg-[var(--muted)]"><Icon icon="ph:arrow-up-right-light" /></span>
-            </Link>
+            </a>
           </Button>
         </>
       )}
@@ -169,7 +167,7 @@ export default function Dashboard({ initialCluster = null, initialStatus = null,
           <CardContent>
             <div className="grid gap-3 sm:grid-cols-2">
               {workflow.map((step, index) => (
-                <Link key={step.label} to={step.href} className="group rounded-[22px] border border-[var(--border)] bg-[var(--surface-container)] p-4 transition-[transform,background-color] duration-700 ease-[var(--motion)] hover:-translate-y-1">
+                <a key={step.label} href={step.href} className="group rounded-[22px] border border-[var(--border)] bg-[var(--surface-container)] p-4 transition-[transform,background-color] duration-700 ease-[var(--motion)] hover:-translate-y-1">
                   <div className="flex items-center justify-between">
                     <span className="signal-mono text-xs text-muted-foreground">0{index + 1}</span>
                     <span className="grid h-9 w-9 place-items-center rounded-full bg-[var(--muted)] text-primary transition-transform duration-700 ease-[var(--motion)] group-hover:translate-x-1">
@@ -177,7 +175,7 @@ export default function Dashboard({ initialCluster = null, initialStatus = null,
                     </span>
                   </div>
                   <p className="mt-6 text-lg font-semibold">{step.label}</p>
-                </Link>
+                </a>
               ))}
             </div>
           </CardContent>

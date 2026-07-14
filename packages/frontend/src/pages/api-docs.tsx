@@ -141,7 +141,7 @@ export default function ApiDocsPage() {
           <div className="flex items-start gap-3">
             <Icon icon="ph:arrow-right-light" className="w-4 h-4 mt-0.5 flex-shrink-0" style={{ color: 'var(--primary)' }} />
             <p className="text-sm" style={{ color: 'var(--muted-foreground)' }}>
-              所有端点通过 nginx 反代，与当前域名同源，无需跨域配置。
+              所有端点由 CLI 与 SPA 同源提供，无需跨域配置。
             </p>
           </div>
           <div className="flex items-start gap-3">

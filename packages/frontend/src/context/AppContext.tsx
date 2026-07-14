@@ -67,3 +67,7 @@ export function useAppContext() {
   if (!ctx) throw new Error('useAppContext must be used within AppProvider')
   return ctx
 }
+
+export function useBackendReachable() {
+  return useContext(AppContext)?.backendReachable ?? null
+}

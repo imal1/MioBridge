@@ -8,7 +8,6 @@ import {
   YamlService,
   createRuntimePaths,
   createStateStore,
-  vercelRuntimeBaseDir,
 } from '../src/index.js';
 
 const temporaryDirectories: string[] = [];
@@ -47,10 +46,6 @@ describe('RuntimePaths', () => {
     expect(() => paths.managedPath('../outside')).toThrow('escapes');
   });
 
-  it('accepts an explicit frontend Vercel policy without inspecting VERCEL', () => {
-    expect(createRuntimePaths({ env: {}, platformBaseDir: vercelRuntimeBaseDir('/private/tmp') }).baseDir)
-      .toBe('/private/tmp/miobridge');
-  });
 });
 
 describe('StateStore', () => {
@@ -95,23 +90,30 @@ describe('StateStore', () => {
 });
 
 describe('YamlService and ConfigService', () => {
-  it('have no constructor-time filesystem or command side effects and retain defaults', async () => {
+  it('has no constructor-time filesystem side effects and retains defaults', async () => {
     const directory = await temporaryDirectory();
-    const command = vi.fn();
     const paths = createRuntimePaths({ env: { MIOBRIDGE_CONFIG_DIR: directory } });
-    const yaml = new YamlService({ paths, command });
+    const yaml = new YamlService({ paths });
     const config = new ConfigService(yaml, paths, '1.2.3');
 
-    expect(command).not.toHaveBeenCalled();
     expect(config.getAppVersion()).toBe('1.2.3');
     expect(config.getConfig()).toMatchObject({
-      port: 3000,
       staticDir: join(directory, 'www'),
       logDir: join(directory, 'log'),
       backupDir: join(directory, 'backup'),
       requestTimeout: 30_000,
     });
-    expect(command).not.toHaveBeenCalled();
+    expect(yaml.configExists()).toBe(false);
+  });
+
+  it('updates managed config without an external YAML executable', async () => {
+    const directory = await temporaryDirectory();
+    const paths = createRuntimePaths({ env: { MIOBRIDGE_CONFIG_DIR: directory } });
+    const yaml = new YamlService({ paths });
+    yaml.updateSingBoxConfigs(['vless', 'trojan']);
+    expect(yaml.validateConfig()).toBe(true);
+    expect(yaml.getFullConfig().protocols?.sing_box_configs).toEqual(['vless', 'trojan']);
+    expect(await readFile(paths.configFile, 'utf8')).toContain('sing_box_configs');
   });
 
   it('preserves configured data, log, backup, and mihomo paths', async () => {

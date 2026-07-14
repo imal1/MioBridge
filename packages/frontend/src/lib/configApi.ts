@@ -17,25 +17,11 @@ export interface FrontendConfig {
     name: string;
     version: string;
     environment: string;
-  };
-  network: {
-    nginx_port: number;
-    nginx_proxy_port: number;
-  };
-  external: {
-    host: string;
+    port: number;
   };
   protocols: {
     sing_box_configs: string[];
   };
-}
-
-export interface YqInfo {
-  yqPath: string;
-  yqVersion: string;
-  yqExists: boolean;
-  configPath: string;
-  configExists: boolean;
 }
 
 /**
@@ -78,7 +64,7 @@ export class ConfigApiClient {
 
   /**
    * 获取配置字段值（通过完整配置解析）
-   * @param path - 字段路径，如 '.app.name', '.network.nginx_port'  
+   * @param path - 字段路径，如 '.app.name', '.network.request_timeout'
    */
   async parseField(path: string): Promise<any> {
     const fullConfig = await this.getFullConfig();
