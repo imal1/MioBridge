@@ -68,9 +68,43 @@ export class MihomoAdapter {
       { name: '♻️ 自动选择', type: 'url-test', proxies: names, url: 'http://www.gstatic.com/generate_204', interval: 300 },
       { name: '🔯 故障转移', type: 'fallback', proxies: names, url: 'http://www.gstatic.com/generate_204', interval: 300 },
       { name: '🔮 负载均衡', type: 'load-balance', proxies: names, url: 'http://www.gstatic.com/generate_204', interval: 300 },
-      { name: '🎯 全球直连', type: 'select', proxies: ['DIRECT'] },
-      { name: '🐟 漏网之鱼', type: 'select', proxies: ['🚀 节点选择', '🎯 全球直连', '♻️ 自动选择'] },
-    ], rules: ['DOMAIN-SUFFIX,local,DIRECT', 'IP-CIDR,127.0.0.0/8,DIRECT', 'IP-CIDR,172.16.0.0/12,DIRECT', 'IP-CIDR,192.168.0.0/16,DIRECT', 'IP-CIDR,10.0.0.0/8,DIRECT', 'IP-CIDR,17.0.0.0/8,DIRECT', 'IP-CIDR,100.64.0.0/10,DIRECT', 'DOMAIN-SUFFIX,cn,DIRECT', 'MATCH,🐟 漏网之鱼'] }, { lineWidth: 0 });
+   { name: '🎯 全球直连', type: 'select', proxies: ['DIRECT'] },
+   { name: '🐟 漏网之鱼', type: 'select', proxies: ['🚀 节点选择', '🎯 全球直连', '♻️ 自动选择'] },
+    { name: '🤖 AI服务', type: 'select', proxies: ['🚀 节点选择', '🎯 全球直连', '♻️ 自动选择'] },
+  ], rules: [
+    'DOMAIN-SUFFIX,local,DIRECT',
+    'IP-CIDR,127.0.0.0/8,DIRECT',
+    'IP-CIDR,172.16.0.0/12,DIRECT',
+    'IP-CIDR,192.168.0.0/16,DIRECT',
+    'IP-CIDR,10.0.0.0/8,DIRECT',
+    'IP-CIDR,17.0.0.0/8,DIRECT',
+    'IP-CIDR,100.64.0.0/10,DIRECT',
+    'DOMAIN-SUFFIX,cn,DIRECT',
+    // OpenAI
+    'DOMAIN-SUFFIX,openai.com,🤖 AI服务',
+    'DOMAIN-SUFFIX,chatgpt.com,🤖 AI服务',
+    'DOMAIN-SUFFIX,oaistatic.com,🤖 AI服务',
+    'DOMAIN-SUFFIX,oaiusercontent.com,🤖 AI服务',
+    // Anthropic
+    'DOMAIN-SUFFIX,anthropic.com,🤖 AI服务',
+    'DOMAIN-SUFFIX,claude.ai,🤖 AI服务',
+    // Google AI
+    'DOMAIN-SUFFIX,gemini.google.com,🤖 AI服务',
+    'DOMAIN-SUFFIX,ai.google.dev,🤖 AI服务',
+    'DOMAIN-SUFFIX,generativeai.google.com,🤖 AI服务',
+    // GitHub Copilot
+    'DOMAIN-SUFFIX,githubcopilot.com,🤖 AI服务',
+    'DOMAIN-SUFFIX,copilot.github.com,🤖 AI服务',
+    // DeepSeek
+    'DOMAIN-SUFFIX,deepseek.com,🤖 AI服务',
+    // Groq
+    'DOMAIN-SUFFIX,groq.com,🤖 AI服务',
+    // Perplexity
+    'DOMAIN-SUFFIX,perplexity.ai,🤖 AI服务',
+    // Mistral
+    'DOMAIN-SUFFIX,mistral.ai,🤖 AI服务',
+    'MATCH,🐟 漏网之鱼'
+  ] }, { lineWidth: 0 });
     const output = `# Clash 配置文件\n# 由 miobridge 生成，mihomo 可用时自动验证\n# 生成时间: ${new Date().toISOString()}\n# 节点数量: ${proxies.length}\n\n${yaml}`;
     await this.validate(output);
     return output;

@@ -45,6 +45,7 @@ function formatBytes(value?: number) {
 }
 
 export default function Dashboard({ initialCluster = null, initialStatus = null, initialError = null }: DashboardProps) {
+  const { backendReachable } = useAppContext()
   const [status, setStatus] = useState(initialStatus)
   const [cluster, setCluster] = useState(initialCluster)
   const [updateResult, setUpdateResult] = useState<UpdateResult | null>(null)
@@ -126,6 +127,18 @@ export default function Dashboard({ initialCluster = null, initialStatus = null,
         </>
       )}
     >
+      {backendReachable === false ? (
+        <Alert variant="destructive" className="mb-6 flex gap-3">
+          <Icon icon="ph:warning-circle-light" className="mt-0.5 h-5 w-5 flex-shrink-0" />
+          <div>
+            <AlertTitle>仪表盘后端未运行</AlertTitle>
+            <AlertDescription>
+              当前为静态预览。请通过 CLI 启动完整仪表盘：<code className="rounded bg-destructive/10 px-1.5 py-0.5 text-sm">miobridge dashboard start</code>
+            </AlertDescription>
+          </div>
+        </Alert>
+      ) : null}
+
       {error ? (
         <Alert variant="destructive" className="mb-6 flex gap-3">
           <Icon icon="ph:warning-circle-light" className="mt-0.5 h-5 w-5 flex-shrink-0" />
