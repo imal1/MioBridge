@@ -721,8 +721,13 @@ export class MihomoService {
                     type: 'select',
                     proxies: ['DIRECT']
                 },
+               {
+                   name: '🐟 漏网之鱼',
+                   type: 'select',
+                   proxies: ['🚀 节点选择', '🎯 全球直连', '♻️ 自动选择']
+                },
                 {
-                    name: '🐟 漏网之鱼',
+                    name: '🤖 AI服务',
                     type: 'select',
                     proxies: ['🚀 节点选择', '🎯 全球直连', '♻️ 自动选择']
                 }
@@ -736,6 +741,29 @@ export class MihomoService {
                 'IP-CIDR,17.0.0.0/8,DIRECT',
                 'IP-CIDR,100.64.0.0/10,DIRECT',
                 'DOMAIN-SUFFIX,cn,DIRECT',
+                // OpenAI
+                'DOMAIN-SUFFIX,openai.com,🤖 AI服务',
+                'DOMAIN-SUFFIX,chatgpt.com,🤖 AI服务',
+                'DOMAIN-SUFFIX,oaistatic.com,🤖 AI服务',
+                'DOMAIN-SUFFIX,oaiusercontent.com,🤖 AI服务',
+                // Anthropic
+                'DOMAIN-SUFFIX,anthropic.com,🤖 AI服务',
+                'DOMAIN-SUFFIX,claude.ai,🤖 AI服务',
+                // Google AI
+                'DOMAIN-SUFFIX,gemini.google.com,🤖 AI服务',
+                'DOMAIN-SUFFIX,ai.google.dev,🤖 AI服务',
+                'DOMAIN-SUFFIX,generativeai.google.com,🤖 AI服务',
+                // GitHub Copilot
+                'DOMAIN-SUFFIX,githubcopilot.com,🤖 AI服务',
+                'DOMAIN-SUFFIX,copilot.github.com,🤖 AI服务',
+                // DeepSeek
+                'DOMAIN-SUFFIX,deepseek.com,🤖 AI服务',
+                // Groq
+                'DOMAIN-SUFFIX,groq.com,🤖 AI服务',
+                // Perplexity
+                'DOMAIN-SUFFIX,perplexity.ai,🤖 AI服务',
+                // Mistral
+                'DOMAIN-SUFFIX,mistral.ai,🤖 AI服务',
                 'MATCH,🐟 漏网之鱼'
             ]
         };

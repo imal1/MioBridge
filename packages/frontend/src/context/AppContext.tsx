@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useEffect, useState } from 'react'
+import { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react'
 import type { UpdateResult } from '@/lib/api'
 
 interface AppContextValue {
@@ -11,6 +11,7 @@ interface AppContextValue {
   setSidebarCollapsed: (v: boolean) => void
   mobileDrawerOpen: boolean
   setMobileDrawerOpen: (v: boolean) => void
+  backendReachable: boolean | null
 }
 
 const AppContext = createContext<AppContextValue | null>(null)
@@ -20,6 +21,18 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [convertModalOpen, setConvertModalOpen] = useState(false)
   const [sidebarCollapsed, setSidebarCollapsedState] = useState(false)
   const [mobileDrawerOpen, setMobileDrawerOpen] = useState(false)
+  const [backendReachable, setBackendReachable] = useState<boolean | null>(null)
+  const healthCheckedRef = useRef(false)
+
+  useEffect(() => {
+    if (healthCheckedRef.current) return
+    healthCheckedRef.current = true
+    const controller = new AbortController()
+    const timer = setTimeout(() => controller.abort(), 5000)
+    fetch('/health', { signal: controller.signal })
+      .then(res => { setBackendReachable(res.ok); clearTimeout(timer) })
+      .catch(() => { setBackendReachable(false); clearTimeout(timer) })
+  }, [])
 
   useEffect(() => {
     try {
@@ -42,6 +55,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       convertModalOpen, openConvertModal, closeConvertModal,
       sidebarCollapsed, setSidebarCollapsed,
       mobileDrawerOpen, setMobileDrawerOpen,
+      backendReachable,
     }}>
       {children}
     </AppContext.Provider>
