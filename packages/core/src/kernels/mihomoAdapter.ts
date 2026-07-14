@@ -134,8 +134,6 @@ export class MihomoAdapter {
     try { await this.options.process.run(executable, ['-d', this.options.runtimeDir, '-t', '-f', temp], this.processOptions(10000)); }
     catch (error) { throw new Error(`配置验证失败: ${error instanceof Error ? error.message : String(error)}`); }
     finally { await this.options.fs.remove(temp); }
-  }
-}
 
   async testConversion(): Promise<{ success: boolean; message: string; version?: string }> {
     try {
