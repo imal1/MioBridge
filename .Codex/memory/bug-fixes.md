@@ -7,6 +7,9 @@ metadata:
 
 # Bug Fixes
 
+- 2026-07-14: The Vite dashboard imports `useAppContext` before using it and
+  passes React Router destinations through `Link.to`, preventing a production
+  homepage render crash.
 - 2026-07-14: The frontend declares Vite directly so Vercel installs the
   `vite` executable before running the production build.
 - 2026-07-12: Core composition preserves configured mihomo/backup paths, resolves

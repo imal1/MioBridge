@@ -4,6 +4,7 @@ import { Link } from 'react-router-dom'
 import { toast } from 'sonner'
 import { apiService, type ApiStatus, type UpdateResult } from '@/lib/api'
 import type { ClusterStatus } from '@/lib/types'
+import { useAppContext } from '@/context/AppContext'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -168,7 +169,7 @@ export default function Dashboard({ initialCluster = null, initialStatus = null,
           <CardContent>
             <div className="grid gap-3 sm:grid-cols-2">
               {workflow.map((step, index) => (
-                <Link key={step.label} href={step.href} className="group rounded-[22px] border border-[var(--border)] bg-[var(--surface-container)] p-4 transition-[transform,background-color] duration-700 ease-[var(--motion)] hover:-translate-y-1">
+                <Link key={step.label} to={step.href} className="group rounded-[22px] border border-[var(--border)] bg-[var(--surface-container)] p-4 transition-[transform,background-color] duration-700 ease-[var(--motion)] hover:-translate-y-1">
                   <div className="flex items-center justify-between">
                     <span className="signal-mono text-xs text-muted-foreground">0{index + 1}</span>
                     <span className="grid h-9 w-9 place-items-center rounded-full bg-[var(--muted)] text-primary transition-transform duration-700 ease-[var(--motion)] group-hover:translate-x-1">
