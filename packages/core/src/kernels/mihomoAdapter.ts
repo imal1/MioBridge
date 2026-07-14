@@ -141,7 +141,7 @@ export class MihomoAdapter {
       const available = await this.ensureMihomoAvailable();
       if (!available) return { success: false, message: 'mihomo 不可用' };
       const versionInfo = await this.getVersion();
-      return { success: true, message: 'mihomo 转换正常', version: versionInfo?.version };
+      return { success: true, message: 'mihomo 转换正常', ...(versionInfo?.version ? { version: versionInfo.version } : {}) };
     } catch (error) {
       return { success: false, message: `测试失败: ${error instanceof Error ? error.message : String(error)}` };
     }
