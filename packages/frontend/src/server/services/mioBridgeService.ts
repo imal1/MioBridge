@@ -4,7 +4,7 @@ import { Config, StatusInfo, UpdateResult } from '../types';
 import { config } from '../config';
 import { logger } from '../utils/logger';
 import { SingBoxService } from './singBoxService';
-import { MihomoService } from './mihomoService';
+import { mihomoAdapter } from '../core';
 import { YamlService } from './yamlService';
 import { VERSION, GIT_COMMIT, BUILD_TIME } from '../version';
 import {
@@ -16,7 +16,7 @@ import {
 export class MioBridgeService {
     private static instance: MioBridgeService;
     private singBoxService: Pick<SingBoxService, 'checkSingBoxAvailable' | 'getAllConfigUrls'>;
-    private mihomoService: Pick<MihomoService, 'checkHealth' | 'convertToClashByContent' | 'getVersion'>;
+    private mihomoService: typeof mihomoAdapter;
     private yamlService: YamlService;
     private updateConfig?: Pick<Config, 'staticDir' | 'logDir' | 'backupDir' | 'clashFilename'>;
     private collectRemoteSources?: () => Promise<{ sources: CollectedProxySource[]; errors: string[] }>;
@@ -30,12 +30,12 @@ export class MioBridgeService {
 
     constructor(overrides: {
         singBoxService?: Pick<SingBoxService, 'checkSingBoxAvailable' | 'getAllConfigUrls'>;
-        mihomoService?: Pick<MihomoService, 'checkHealth' | 'convertToClashByContent' | 'getVersion'>;
+        mihomoService?: typeof mihomoAdapter;
         updateConfig?: Pick<Config, 'staticDir' | 'logDir' | 'backupDir' | 'clashFilename'>;
         collectRemoteSources?: () => Promise<{ sources: CollectedProxySource[]; errors: string[] }>;
     } = {}) {
         this.singBoxService = overrides.singBoxService ?? SingBoxService.getInstance();
-        this.mihomoService = overrides.mihomoService ?? MihomoService.getInstance();
+        this.mihomoService = overrides.mihomoService ?? mihomoAdapter;
         this.yamlService = YamlService.getInstance();
         this.updateConfig = overrides.updateConfig;
         this.collectRemoteSources = overrides.collectRemoteSources;
@@ -162,7 +162,7 @@ export class MioBridgeService {
             let clashGenerated = false;
             let clashError: string | null = null;
             try {
-                const mihomoAvailable = await this.mihomoService.checkHealth();
+                const mihomoAvailable = await mihomoAdapter.checkHealth();
                 if (!mihomoAvailable) {
                     throw new Error('Mihomo服务未运行或不可访问');
                 }
@@ -172,7 +172,7 @@ export class MioBridgeService {
                 logger.info(`开始生成Clash配置，使用订阅内容直接转换，内容长度: ${clashSubscription.content.length} 字符`);
                 
                 // 使用 mihomoService 将订阅内容转换为 Clash 配置
-                const clashContent = await this.mihomoService.convertToClashByContent(clashSubscription.content);
+                const clashContent = await mihomoAdapter.convertToClashByContent(clashSubscription.content);
                 
                 // 验证转换结果
                 if (!clashContent || !clashContent.includes('proxies:')) {
@@ -242,7 +242,7 @@ export class MioBridgeService {
             subscriptionExists: await fs.pathExists(subscriptionFile),
             clashExists: await fs.pathExists(clashFile),
             rawExists: await fs.pathExists(rawFile),
-            mihomoAvailable: await this.mihomoService.checkHealth(),
+            mihomoAvailable: await mihomoAdapter.checkHealth(),
             uptime: process.uptime(),
             version: VERSION,
             gitCommit: GIT_COMMIT,
@@ -251,7 +251,7 @@ export class MioBridgeService {
 
         // 获取 mihomo 版本信息
         try {
-            const mihomoVersion = await this.mihomoService.getVersion();
+            const mihomoVersion = await mihomoAdapter.getVersion();
             status.mihomoVersion = mihomoVersion?.version || 'unknown';
         } catch (error) {
             logger.warn('获取 mihomo 版本失败:', error);

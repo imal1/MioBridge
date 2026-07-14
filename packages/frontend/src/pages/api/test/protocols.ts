@@ -1,5 +1,5 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
-import { MihomoService } from '@/server/services/mihomoService';
+import { mihomoAdapter } from '@/server/core';
 import { logger } from '@/server/utils/logger';
 import type { ApiResponse } from '@/server/types';
 
@@ -7,8 +7,7 @@ export const config = { maxDuration: 120 };
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse<ApiResponse>) {
   try {
-    const mihomoService = MihomoService.getInstance();
-    const mihomoHealthy = await mihomoService.checkHealth();
+        const mihomoHealthy = await mihomoAdapter.checkHealth();
     if (!mihomoHealthy) {
       res.status(503).json({
         success: false,
@@ -36,7 +35,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
       const protocol = testNode.split('://')[0];
       logger.info(`测试单独转换协议: ${protocol}`);
       try {
-        const clashContent = await mihomoService.convertToClashByContent(testNode);
+        const clashContent = await mihomoAdapter.convertToClashByContent(testNode);
         const proxyMatches = clashContent.match(/- name:/g);
         const proxyCount = proxyMatches ? proxyMatches.length : 0;
 
@@ -73,7 +72,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
 
     try {
       const allNodesContent = testNodes.join('\n');
-      const allClashContent = await mihomoService.convertToClashByContent(allNodesContent);
+      const allClashContent = await mihomoAdapter.convertToClashByContent(allNodesContent);
       const allProxyMatches = allClashContent.match(/- name:/g);
       const allProxyCount = allProxyMatches ? allProxyMatches.length : 0;
 

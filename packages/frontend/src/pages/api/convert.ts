@@ -1,5 +1,5 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
-import { MihomoService } from '@/server/services/mihomoService';
+import { mihomoAdapter } from '@/server/core';
 import { logger } from '@/server/utils/logger';
 import type { ApiResponse } from '@/server/types';
 
@@ -25,15 +25,14 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
 
     logger.info(`收到内容转换请求，内容长度: ${content.length} 字符`);
 
-    const mihomoService = MihomoService.getInstance();
-    const mihomoAvailable = await mihomoService.checkHealth();
+        const mihomoAvailable = await mihomoAdapter.checkHealth();
     if (!mihomoAvailable) {
       logger.error('Mihomo 服务不可用');
       res.status(503).json({ success: false, error: 'Mihomo 服务不可用', timestamp: new Date().toISOString() });
       return;
     }
 
-    const clashConfig = await mihomoService.convertToClashByContent(content);
+    const clashConfig = await mihomoAdapter.convertToClashByContent(content);
     logger.info(`转换成功，生成配置长度: ${clashConfig.length} 字符`);
 
     res.json({

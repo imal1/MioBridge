@@ -63,14 +63,10 @@ export class MihomoAdapter {
     const proxies = content.split('\n').map(line => line.trim()).filter(Boolean).map(line => this.parse(line)).filter((value): value is ProxyConfig => value !== null);
     if (proxies.length === 0) throw new Error('未找到有效的代理节点');
     const names = proxies.map(proxy => proxy.name);
-    const yaml = YAML.stringify({ port: 7890, 'socks-port': 7891, 'allow-lan': false, mode: 'rule', 'log-level': 'info', 'external-controller': '127.0.0.1:9090', proxies, 'proxy-groups': [
-      { name: '🚀 节点选择', type: 'select', proxies: ['♻️ 自动选择', '🔯 故障转移', '🔮 负载均衡', '🎯 全球直连', ...names] },
+   const yaml = YAML.stringify({ port: 7890, 'socks-port': 7891, 'allow-lan': false, mode: 'rule', 'log-level': 'info', 'external-controller': '127.0.0.1:9090', proxies, 'proxy-groups': [
       { name: '♻️ 自动选择', type: 'url-test', proxies: names, url: 'http://www.gstatic.com/generate_204', interval: 300 },
       { name: '🔯 故障转移', type: 'fallback', proxies: names, url: 'http://www.gstatic.com/generate_204', interval: 300 },
       { name: '🔮 负载均衡', type: 'load-balance', proxies: names, url: 'http://www.gstatic.com/generate_204', interval: 300 },
-   { name: '🎯 全球直连', type: 'select', proxies: ['DIRECT'] },
-   { name: '🐟 漏网之鱼', type: 'select', proxies: ['🚀 节点选择', '🎯 全球直连', '♻️ 自动选择'] },
-    { name: '🤖 AI服务', type: 'select', proxies: ['🚀 节点选择', '🎯 全球直连', '♻️ 自动选择'] },
   ], rules: [
     'DOMAIN-SUFFIX,local,DIRECT',
     'IP-CIDR,127.0.0.0/8,DIRECT',
@@ -81,29 +77,29 @@ export class MihomoAdapter {
     'IP-CIDR,100.64.0.0/10,DIRECT',
     'DOMAIN-SUFFIX,cn,DIRECT',
     // OpenAI
-    'DOMAIN-SUFFIX,openai.com,🤖 AI服务',
-    'DOMAIN-SUFFIX,chatgpt.com,🤖 AI服务',
-    'DOMAIN-SUFFIX,oaistatic.com,🤖 AI服务',
-    'DOMAIN-SUFFIX,oaiusercontent.com,🤖 AI服务',
+    'DOMAIN-SUFFIX,openai.com,♻️ 自动选择',
+    'DOMAIN-SUFFIX,chatgpt.com,♻️ 自动选择',
+    'DOMAIN-SUFFIX,oaistatic.com,♻️ 自动选择',
+    'DOMAIN-SUFFIX,oaiusercontent.com,♻️ 自动选择',
     // Anthropic
-    'DOMAIN-SUFFIX,anthropic.com,🤖 AI服务',
-    'DOMAIN-SUFFIX,claude.ai,🤖 AI服务',
+    'DOMAIN-SUFFIX,anthropic.com,♻️ 自动选择',
+    'DOMAIN-SUFFIX,claude.ai,♻️ 自动选择',
     // Google AI
-    'DOMAIN-SUFFIX,gemini.google.com,🤖 AI服务',
-    'DOMAIN-SUFFIX,ai.google.dev,🤖 AI服务',
-    'DOMAIN-SUFFIX,generativeai.google.com,🤖 AI服务',
+    'DOMAIN-SUFFIX,gemini.google.com,♻️ 自动选择',
+    'DOMAIN-SUFFIX,ai.google.dev,♻️ 自动选择',
+    'DOMAIN-SUFFIX,generativeai.google.com,♻️ 自动选择',
     // GitHub Copilot
-    'DOMAIN-SUFFIX,githubcopilot.com,🤖 AI服务',
-    'DOMAIN-SUFFIX,copilot.github.com,🤖 AI服务',
+    'DOMAIN-SUFFIX,githubcopilot.com,♻️ 自动选择',
+    'DOMAIN-SUFFIX,copilot.github.com,♻️ 自动选择',
     // DeepSeek
-    'DOMAIN-SUFFIX,deepseek.com,🤖 AI服务',
+    'DOMAIN-SUFFIX,deepseek.com,♻️ 自动选择',
     // Groq
-    'DOMAIN-SUFFIX,groq.com,🤖 AI服务',
+    'DOMAIN-SUFFIX,groq.com,♻️ 自动选择',
     // Perplexity
-    'DOMAIN-SUFFIX,perplexity.ai,🤖 AI服务',
+    'DOMAIN-SUFFIX,perplexity.ai,♻️ 自动选择',
     // Mistral
-    'DOMAIN-SUFFIX,mistral.ai,🤖 AI服务',
-    'MATCH,🐟 漏网之鱼'
+    'DOMAIN-SUFFIX,mistral.ai,♻️ 自动选择',
+    'MATCH,♻️ 自动选择'
   ] }, { lineWidth: 0 });
     const output = `# Clash 配置文件\n# 由 miobridge 生成，mihomo 可用时自动验证\n# 生成时间: ${new Date().toISOString()}\n# 节点数量: ${proxies.length}\n\n${yaml}`;
     await this.validate(output);
@@ -138,5 +134,17 @@ export class MihomoAdapter {
     try { await this.options.process.run(executable, ['-d', this.options.runtimeDir, '-t', '-f', temp], this.processOptions(10000)); }
     catch (error) { throw new Error(`配置验证失败: ${error instanceof Error ? error.message : String(error)}`); }
     finally { await this.options.fs.remove(temp); }
+  }
+}
+
+  async testConversion(): Promise<{ success: boolean; message: string; version?: string }> {
+    try {
+      const available = await this.ensureMihomoAvailable();
+      if (!available) return { success: false, message: 'mihomo 不可用' };
+      const versionInfo = await this.getVersion();
+      return { success: true, message: 'mihomo 转换正常', version: versionInfo?.version };
+    } catch (error) {
+      return { success: false, message: `测试失败: ${error instanceof Error ? error.message : String(error)}` };
+    }
   }
 }

@@ -1,5 +1,5 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
-import { MihomoService } from '@/server/services/mihomoService';
+import { mihomoAdapter } from '@/server/core';
 import { logger } from '@/server/utils/logger';
 import type { ApiResponse } from '@/server/types';
 
@@ -7,20 +7,19 @@ export const config = { maxDuration: 30 };
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse<ApiResponse>) {
   try {
-    const mihomoService = MihomoService.getInstance();
-    const healthy = await mihomoService.checkHealth();
+        const healthy = await mihomoAdapter.checkHealth();
     let version = 'unknown';
     let testResults: any = null;
 
     if (healthy) {
       try {
-        const versionInfo = await mihomoService.getVersion();
+        const versionInfo = await mihomoAdapter.getVersion();
         version = versionInfo?.version || 'unknown';
       } catch (error) {
         logger.warn('获取 mihomo 版本失败:', error);
       }
       try {
-        testResults = await mihomoService.testConversion();
+        testResults = await mihomoAdapter.testConversion();
       } catch (error) {
         logger.warn('mihomo 转换测试失败:', error);
       }
