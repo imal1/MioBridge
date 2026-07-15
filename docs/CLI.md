@@ -88,6 +88,23 @@ Remote Agent deployment follows the same layering: the CLI selects the
 same-version x64/arm64 compressed Agent asset, verifies `SHA256SUMS`, and installs
 the binary on the child without installing Bun or compiling source.
 
+For a manual child-node bootstrap, download `install-agent.sh` from the same
+GitHub Release and an `agent.yaml` from the Dashboard deployment center:
+
+```bash
+scp agent.yaml root@child:/tmp/miobridge-agent.yaml
+curl -fsSL https://github.com/imal1/miobridge/releases/latest/download/install-agent.sh \
+  -o /tmp/install-agent.sh
+sudo sh /tmp/install-agent.sh --config /tmp/miobridge-agent.yaml
+```
+
+This installer owns only `/usr/local/bin/miobridge-agent`,
+`/etc/miobridge-agent/agent.yaml`, and the systemd service. It validates the
+binary and config before replacement and rolls all three files back when restart
+or local health verification fails. It never installs CLI, Dashboard, Bun,
+mihomo, or protocol kernels. See [DEPLOYMENT.md](./DEPLOYMENT.md) for independent
+parameter and mirror examples.
+
 ## Dashboard provider and systemd user service
 
 Release archives already include the dashboard installed by `install.sh` and
@@ -107,7 +124,8 @@ miobridge dashboard stop
 ```
 
 `start` writes `~/.config/systemd/user/miobridge-dashboard.service` and starts
-it with `systemctl --user`. It asks before enabling systemd linger. Linger is
+it with `systemctl --user`, then waits for `/health` before reporting success;
+a failed unit is reset before retry. It asks before enabling systemd linger. Linger is
 required to survive logout; non-interactive sessions receive this manual command:
 
 ```bash
@@ -115,7 +133,8 @@ sudo loginctl enable-linger "$USER"
 ```
 
 No root system unit or PID-file fallback exists. The CLI refuses a conflicting
-dashboard port. Inspect failures with:
+dashboard port. `miobridge uninstall` disables and removes the managed user unit,
+then reloads systemd so no service points at a removed CLI. Inspect failures with:
 
 ```bash
 journalctl --user -u miobridge-dashboard.service -f

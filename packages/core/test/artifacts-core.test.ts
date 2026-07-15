@@ -80,5 +80,9 @@ describe('MioBridgeCore', () => {
     const status = await core.getStatus();
     expect(core.config.getAppVersion()).toBe('9.8.7');
     expect(status).toMatchObject({ subscriptionExists: true, clashExists: true, rawExists: true, nodesCount: 1, mihomoAvailable: true, mihomoVersion: '1.2.3', uptime: 42, version: '9.8.7', gitCommit: 'abc123' });
+    await writeFile(join(paths.logDir, 'combined.log'), '2026-07-12T00:00:00Z INFO ready\n2026-07-12T00:00:01Z ERROR failed\n');
+    expect((await core.getLocalLogs({ level: 'error' })).entries.map(entry => entry.content)).toEqual(['2026-07-12T00:00:01Z ERROR failed']);
+    const metrics = await core.getMetricsSnapshot();
+    expect(metrics).toMatchObject({ version: '9.8.7', uptime: 42, proxies: 1, mihomoAvailable: true, artifacts: { raw: { exists: true }, subscription: { exists: true }, clash: { exists: true } }, lastGeneration: { status: 'success' } });
   });
 });

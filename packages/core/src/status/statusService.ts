@@ -7,7 +7,8 @@ export interface BuildMetadata { readonly version: string; readonly gitCommit?: 
 export interface StatusInfo {
   subscriptionExists: boolean; clashExists: boolean; rawExists: boolean; mihomoAvailable: boolean;
   uptime: number; version: string; gitCommit?: string; buildTime?: string; mihomoVersion?: string;
-  subscriptionLastUpdated?: string; subscriptionSize?: number; clashLastUpdated?: string; clashSize?: number; nodesCount?: number;
+  subscriptionLastUpdated?: string; subscriptionSize?: number; rawLastUpdated?: string; rawSize?: number;
+  clashLastUpdated?: string; clashSize?: number; nodesCount?: number;
 }
 export interface StatusKernel { checkHealth(): Promise<boolean>; getVersion(): Promise<{ version: string } | null> }
 export interface StatusServiceOptions {
@@ -35,7 +36,10 @@ export class StatusService {
     catch (error) { this.options.logger.warn('获取 mihomo 版本失败', { error }); }
     if (subscriptionStat) { status.subscriptionLastUpdated = subscriptionStat.mtime.toISOString(); status.subscriptionSize = subscriptionStat.size; }
     if (clashStat) { status.clashLastUpdated = clashStat.mtime.toISOString(); status.clashSize = clashStat.size; }
-    if (rawStat) status.nodesCount = (await readFile(raw, 'utf8')).split('\n').filter(line => line.trim()).length;
+    if (rawStat) {
+      status.rawLastUpdated = rawStat.mtime.toISOString(); status.rawSize = rawStat.size;
+      status.nodesCount = (await readFile(raw, 'utf8')).split('\n').filter(line => line.trim()).length;
+    }
     return status;
   }
 }

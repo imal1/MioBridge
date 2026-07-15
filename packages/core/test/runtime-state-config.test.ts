@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm, stat } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { delimiter, join, sep } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -125,5 +125,36 @@ describe('YamlService and ConfigService', () => {
     expect(new ConfigService(yaml, paths, '1').getConfig()).toMatchObject({
       mihomoPath: '/custom/mihomo', staticDir: '/custom/data', logDir: '/custom/log', backupDir: '/custom/backup',
     });
+  });
+
+  it('restricts schema paths and atomically applies, validates, backs up, and restores config', async () => {
+    const directory = await temporaryDirectory();
+    const paths = createRuntimePaths({ env: { MIOBRIDGE_CONFIG_DIR: directory } });
+    const yaml = new YamlService({ paths });
+    yaml.replaceConfig({ app: { port: 3000 }, network: { request_timeout: 30_000 }, protocols: { sing_box_configs: ['default'] } });
+    const config = new ConfigService(yaml, paths, '1.0.0');
+
+    expect(() => config.getConfigByPath('app.name')).toThrow('不支持的配置字段');
+    const applied = config.setConfigValues([
+      { path: 'app.port', value: 4000 },
+      { path: 'network.request_timeout', value: 5_000 },
+    ]);
+    expect(applied).toMatchObject({ restartRequired: true, results: [{ path: 'app.port' }, { path: 'network.request_timeout' }] });
+    expect(config.getConfigByPath('app.port')).toBe(4000);
+    expect((await stat(paths.configFile)).mode & 0o777).toBe(0o600);
+
+    const beforeInvalid = await readFile(paths.configFile, 'utf8');
+    expect(() => config.setConfigValues([{ path: 'app.port', value: 70_000 }])).toThrow('不能大于');
+    expect(await readFile(paths.configFile, 'utf8')).toBe(beforeInvalid);
+
+    config.setConfigByPath('app.port', 5000);
+    expect(config.restoreLastGood()).toMatchObject({ restored: true });
+    expect(config.getConfigByPath('app.port')).toBe(4000);
+    await writeFile(`${paths.configFile}.last-good`, 'app:\n  port: 70000\n', 'utf8');
+    expect(() => config.restoreLastGood()).toThrow('不能大于');
+    expect(config.getConfigByPath('app.port')).toBe(4000);
+    await writeFile(`${paths.configFile}.last-good`, 'not: [valid', 'utf8');
+    expect(() => config.restoreLastGood()).toThrow();
+    expect(config.getConfigByPath('app.port')).toBe(4000);
   });
 });

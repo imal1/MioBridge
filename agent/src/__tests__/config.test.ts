@@ -2,7 +2,7 @@ import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
-import { loadConfig, getDefaultConfig } from '../config';
+import { checkConfig, loadConfig, getDefaultConfig, validateAgentConfig } from '../config';
 
 const TMP_DIR = path.join(os.tmpdir(), 'miobridge-agent-test-' + Date.now());
 const CONFIG_PATH = path.join(TMP_DIR, 'agent.yaml');
@@ -92,6 +92,13 @@ kernels:
       ]);
     });
 
+    test('accepts an explicit empty kernel list for Agent-first deployment', async () => {
+      const cfg = await loadFixture(`${baseNodeYaml}
+kernels: []
+`);
+      expect(cfg.kernels).toEqual([]);
+    });
+
     test.each([
       ['empty', 'kernels:\n', /at least one kernel is required/],
       ['duplicate', 'kernels:\n  - type: xray\n  - type: xray\n', /Duplicate kernel type: "xray"/],
@@ -129,6 +136,38 @@ kernels:
 kernels:
   - type: xray
 ${properties}`)).rejects.toThrow(error);
+    });
+
+    test.each([
+      ['non-numeric', 'abc'],
+      ['negative', '-1'],
+    ])('rejects a %s port while parsing', async (_name, value) => {
+      await expect(loadFixture(`${baseNodeYaml}\nkernels: []\nport: ${value}\n`)).rejects.toThrow('Invalid Agent port');
+    });
+  });
+
+  describe('checkConfig', () => {
+    test('validates a complete Agent-first configuration', async () => {
+      fs.writeFileSync(CONFIG_PATH, `${baseNodeYaml}\nkernels: []\nport: 3001\n`);
+      expect((await checkConfig(CONFIG_PATH)).kernels).toEqual([]);
+    });
+
+    test('requires an existing regular file', async () => {
+      await expect(checkConfig(path.join(TMP_DIR, 'missing.yaml'))).rejects.toThrow('does not exist');
+    });
+
+    test.each([
+      ['node id', { node: { id: '', name: 'n', secret: 's' } }, /node.id is required/],
+      ['node name', { node: { id: 'i', name: '', secret: 's' } }, /node.name is required/],
+      ['secret', { node: { id: 'i', name: 'n', secret: '' } }, /node.secret is required/],
+      ['port range', { port: 70000 }, /Invalid Agent port/],
+    ])('rejects a missing or invalid %s', (_name, override, error) => {
+      const config = {
+        ...getDefaultConfig(),
+        node: { id: 'i', name: 'n', secret: 's' },
+        ...override,
+      };
+      expect(() => validateAgentConfig(config)).toThrow(error);
     });
   });
 });

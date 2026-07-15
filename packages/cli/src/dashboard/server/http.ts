@@ -16,6 +16,8 @@ export interface DashboardRequest {
   readonly query: Readonly<Record<string, string | readonly string[] | undefined>>;
   readonly headers: DashboardHeaders;
   readonly body: unknown;
+  readonly params: Readonly<Record<string, string>>;
+  readonly requestId: string;
   readonly remoteAddress?: string;
   onClose(listener: () => void): () => void;
 }
@@ -43,11 +45,13 @@ export interface DashboardRouteRegistrar {
 
 export class DashboardRouteRegistry implements DashboardRouteRegistrar {
   readonly #routes = new Map<string, DashboardRoute>();
+  readonly #patterns: DashboardRoute[] = [];
 
   register(route: DashboardRoute): void {
     const key = `${route.method} ${route.path}`;
     if (this.#routes.has(key)) throw new Error(`Dashboard route already registered: ${key}`);
     this.#routes.set(key, route);
+    if (route.path.includes(':')) this.#patterns.push(route);
   }
 
   routes(): readonly DashboardRoute[] {
@@ -56,9 +60,18 @@ export class DashboardRouteRegistry implements DashboardRouteRegistrar {
 
   async dispatch(request: DashboardRequest, response: DashboardResponse): Promise<boolean> {
     const route = this.#routes.get(`${request.method} ${request.path}`);
-    if (!route) return false;
-    await route.handler(request, response);
-    return true;
+    if (route) {
+      await route.handler(request, response);
+      return true;
+    }
+    for (const candidate of this.#patterns) {
+      if (candidate.method !== request.method) continue;
+      const params = matchPath(candidate.path, request.path);
+      if (!params) continue;
+      await candidate.handler({ ...request, params }, response);
+      return true;
+    }
+    return false;
   }
 }
 
@@ -69,6 +82,7 @@ export interface DashboardTestRequestOptions {
   readonly headers?: DashboardHeaders;
   readonly body?: unknown;
   readonly remoteAddress?: string;
+  readonly requestId?: string;
 }
 
 export function createDashboardTestRequest(options: DashboardTestRequestOptions = {}): DashboardRequest & { close(): void } {
@@ -79,10 +93,26 @@ export function createDashboardTestRequest(options: DashboardTestRequestOptions 
     query: options.query ?? {},
     headers: options.headers ?? {},
     body: options.body,
+    params: {},
+    requestId: options.requestId ?? 'test-request',
     ...(options.remoteAddress ? { remoteAddress: options.remoteAddress } : {}),
     onClose(listener) { listeners.add(listener); return () => { listeners.delete(listener); }; },
     close() { for (const listener of listeners) listener(); },
   };
+}
+
+function matchPath(pattern: string, pathname: string): Record<string, string> | null {
+  const patternParts = pattern.split('/').filter(Boolean);
+  const pathParts = pathname.split('/').filter(Boolean);
+  if (patternParts.length !== pathParts.length) return null;
+  const params: Record<string, string> = {};
+  for (let index = 0; index < patternParts.length; index += 1) {
+    const expected = patternParts[index]!;
+    const actual = pathParts[index]!;
+    if (expected.startsWith(':')) params[expected.slice(1)] = decodeURIComponent(actual);
+    else if (expected !== actual) return null;
+  }
+  return params;
 }
 
 export interface DashboardTestResponse extends DashboardResponse {

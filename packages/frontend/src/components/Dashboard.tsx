@@ -1,8 +1,8 @@
 import { Icon } from '@iconify/react'
 import { useCallback, useEffect, useState } from 'react'
-import { toast } from 'sonner'
-import { apiService, type ApiStatus, type UpdateResult } from '@/lib/api'
-import type { ClusterStatus } from '@/lib/types'
+import { Link } from 'react-router-dom'
+import { apiService, type ApiStatus } from '@/lib/api'
+import type { ClusterStatus, MetricsSnapshot, MetricsSummary } from '@/lib/types'
 import { useBackendReachable } from '@/context/AppContext'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
@@ -23,10 +23,10 @@ const FILES = [
 ] as const
 
 const workflow = [
-  { label: '添加节点', href: '/nodes', icon: 'ph:plus-light' },
-  { label: '部署 Agent', href: '/deploy', icon: 'ph:paper-plane-tilt-light' },
-  { label: '更新订阅', href: '/subscription', icon: 'ph:arrows-clockwise-light' },
-  { label: '验证输出', href: '/subscription', icon: 'ph:file-arrow-down-light' },
+  { label: '添加节点', href: '/nodes?intent=add', icon: 'ph:plus-light' },
+  { label: '部署运行环境', href: '/deploy', icon: 'ph:paper-plane-tilt-light' },
+  { label: '生成订阅', href: '/subscription', icon: 'ph:arrows-clockwise-light' },
+  { label: '维护订阅状态', href: '/subscription-status', icon: 'ph:shield-check-light' },
 ]
 
 function formatDate(value?: string) {
@@ -48,18 +48,20 @@ export default function Dashboard({ initialCluster = null, initialStatus = null,
   const backendReachable = useBackendReachable()
   const [status, setStatus] = useState(initialStatus)
   const [cluster, setCluster] = useState(initialCluster)
-  const [updateResult, setUpdateResult] = useState<UpdateResult | null>(null)
-  const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(initialError)
+  const [metricRange, setMetricRange] = useState<'24h' | '7d' | '30d'>('24h')
+  const [metrics, setMetrics] = useState<{ snapshot: MetricsSnapshot; history: MetricsSnapshot[]; summary: MetricsSummary } | null>(null)
 
   const refresh = useCallback(async () => {
-    const [nextStatus, nextCluster] = await Promise.all([
+    const [nextStatus, nextCluster, nextMetrics] = await Promise.all([
       apiService.getStatus(),
       apiService.getClusterStatus(),
+      apiService.getMetrics(metricRange),
     ])
     setStatus(nextStatus)
     if (nextCluster.success) setCluster(nextCluster.data as ClusterStatus)
-  }, [])
+    if (nextMetrics.success && nextMetrics.data) setMetrics(nextMetrics.data)
+  }, [metricRange])
 
   useEffect(() => {
     if (initialStatus !== null || initialCluster !== null) return
@@ -68,25 +70,6 @@ export default function Dashboard({ initialCluster = null, initialStatus = null,
       setError(message)
     })
   }, [initialCluster, initialStatus, refresh])
-
-  const handleUpdate = useCallback(async () => {
-    setLoading(true)
-    setError(null)
-    setUpdateResult(null)
-    try {
-      const result = await apiService.updateSubscription()
-      setUpdateResult(result)
-      await refresh()
-      if (result.success) toast.success('订阅更新完成', { description: `生成 ${result.nodesCount} 个节点` })
-      else toast.error('订阅更新失败', { description: result.message })
-    } catch (err) {
-      const message = err instanceof Error ? err.message : '更新失败，请查看日志页定位原因'
-      setError(message)
-      toast.error('更新失败', { description: message })
-    } finally {
-      setLoading(false)
-    }
-  }, [refresh])
 
   const missingFiles = status ? FILES.filter(file => !status[file.key]) : FILES
   const remoteNodes = cluster?.nodes.filter(node => node.nodeId !== 'local') || []
@@ -100,7 +83,7 @@ export default function Dashboard({ initialCluster = null, initialStatus = null,
   const readiness = [
     { label: '远端 Agent', ok: remoteAgentReady, desc: remoteNodes.length === 0 ? '尚未添加子节点' : undeployedNodes.length ? `${undeployedNodes.length} 个节点待部署` : '子节点 Agent 已部署' },
     { label: '子节点内核', ok: configuredKernels.length > 0 && healthyKernels.length === configuredKernels.length, desc: configuredKernels.length === 0 ? '等待子节点上报' : `${healthyKernels.length}/${configuredKernels.length} 可用` },
-    { label: 'mihomo 转换', ok: Boolean(status?.mihomoAvailable), desc: status?.mihomoVersion || '未检测到版本' },
+    { label: 'mihomo 转换', ok: Boolean(status?.mihomoAvailable), desc: status?.mihomoAvailable ? status.mihomoVersion || '版本未知' : '服务器未安装；运行 miobridge setup --yes' },
     { label: '文件写入', ok: missingFiles.length === 0, desc: missingFiles.length ? `缺少 ${missingFiles.map(file => file.name).join('、')}` : '输出产物可用' },
   ]
 
@@ -113,15 +96,12 @@ export default function Dashboard({ initialCluster = null, initialStatus = null,
       maxWidth="narrow"
       actions={(
         <>
-          <Button onClick={handleUpdate} disabled={loading}>
-            <Icon icon={loading ? 'ph:spinner-light' : 'ph:arrows-clockwise-light'} className={loading ? 'animate-spin' : ''} />
-            {loading ? '更新中' : '立即更新订阅'}
-          </Button>
+          <Button variant="outline" onClick={refresh}><Icon icon="ph:arrow-clockwise-light" />刷新摘要</Button>
           <Button asChild variant="outline">
-            <a href="/subscription">
-              输出产物中心
+            <Link to="/subscription">
+              前往订阅生成
               <span className="grid h-7 w-7 place-items-center rounded-full bg-[var(--muted)]"><Icon icon="ph:arrow-up-right-light" /></span>
-            </a>
+            </Link>
           </Button>
         </>
       )}
@@ -148,16 +128,6 @@ export default function Dashboard({ initialCluster = null, initialStatus = null,
         </Alert>
       ) : null}
 
-      {updateResult ? (
-        <Alert variant={updateResult.success ? 'success' : 'destructive'} className="mb-6 flex gap-3">
-          <Icon icon={updateResult.success ? 'ph:check-circle-light' : 'ph:x-circle-light'} className="mt-0.5 h-5 w-5 flex-shrink-0" />
-          <div className="min-w-0">
-            <AlertTitle>{updateResult.success ? '更新完成' : '更新失败'}</AlertTitle>
-            <AlertDescription className="break-words">{updateResult.message}</AlertDescription>
-          </div>
-        </Alert>
-      ) : null}
-
       <section className="grid min-w-0 gap-5 xl:grid-cols-[1.05fr_1.25fr]">
         <Card className="min-h-[322px]">
           <CardHeader>
@@ -167,7 +137,7 @@ export default function Dashboard({ initialCluster = null, initialStatus = null,
           <CardContent>
             <div className="grid gap-3 sm:grid-cols-2">
               {workflow.map((step, index) => (
-                <a key={step.label} href={step.href} className="group rounded-[22px] border border-[var(--border)] bg-[var(--surface-container)] p-4 transition-[transform,background-color] duration-700 ease-[var(--motion)] hover:-translate-y-1">
+                <Link key={step.label} to={step.href} className="group rounded-[22px] border border-[var(--border)] bg-[var(--surface-container)] p-4 transition-[transform,background-color] duration-700 ease-[var(--motion)] hover:-translate-y-1">
                   <div className="flex items-center justify-between">
                     <span className="signal-mono text-xs text-muted-foreground">0{index + 1}</span>
                     <span className="grid h-9 w-9 place-items-center rounded-full bg-[var(--muted)] text-primary transition-transform duration-700 ease-[var(--motion)] group-hover:translate-x-1">
@@ -175,7 +145,7 @@ export default function Dashboard({ initialCluster = null, initialStatus = null,
                     </span>
                   </div>
                   <p className="mt-6 text-lg font-semibold">{step.label}</p>
-                </a>
+                </Link>
               ))}
             </div>
           </CardContent>
@@ -194,17 +164,23 @@ export default function Dashboard({ initialCluster = null, initialStatus = null,
           </Card>
 
           <Card>
-            <CardHeader>
-              <CardDescription>最近 24 小时延迟概览</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <svg className="h-[190px] w-full" viewBox="0 0 640 180" role="img" aria-label="延迟趋势示意">
-                <path d="M12 136 C96 88,144 72,210 100 S310 138,354 62 S456 26,520 92 S598 132,628 64" fill="none" stroke="var(--primary)" strokeWidth="4" strokeLinecap="round" />
-                <path d="M12 158 C82 94,150 104,214 120 S314 34,360 82 S454 100,520 86 S590 82,628 118" fill="none" stroke="var(--warning)" strokeWidth="4" strokeLinecap="round" opacity=".9" />
-              </svg>
+            <CardHeader><div className="flex flex-wrap items-center justify-between gap-2"><CardDescription>指标趋势窗口</CardDescription><div className="flex gap-1">{(['24h', '7d', '30d'] as const).map(range => <Button key={range} size="sm" variant={metricRange === range ? 'default' : 'outline'} onClick={() => setMetricRange(range)}>{range}</Button>)}</div></div></CardHeader>
+            <CardContent className="grid gap-3 sm:grid-cols-2 lg:grid-cols-1">
+              <div className="rounded-2xl bg-[var(--surface-container)] p-4"><p className="text-xs text-muted-foreground">Agent 在线率</p><p className="signal-value mt-2 text-3xl">{metrics?.summary.agentOnlineRate ?? '—'}{metrics?.summary.agentOnlineRate !== null && metrics ? '%' : ''}</p></div>
+              <div className="rounded-2xl bg-[var(--surface-container)] p-4"><p className="text-xs text-muted-foreground">订阅生成成功率</p><p className="signal-value mt-2 text-3xl">{metrics?.summary.subscriptionSuccessRate ?? '—'}{metrics?.summary.subscriptionSuccessRate !== null && metrics ? '%' : ''}</p></div>
             </CardContent>
           </Card>
         </div>
+      </section>
+
+      <section className="mt-5">
+        <Card><CardHeader><div className="flex flex-wrap items-end justify-between gap-3"><div><CardDescription>{metricRange} 真实运行记录</CardDescription><CardTitle className="text-xl">部署、来源与产物趋势</CardTitle></div><span className="text-xs text-muted-foreground">{metrics?.history.length || 0} 个快照样本</span></div></CardHeader><CardContent className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">{[
+          ['部署成功率', metrics?.summary.deploymentSuccessRate, '%'],
+          ['平均部署耗时', metrics?.summary.deploymentAverageDurationMs === null || metrics?.summary.deploymentAverageDurationMs === undefined ? null : Math.round(metrics.summary.deploymentAverageDurationMs / 1000), ' 秒'],
+          ['来源成功率', metrics?.summary.sourceSuccessRate, '%'],
+          ['订阅成功率', metrics?.summary.subscriptionSuccessRate, '%'],
+          ['产物最大年龄', metrics?.summary.artifactMaximumAgeSeconds === null || metrics?.summary.artifactMaximumAgeSeconds === undefined ? null : Math.round(metrics.summary.artifactMaximumAgeSeconds / 60), ' 分钟'],
+        ].map(([label, value, suffix]) => <div key={String(label)} className="rounded-2xl bg-[var(--surface-container)] p-4"><p className="text-xs text-muted-foreground">{label}</p><p className="mt-2 text-2xl font-semibold">{value ?? '—'}{value !== null && value !== undefined ? suffix : ''}</p></div>)}<div className="rounded-2xl bg-[var(--surface-container)] p-4 sm:col-span-2 xl:col-span-5"><p className="text-xs text-muted-foreground">部署步骤平均耗时</p><div className="mt-3 flex flex-wrap gap-2">{Object.entries(metrics?.summary.deploymentStepAverageDurationMs || {}).map(([step, duration]) => <Badge key={step} variant="outline">{step} · {duration === null ? '—' : `${Math.round(duration / 1000)} 秒`}</Badge>)}{Object.keys(metrics?.summary.deploymentStepAverageDurationMs || {}).length === 0 ? <span className="text-sm text-muted-foreground">窗口内暂无完成任务</span> : null}</div></div></CardContent></Card>
       </section>
 
       <section className="mt-5 grid min-w-0 gap-5 xl:grid-cols-[1fr_1.32fr]">
@@ -252,7 +228,7 @@ export default function Dashboard({ initialCluster = null, initialStatus = null,
                       <p>{formatDate(file.name === 'clash.yaml' ? status?.clashLastUpdated : status?.subscriptionLastUpdated)}</p>
                     </div>
                   </div>
-                  <Button asChild size="sm" variant="outline" className="mt-4 w-full"><a href={apiService.getDownloadUrl(file.name)} target="_blank" rel="noreferrer">下载</a></Button>
+                  <Button asChild size="sm" variant="outline" className="mt-4 w-full"><Link to="/outputs">前往衍生输出</Link></Button>
                 </div>
               ))}
             </div>
@@ -268,7 +244,7 @@ export default function Dashboard({ initialCluster = null, initialStatus = null,
                       <td><Badge variant={status?.[file.key] ? 'secondary' : 'destructive'}>{status?.[file.key] ? '可用' : '缺失'}</Badge></td>
                       <td className="signal-mono">{file.name === 'clash.yaml' ? formatBytes(status?.clashSize) : formatBytes(status?.subscriptionSize)}</td>
                       <td>{formatDate(file.name === 'clash.yaml' ? status?.clashLastUpdated : status?.subscriptionLastUpdated)}</td>
-                      <td><Button asChild size="sm" variant="outline"><a href={apiService.getDownloadUrl(file.name)} target="_blank" rel="noreferrer">下载</a></Button></td>
+                      <td><Button asChild size="sm" variant="outline"><Link to="/outputs">查看</Link></Button></td>
                     </tr>
                   ))}
                 </tbody>

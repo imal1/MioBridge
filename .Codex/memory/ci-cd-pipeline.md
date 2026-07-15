@@ -75,3 +75,9 @@ nondeterministic five-second timeouts.
 The shipped distributed-control-plane milestone is roadmap v1.0, so its first
 semantic GitHub Release is `v1.0.0`. Workspace package versions, compiled CLI
 and Agent fallbacks, docs, tags, and Release assets must use that same version.
+
+## 2026-07-16 — Child Agent installer is a release asset
+
+Release packaging and `release.yml` syntax-check, checksum-check, and upload
+`install-agent.sh` beside the x64/arm64 Agent gzip files. The main CLI archive
+layout is unchanged.

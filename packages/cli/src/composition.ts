@@ -124,6 +124,12 @@ export function createNodeCore(options: NodeCoreOptions = {}): NodeCoreCompositi
   const core = new MioBridgeCore({
     paths, state, logger, metadata: options.metadata ?? { version: '1.0.0' }, yaml,
     local, remote, mihomo,
+    clusterMetrics: {
+      async snapshot() {
+        const status = await aggregation.getClusterStatus();
+        return { enabledNodes: status.totalNodes, onlineNodes: status.onlineNodes, sources: status.totalProxies };
+      },
+    },
     ...(options.uptime ? { uptime: options.uptime } : {}),
   });
   return { core, paths, repository, aggregation, agent, mihomo, configuredBinaries: {

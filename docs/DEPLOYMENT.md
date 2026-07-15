@@ -51,3 +51,47 @@ This Vercel deployment guide does not install or manage a Linux dashboard
 daemon. The self-contained `miobridge` release CLI and bundled static provider
 are documented in [CLI.md](./CLI.md). They retain state under the user's
 `~/.config/miobridge` and do not alter the hosted SPA.
+
+## Child-node Agent bootstrap
+
+Child nodes use the separate `install-agent.sh` release asset. It installs only
+the checksum-verified x64/arm64 Agent binary, `/etc/miobridge-agent/agent.yaml`,
+and `miobridge-agent.service`. It does not install the main CLI, Dashboard, Bun,
+mihomo, or a protocol kernel, and it does not register a node in the control
+plane.
+
+Download `agent.yaml` from the Dashboard deployment center, copy it to the child,
+then run:
+
+```bash
+scp agent.yaml root@child:/tmp/miobridge-agent.yaml
+
+curl -fsSL \
+  https://github.com/imal1/miobridge/releases/latest/download/install-agent.sh \
+  -o /tmp/install-agent.sh
+
+sudo sh /tmp/install-agent.sh --config /tmp/miobridge-agent.yaml
+```
+
+The installer verifies `SHA256SUMS`, runs the binary's `--version` and
+`--check-config`, atomically replaces owned files, reloads and restarts systemd,
+then verifies the local `/health` endpoint. A failed replacement, service start,
+or health check restores the previous binary, config, and unit. Re-running the
+same version is an idempotent reinstall/repair.
+
+For an offline mirror or a config assembled on the child:
+
+```bash
+sudo sh install-agent.sh \
+  --version 1.0.0 \
+  --base-url https://mirror.example/miobridge/v1.0.0 \
+  --node-id node-child \
+  --node-name "Child node" \
+  --secret-file /root/miobridge-agent.secret \
+  --kernel sing-box:/etc/sing-box/config.json \
+  --port 3001
+```
+
+Omit every `--kernel` to generate `kernels: []`. Plaintext `--secret` is not
+accepted. After installation, runtime maintenance belongs to the Dashboard/API;
+the shell script remains a bootstrap and repair entrypoint only.

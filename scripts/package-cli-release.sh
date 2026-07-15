@@ -7,6 +7,7 @@ OUTPUT_DIR="${MIOBRIDGE_RELEASE_DIR:-$ROOT_DIR/dist/cli-release}"
 BUN_CMD="${MIOBRIDGE_BUN_CMD:-bun}"
 DASHBOARD_PROVIDER_DIR="${MIOBRIDGE_DASHBOARD_PROVIDER_DIR:-}"
 GENERATED_DASHBOARD_ROOT=""
+AGENT_INSTALLER="${MIOBRIDGE_AGENT_INSTALLER:-$ROOT_DIR/scripts/install-agent.sh}"
 
 cleanup() {
   [[ -z "$GENERATED_DASHBOARD_ROOT" ]] || rm -rf "$GENERATED_DASHBOARD_ROOT"
@@ -25,6 +26,12 @@ need() { command -v "$1" >/dev/null 2>&1 || { echo "required command not found: 
 need tar
 need shasum
 need gzip
+if [[ -f "$AGENT_INSTALLER" ]]; then
+  sh -n "$AGENT_INSTALLER"
+elif [[ -f "$ROOT_DIR/agent/src/server.ts" ]]; then
+  echo "Agent installer not found: $AGENT_INSTALLER" >&2
+  exit 1
+fi
 
 build_core() {
   # CLI source imports the public compiled core package. Rebuild it here so a
@@ -58,6 +65,7 @@ mkdir -p "$OUTPUT_DIR"
 rm -f \
   "$OUTPUT_DIR"/miobridge-"$VERSION"-linux-*.tar.gz \
   "$OUTPUT_DIR"/miobridge-agent-"$VERSION"-linux-*.gz \
+  "$OUTPUT_DIR/install-agent.sh" \
   "$OUTPUT_DIR/SHA256SUMS"
 
 build_one() {
@@ -113,10 +121,18 @@ build_agent() {
 build_agent x64 bun-linux-x64 "${MIOBRIDGE_AGENT_BINARY_X64:-}"
 build_agent arm64 bun-linux-arm64 "${MIOBRIDGE_AGENT_BINARY_ARM64:-}"
 
+if [[ -f "$AGENT_INSTALLER" ]]; then
+  cp "$AGENT_INSTALLER" "$OUTPUT_DIR/install-agent.sh"
+  chmod 0755 "$OUTPUT_DIR/install-agent.sh"
+fi
+
 (
   cd "$OUTPUT_DIR"
-  LC_ALL=C shasum -a 256 \
-    miobridge-"$VERSION"-linux-*.tar.gz \
-    miobridge-agent-"$VERSION"-linux-*.gz > SHA256SUMS
+  checksum_files=(
+    miobridge-"$VERSION"-linux-*.tar.gz
+    miobridge-agent-"$VERSION"-linux-*.gz
+  )
+  [[ ! -f install-agent.sh ]] || checksum_files+=(install-agent.sh)
+  LC_ALL=C shasum -a 256 "${checksum_files[@]}" > SHA256SUMS
 )
 echo "CLI release $VERSION written to $OUTPUT_DIR"

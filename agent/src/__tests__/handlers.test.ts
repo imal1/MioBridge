@@ -113,7 +113,7 @@ describe('handleStatus', () => {
     expect(body.data).not.toHaveProperty('subscriptionExists');
     expect(body.data).not.toHaveProperty('clashExists');
     expect(body.data).not.toHaveProperty('rawExists');
-    expect(body.data).not.toHaveProperty('mihomoAvailable');
+    expect(body.data.mihomoAvailable).toBe(false);
   });
 
   it('should reject unauthenticated remote request', async () => {

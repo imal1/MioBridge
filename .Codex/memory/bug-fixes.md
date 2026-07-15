@@ -7,6 +7,15 @@ metadata:
 
 # Bug Fixes
 
+- 2026-07-16: Dashboard daemon start waits for `/health`, resets a failed user
+  unit before restart, and CLI uninstall removes/reloads the managed unit.
+- 2026-07-16: Dashboard shutdown destroys open SSE responses and sockets so
+  upgrade, stop, and restart cannot hang on long-lived streams.
+- 2026-07-16: Dashboard `/health` reports the Core build version rather than
+  an upgrade override environment variable.
+- 2026-07-16: Saving monitored kernels now validates paths/config, atomically
+  replaces the remote Agent config, verifies restart health, and rolls back on
+  failure before updating control-plane state; empty kernels use a valid array.
 - 2026-07-14: Managed dependencies and self-upgrade archives use `node:zlib`;
   release CLIs no longer depend on the unavailable `DecompressionStream` global.
 - 2026-07-14: CLI artifact downloads retry transient network and timeout failures

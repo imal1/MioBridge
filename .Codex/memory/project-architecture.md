@@ -45,3 +45,13 @@ metadata:
   TypeScript configuration, and unused server dependencies were removed.
 - Linux release archives contain both the compiled CLI and static dashboard.
   Install and self-upgrade replace both without requiring a server runtime.
+
+## 2026-07-16 — Dashboard capability ownership
+
+- Browser write actions have one owning page: node records, deployment tasks,
+  Agent lifecycle, runtime monitoring, subscription generation, derived outputs,
+  and subscription health are separate capabilities connected by link-only SOP
+  navigation.
+- Software install, reinstall, upgrade, repair, and uninstall use persisted
+  node-by-component deployment tasks; day-to-day start/stop/restart remains on
+  the Agent or runtime maintenance page.

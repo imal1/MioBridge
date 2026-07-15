@@ -7,10 +7,8 @@ metadata:
 
 # Deployment Flow
 
-- Production runs on Vercel at `https://miobridge.vercel.app/`.
-- Vercel Git Integration builds and publishes production when `main` is pushed.
-- Vercel publishes the static `packages/frontend/dist` Vite output with SPA
-  fallback. It does not run the control-plane API.
+- Production Dashboard is served by the installed CLI together with its
+  same-origin control-plane API; a static frontend host is not authoritative.
 - GitHub Actions is a CI gate only; it does not deploy and does not install or
   run Vercel CLI.
 - Self-hosted Linux starts with the checksum-verifying `scripts/install.sh` and
@@ -20,6 +18,9 @@ metadata:
   remain separately discovered or checksum-verified managed binaries.
 - Child Agent deployment selects a checksum-covered x64/arm64 binary from the
   matching MioBridge Release; child servers do not install Bun or compile source.
+- Child nodes may bootstrap or repair only the Agent with the release
+  `install-agent.sh`; it validates `agent.yaml`, installs an explicit `--config`
+  systemd unit, health-checks locally, and rolls binary/config/unit back together.
 - Child deployment detects every supported kernel, lets operators choose the
   monitored set, installs selected missing kernels, then deploys one Agent config.
 - New nodes persist as empty-kernel drafts; a successful deployment commits the
@@ -29,3 +30,5 @@ metadata:
   temporary files and atomic moves; sudo passwords travel through SSH stdin.
 - SSH detection, deployment, Agent lifecycle, and kernel actions are CLI runtime
   adapters behind the dashboard API; they do not invoke a local management script.
+- Dashboard daemon start waits for `/health`; stop, uninstall, and process
+  shutdown clean up the user unit and open SSE connections before exit.

@@ -32,6 +32,9 @@ const stubOps: DashboardOperationsPort = {
   getClusterHealth: async () => ok({ healthy: true }),
   triggerClusterUpdate: async () => ok({ updated: 1, results: {} }),
   addNode: async () => ok({ id: 'n1', name: 'new-node' }),
+  preflightNode: async () => ok({ checks: [] }),
+  updateNode: async () => ok({ id: 'n1' }),
+  deleteNode: async () => ok({ deleted: true }),
   updateNodeKernels: async () => ok({ id: 'n1', kernels: [] }),
   restartAgent: async () => ok({}),
   startAgent: async () => ok({}),
@@ -44,6 +47,9 @@ const stubOps: DashboardOperationsPort = {
   detectKernels: async () => ok([]),
   installKernel: async () => ok({}),
   uninstallKernel: async () => ok({}),
+  kernelAction: async () => ok({ status: 'running' }),
+  startComponentDeployment: async () => ok({ taskId: 'task-1' }),
+  getComponentDeployments: async () => ok({ deployments: {} }),
 };
 
 const stubConfig: DashboardConfigPort = {
@@ -68,8 +74,13 @@ const stubConvert: DashboardConvertPort = {
 const stubCore: DashboardCorePort = {
   getStatus: async () => ({}),
   updateSubscription: async () => ({}),
+  getLocalLogs: async () => ({
+    entries: [{ file: 'control.log', lineNumber: 1, content: 'INFO control ready', level: 'info' }],
+    files: ['control.log'],
+    updatedAt: NOW,
+  }),
   artifacts: {} as DashboardCorePort['artifacts'],
-};
+} as DashboardCorePort;
 
 function stubDeps() {
   return {
@@ -124,6 +135,16 @@ describe('operations routes', () => {
     const { handled, res } = await dispatch('POST', '/api/cluster/nodes', { name: 'n1', host: '10.0.0.1' });
     expect(handled).toBe(true);
     expect(res.statusCode).toBe(201);
+  });
+
+  it('supports node preflight, metadata update, and deletion routes', async () => {
+    const preflight = await dispatch('POST', '/api/cluster/nodes/preflight', { ssh: { host: 'n1' } });
+    expect(preflight.handled).toBe(true);
+    expect(preflight.res.statusCode).toBe(200);
+    const update = await dispatch('PATCH', '/api/cluster/nodes', { nodeId: 'n1', name: 'renamed' });
+    expect(update.res.statusCode).toBe(200);
+    const remove = await dispatch('DELETE', '/api/cluster/nodes', { nodeId: 'n1' });
+    expect(remove.res.statusCode).toBe(200);
   });
 
   it('PUT /api/cluster/nodes', async () => {
@@ -189,6 +210,24 @@ describe('operations routes', () => {
     expect(h3).toBe(true);
     expect(r3.statusCode).toBe(200);
   });
+
+  it('creates and lists component-aware deployment tasks', async () => {
+    const created = await dispatch('POST', '/api/cluster/deployments', {
+      nodeIds: ['n1', 'n2'], component: 'mihomo', operation: 'upgrade',
+    });
+    expect(created.handled).toBe(true);
+    expect(created.res.statusCode).toBe(202);
+    expect(JSON.parse(created.res.body).data.tasks).toHaveLength(2);
+
+    const listed = await dispatch('GET', '/api/cluster/deployments', undefined, { nodes: 'n1,n2' });
+    expect(listed.handled).toBe(true);
+    expect(listed.res.statusCode).toBe(200);
+  });
+
+  it('validates component deployment input', async () => {
+    const { res } = await dispatch('POST', '/api/cluster/deployments', { nodeIds: [], component: 'agent' });
+    expect(res.statusCode).toBe(400);
+  });
 });
 
 describe('config routes', () => {
@@ -210,10 +249,14 @@ describe('config routes', () => {
     expect(res.statusCode).toBe(400);
   });
 
-  it('GET /api/logs without node returns 400', async () => {
+  it('GET /api/logs without node reads local control-plane logs', async () => {
     const { handled, res } = await dispatch('GET', '/api/logs');
     expect(handled).toBe(true);
-    expect(res.statusCode).toBe(400);
+    expect(res.statusCode).toBe(200);
+    expect(JSON.parse(res.body)).toMatchObject({
+      success: true,
+      data: { source: 'control', nodeId: 'local', lines: ['INFO control ready'] },
+    });
   });
 });
 

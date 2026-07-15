@@ -78,6 +78,7 @@ export async function loadConfig(filePath: string): Promise<AgentConfig> {
   const raw = fs.readFileSync(filePath, 'utf8');
   const lines = raw.split('\n');
   const parsedKernels: ParsedKernel[] = [];
+  let explicitEmptyKernels = false;
   let currentKernel: ParsedKernel | undefined;
   let section = '';
 
@@ -94,6 +95,7 @@ export async function loadConfig(filePath: string): Promise<AgentConfig> {
 
     if (trimmed === 'node:') { section = 'node'; continue; }
     if (trimmed === 'kernels:') { section = 'kernels'; continue; }
+    if (trimmed === 'kernels: []') { explicitEmptyKernels = true; continue; }
     if (trimmed === 'mihomo:') { section = 'mihomo'; continue; }
 
     if (section === 'kernels' && trimmed.startsWith('-')) {
@@ -147,11 +149,12 @@ export async function loadConfig(filePath: string): Promise<AgentConfig> {
     }
 
     if (trimmed.startsWith('port:') && section === '') {
-      config.port = parseInt(val) || 3001;
+      if (!/^[0-9]+$/.test(val)) throw new Error(`Invalid Agent port: "${val}"`);
+      config.port = Number(val);
     }
   }
 
-  if (parsedKernels.length === 0) {
+  if (parsedKernels.length === 0 && !explicitEmptyKernels) {
     throw new Error('Invalid kernels configuration: at least one kernel is required');
   }
 
@@ -174,4 +177,24 @@ export async function loadConfig(filePath: string): Promise<AgentConfig> {
   });
 
   return config;
+}
+
+export function validateAgentConfig(config: AgentConfig): AgentConfig {
+  if (!config.node.id.trim()) throw new Error('Agent node.id is required');
+  if (!config.node.name.trim()) throw new Error('Agent node.name is required');
+  if (!config.node.secret.trim()) throw new Error('Agent node.secret is required');
+  if (!Number.isInteger(config.port) || config.port < 1 || config.port > 65_535) {
+    throw new Error(`Invalid Agent port: "${config.port}"`);
+  }
+  for (const kernel of config.kernels) {
+    if (!kernel.configPath?.trim()) throw new Error(`Kernel config path is required: "${kernel.type}"`);
+  }
+  return config;
+}
+
+export async function checkConfig(filePath: string): Promise<AgentConfig> {
+  if (!fs.existsSync(filePath) || !fs.statSync(filePath).isFile()) {
+    throw new Error(`Agent config does not exist: ${filePath}`);
+  }
+  return validateAgentConfig(await loadConfig(filePath));
 }

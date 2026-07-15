@@ -36,7 +36,7 @@ describe('headless CLI composition', () => {
       expect(status).toMatchObject({ subscriptionExists: true, rawExists: true, clashExists: true, nodesCount: 1 });
       expect(composition.paths.baseDir).toBe(baseDir);
       expect(await readdir(cwd)).toEqual(['.keep']);
-      expect((await readdir(baseDir)).sort()).toEqual(['backup', 'log', 'www']);
+      expect((await readdir(baseDir)).sort()).toEqual(['artifact-state', 'backup', 'log', 'www']);
     } finally {
       process.chdir(previous);
       await rm(sandbox, { recursive: true, force: true });

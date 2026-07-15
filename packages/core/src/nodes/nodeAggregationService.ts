@@ -18,8 +18,9 @@ export class NodeAggregationService {
   }
 
   async getClusterStatus(): Promise<ClusterStatus> {
-    const nodes = await this.repository.list();
-    const [statuses, collection] = await Promise.all([Promise.all(nodes.map(node => this.status(node))), Promise.all(nodes.map(node => this.collectSources(node)))]);
+    const nodes = await this.repository.list({ enabledOnly: false });
+    const enabledNodes = nodes.filter(node => node.enabled);
+    const [statuses, collection] = await Promise.all([Promise.all(nodes.map(node => this.status(node))), Promise.all(enabledNodes.map(node => this.collectSources(node)))]);
     const sources = collection.flatMap(result => result.sources);
     return { totalNodes: statuses.length, onlineNodes: statuses.filter(s => s.online).length, totalProxies: dedupeProxySources(sources).length, nodes: statuses, lastUpdated: new Date().toISOString() };
   }
@@ -50,12 +51,18 @@ export class NodeAggregationService {
   }
 
   private async status(node: NodeConfig): Promise<NodeStatus> {
-    const base: NodeStatus = { nodeId: node.id, name: node.name, configuredKernels: node.kernels, kernels: unavailable(node.kernels), location: node.location, online: false };
+    const base: NodeStatus = {
+      nodeId: node.id, name: node.name, host: node.host, configuredKernels: node.kernels,
+      kernels: unavailable(node.kernels), location: node.location, enabled: node.enabled,
+      ...(node.tags?.length ? { tags: node.tags } : {}),
+      online: false, ...(node.agent ? { agent: node.agent } : {}),
+      ...(node.ssh ? { sshUser: node.ssh.user, sshPort: node.ssh.port ?? 22, sshHostKey: node.ssh.hostKey } : {}),
+    };
     try {
       const json = await this.agent.get(node, '/api/status') as Record<string, unknown>;
       const data = (json.data ?? json) as Record<string, unknown>;
       const kernels = this.agent.validateKernelStatuses(data.kernels);
-      const status: NodeStatus = { ...base, online: true, kernels, nodesCount: kernels.reduce((sum,k) => sum+k.nodesCount, 0), ...(node.agent ? { agent: node.agent } : {}), ...(typeof data.version === 'string' ? { version: data.version } : {}), ...(typeof data.uptime === 'number' ? { uptime: data.uptime } : {}) };
+      const status: NodeStatus = { ...base, online: true, kernels, nodesCount: kernels.reduce((sum,k) => sum+k.nodesCount, 0), ...(node.agent ? { agent: node.agent } : {}), ...(typeof data.version === 'string' ? { version: data.version } : {}), ...(typeof data.uptime === 'number' ? { uptime: data.uptime } : {}), ...(typeof data.mihomoAvailable === 'boolean' ? { mihomoAvailable: data.mihomoAvailable } : {}), ...(typeof data.mihomoVersion === 'string' ? { mihomoVersion: data.mihomoVersion } : {}) };
       this.cache.set(node.id, status); return status;
     } catch (error) { const status = { ...base, error: error instanceof Error && error.name === 'AbortError' ? '请求超时' : `连接失败: ${error instanceof Error ? error.message : String(error)}` }; this.cache.set(node.id, status); return status; }
   }

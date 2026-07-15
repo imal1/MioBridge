@@ -48,26 +48,66 @@ export function registerConfigRoutes(
 
   // ── Logs ───────────────────────────────────────────────────────────
 
-  // GET /api/logs?node=&file=&level=&q=
+  // GET /api/logs?source=&node=&component=&taskId=&file=&level=&from=&to=&q=
   registrar.register({
     method: 'GET',
     path: '/api/logs',
     handler: async (req: DashboardRequest, res: DashboardResponse) => {
       try {
-        const nodeId = typeof req.query?.node === 'string' ? req.query.node.trim() : '';
-        if (!nodeId) {
-          res.status(400).json({ success: false, error: '请选择一个子节点查看日志', timestamp: NOW() });
-          return;
+        const value = (name: string) => typeof req.query?.[name] === 'string' ? req.query[name].trim() : '';
+        const source = value('source') || (value('node') && value('node') !== 'local' ? 'agent' : 'control');
+        const nodeId = value('node');
+        const taskId = value('taskId') || value('task');
+        const level = value('level');
+        const query = value('q');
+        const component = value('component');
+        const file = value('file');
+        const from = parseTime(value('from'));
+        const to = parseTime(value('to'));
+        let result: { success: boolean; data?: unknown; error?: string; statusCode?: number; timestamp?: string };
+        if (source === 'control') {
+          const local = await deps.core.getLocalLogs({ lines: 10_000, ...(level && level !== 'all' ? { level } : {}) });
+          const entries = local.entries.filter(entry => (!file || entry.file === file) && lineMatches(entry.content, query, component, from, to));
+          result = { success: true, data: { source, file: file || entries.at(-1)?.file || local.files.at(-1) || '', files: local.files, lines: entries.slice(-2000).map(entry => entry.content), updatedAt: local.updatedAt, nodeId: 'local', nodeName: '控制面' }, timestamp: NOW() };
+        } else if (source === 'deployment') {
+          if (!taskId) throw new Error('部署任务日志需要 taskId');
+          const task = await deps.operations.getDeploymentLog(taskId);
+          const content = task.success ? String((task.data as { content?: string } | undefined)?.content ?? '') : '';
+          result = task.success
+            ? { success: true, data: taskLogResult('deployment', taskId, content, level, query, component, from, to), timestamp: NOW() }
+            : task;
+        } else if (source === 'subscription') {
+          if (!taskId) throw new Error('订阅任务日志需要 taskId');
+          const events = await deps.subscription.events(taskId);
+          const lines = events.success
+            ? ((events.data as { events?: Array<Record<string, unknown>> } | undefined)?.events ?? []).map(event => JSON.stringify(event))
+            : [];
+          result = events.success
+            ? { success: true, data: taskLogResult('subscription', taskId, lines.join('\n'), level, query, component, from, to), timestamp: NOW() }
+            : events;
+        } else {
+          if (!nodeId || nodeId === 'local') throw new Error('Agent 日志需要子节点');
+          result = await deps.config.getRemoteLogs(nodeId, {
+            ...(file ? { file } : {}), ...(level ? { level } : {}),
+            query: [query, component, taskId].filter(Boolean).join(' '),
+          });
+          if (result.success && result.data && typeof result.data === 'object') {
+            const data = result.data as { lines?: string[] };
+            data.lines = (data.lines ?? []).filter(line => lineMatches(line, '', '', from, to));
+          }
         }
-        const result = await deps.config.getRemoteLogs(nodeId, {
-          file: typeof req.query?.file === 'string' ? req.query.file : undefined,
-          level: typeof req.query?.level === 'string' ? req.query.level : undefined,
-          query: typeof req.query?.q === 'string' ? req.query.q : undefined,
-        });
-        res.json(result);
+        if (result.success) {
+          res.json({ success: true, data: result.data, timestamp: result.timestamp ?? NOW(), requestId: req.requestId });
+        } else {
+          res.status(result.statusCode ?? 502).json({
+            success: false,
+            error: { code: 'LOG_QUERY_FAILED', message: result.error ?? '日志读取失败', retryable: true },
+            timestamp: result.timestamp ?? NOW(), requestId: req.requestId,
+          });
+        }
       } catch (error: unknown) {
         const msg = error instanceof Error ? error.message : 'Unknown error';
-        res.status(502).json({ success: false, error: msg, timestamp: NOW() });
+        res.status(400).json({ success: false, error: { code: 'INVALID_LOG_QUERY', message: msg, retryable: false }, timestamp: NOW(), requestId: req.requestId });
       }
     },
   });
@@ -139,3 +179,41 @@ export function registerConfigRoutes(
     },
   });
 }
+
+function taskLogResult(source: string, taskId: string, content: string, level: string, query: string, component: string, from?: number, to?: number) {
+  const lines = content.split(/\r?\n/).filter(Boolean).filter(line => {
+    const levelMatches = !level || level === 'all' || new RegExp(`\\b${escapeRegExp(level)}\\b`, 'i').test(line);
+    return levelMatches && lineMatches(line, query, component, from, to);
+  });
+  return { source, file: `${taskId}.log`, files: [`${taskId}.log`], lines: lines.slice(-2000), updatedAt: NOW(), taskId };
+}
+
+function lineMatches(line: string, query: string, component: string, from?: number, to?: number): boolean {
+  if (query && !line.toLowerCase().includes(query.toLowerCase())) return false;
+  if (component && !line.toLowerCase().includes(component.toLowerCase())) return false;
+  if (from === undefined && to === undefined) return true;
+  const timestamp = lineTimestamp(line);
+  if (timestamp === undefined) return false;
+  return (from === undefined || timestamp >= from) && (to === undefined || timestamp <= to);
+}
+
+function lineTimestamp(line: string): number | undefined {
+  try {
+    const value = JSON.parse(line) as Record<string, unknown>;
+    const candidate = value.timestamp ?? value.time ?? value.createdAt;
+    if (typeof candidate === 'string') { const parsed = Date.parse(candidate); if (Number.isFinite(parsed)) return parsed; }
+  } catch { /* Plain-text logs are parsed below. */ }
+  const candidate = line.match(/\d{4}-\d{2}-\d{2}[T ][0-9:.+-]+Z?/)?.[0];
+  if (!candidate) return undefined;
+  const parsed = Date.parse(candidate);
+  return Number.isFinite(parsed) ? parsed : undefined;
+}
+
+function parseTime(value: string): number | undefined {
+  if (!value) return undefined;
+  const parsed = Date.parse(value);
+  if (!Number.isFinite(parsed)) throw new Error(`无效时间: ${value}`);
+  return parsed;
+}
+
+function escapeRegExp(value: string): string { return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }

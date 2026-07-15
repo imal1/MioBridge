@@ -1,132 +1,45 @@
 // @vitest-environment jsdom
-// Dashboard integration tests
+import { describe, expect, it, vi } from 'vitest'
+import { fireEvent, render, screen } from '@testing-library/react'
+import { MemoryRouter } from 'react-router-dom'
 
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { fireEvent, render, screen } from '@testing-library/react';
-import React from 'react';
+vi.mock('@/lib/api', () => ({ apiService: {
+  getStatus: vi.fn().mockResolvedValue({}), getClusterStatus: vi.fn().mockResolvedValue({ success: true, data: null }),
+  getConfigs: vi.fn().mockResolvedValue([]), getFrontendConfig: vi.fn().mockResolvedValue({ success: true, data: {} }),
+  validateConfig: vi.fn().mockResolvedValue({ success: true }), updateConfigs: vi.fn().mockResolvedValue({ success: true, data: { count: 1 } }),
+} }))
 
-// Mock apiService for action callbacks
-const mockTriggerClusterUpdate = vi.fn().mockResolvedValue({ success: true, data: {} });
-const mockClusterHealthCheck = vi.fn().mockResolvedValue({ success: true, data: {} });
-
-vi.mock('@/lib/api', () => ({
-  apiService: {
-    getStatus: vi.fn().mockResolvedValue({}),
-    getClusterStatus: vi.fn().mockResolvedValue({ success: true, data: null }),
-    updateSubscription: vi.fn().mockResolvedValue({ success: true, nodesCount: 0, message: 'ok' }),
-    getDownloadUrl: (filename: string) => `/${filename}`,
-    triggerClusterUpdate: (...args: any[]) => mockTriggerClusterUpdate(...args),
-    clusterHealthCheck: (...args: any[]) => mockClusterHealthCheck(...args),
-  },
-}));
-
-const mockStatusData = {
-  rawExists: true,
-  subscriptionExists: true,
-  clashExists: true,
-  mihomoAvailable: true,
-  nodesCount: 12,
-  uptime: 120,
-  version: '1.0.0',
-  mihomoVersion: '1.19.0',
-};
-
-const mockClusterData = {
-  totalNodes: 2,
-  onlineNodes: 1,
-  totalProxies: 12,
-  nodes: [
-    {
-      nodeId: 'node-sg', name: '新加坡', location: '新加坡',
-      configuredKernels: [{ type: 'sing-box' as const }, { type: 'xray' as const }],
-      kernels: [
-        { type: 'sing-box' as const, detected: true, monitored: true, accessible: true, nodesCount: 8, version: '1.11.0', configPaths: ['/etc/sing-box/config.json'] },
-      ],
-      online: true, latency: 45, nodesCount: 12,
-      subscriptionExists: true, clashExists: true,
-      mihomoAvailable: true,
-      version: '1.0.0', uptime: 3600,
-      agent: { deployed: true, version: '1.0.0', status: 'running' as const, lastDeploy: '' },
-    },
-    {
-      nodeId: 'node-jp', name: '东京', location: '东京',
-      configuredKernels: [{ type: 'xray' as const }, { type: 'v2ray' as const }],
-      kernels: [],
-      online: false, error: '连接超时',
-      agent: { deployed: true, version: '1.0.0', status: 'running' as const, lastDeploy: '' },
-    },
-  ],
-  lastUpdated: new Date().toISOString(),
-};
+const status = { rawExists: true, subscriptionExists: true, clashExists: true, mihomoAvailable: true, nodesCount: 12, uptime: 120, version: '1.0.0', mihomoVersion: '1.19.0' }
+const cluster = { totalNodes: 2, onlineNodes: 1, totalProxies: 12, nodes: [
+  { nodeId: 'node-sg', name: '新加坡', location: '新加坡', configuredKernels: [{ type: 'sing-box' as const }, { type: 'xray' as const }], kernels: [{ type: 'sing-box' as const, detected: true, monitored: true, accessible: true, nodesCount: 8, configPaths: [] }], online: true, agent: { deployed: true, version: '1.0.0', status: 'running' as const, lastDeploy: '' } },
+  { nodeId: 'node-jp', name: '东京', location: '东京', configuredKernels: [{ type: 'xray' as const }, { type: 'v2ray' as const }], kernels: [], online: false, agent: { deployed: true, version: '1.0.0', status: 'running' as const, lastDeploy: '' } },
+], lastUpdated: '' }
 
 describe('Cluster Dashboard Page', () => {
-  beforeEach(() => {
-    mockTriggerClusterUpdate.mockClear();
-    mockClusterHealthCheck.mockClear();
-  });
+  it('renders overview counts and readiness without executing business actions', async () => {
+    const Dashboard = (await import('@/components/Dashboard')).default
+    render(<MemoryRouter><Dashboard initialCluster={cluster} initialStatus={status} initialError={null} /></MemoryRouter>)
+    expect(screen.getByRole('heading', { name: '总览' })).toBeDefined()
+    expect(screen.getByText('1/2')).toBeDefined()
+    expect(screen.getByText('1/4 可用')).toBeDefined()
+    expect(screen.queryByRole('button', { name: '立即更新订阅' })).toBeNull()
+    expect(screen.getByRole('link', { name: /前往订阅生成/ })).toBeDefined()
+  })
 
-  afterEach(() => {
-    vi.restoreAllMocks();
-  });
+  it('shows the expanded workflow shortcuts', async () => {
+    const Dashboard = (await import('@/components/Dashboard')).default
+    render(<MemoryRouter><Dashboard initialCluster={null} initialError={null} /></MemoryRouter>)
+    expect(screen.getByRole('link', { name: /添加节点/ })).toBeDefined()
+    expect(screen.getByRole('link', { name: /部署运行环境/ })).toBeDefined()
+    expect(screen.getByRole('link', { name: /维护订阅状态/ })).toBeDefined()
+  })
 
-  it('should render current overview with child cluster counts', async () => {
-    const Dashboard = (await import('@/components/Dashboard')).default;
-    render(<Dashboard initialCluster={mockClusterData} initialStatus={mockStatusData} initialError={null} />);
-    expect(screen.getByRole('heading', { name: '总览' })).toBeDefined();
-    expect(screen.getByText('订阅节点')).toBeDefined();
-    expect(screen.getByText('12')).toBeDefined();
-    expect(screen.getByText('子节点在线')).toBeDefined();
-    expect(screen.getByText('1/2')).toBeDefined();
-  });
-
-  it('counts ready kernels against desired configured kernels', async () => {
-    const Dashboard = (await import('@/components/Dashboard')).default;
-    render(<Dashboard initialCluster={mockClusterData} initialStatus={mockStatusData} initialError={null} />);
-    expect(screen.getByText('子节点内核')).toBeDefined();
-    expect(screen.getByText('1/4 可用')).toBeDefined();
-  });
-
-  it('shows healthy/configured capability counts per kernel type', async () => {
-    const ConfigPage = (await import('@/pages/config')).default;
-    render(<ConfigPage
-      initialCluster={mockClusterData}
-      initialStatus={mockStatusData}
-      initialConfigs={['default']}
-      frontendConfig={{}}
-      initialError={null}
-    />);
-    fireEvent.mouseDown(screen.getByRole('tab', { name: '运行能力' }), { button: 0, ctrlKey: false });
-    expect(screen.getByText('1/1 可用')).toBeDefined();
-    expect(screen.getByText('0/2 可用')).toBeDefined();
-    expect(screen.getByText('0/1 可用')).toBeDefined();
-  });
-
-  it('should show no-node remote Agent state as actionable', async () => {
-    const Dashboard = (await import('@/components/Dashboard')).default;
-    render(<Dashboard initialCluster={{ totalNodes: 0, onlineNodes: 0, totalProxies: 0, nodes: [], lastUpdated: new Date().toISOString() }} initialStatus={mockStatusData} initialError={null} />);
-    expect(screen.getByText('远端 Agent')).toBeDefined();
-    expect(screen.getByText('尚未添加子节点')).toBeDefined();
-    expect(screen.getAllByText('处理').length).toBeGreaterThan(0);
-  });
-
-  it('should display error alert when initialError is set', async () => {
-    const Dashboard = (await import('@/components/Dashboard')).default;
-    render(<Dashboard initialCluster={null} initialError="网络错误" />);
-    expect(screen.getByText('网络错误')).toBeDefined();
-  });
-
-  it('should render workflow shortcuts when no cluster data is available', async () => {
-    const Dashboard = (await import('@/components/Dashboard')).default;
-    render(<Dashboard initialCluster={null} initialError={null} />);
-    expect(screen.getByRole('link', { name: /添加节点/ })).toBeDefined();
-    expect(screen.getByRole('link', { name: /部署 Agent/ })).toBeDefined();
-  });
-
-  it('should render update and artifact actions', async () => {
-    const Dashboard = (await import('@/components/Dashboard')).default;
-    render(<Dashboard initialCluster={mockClusterData} initialStatus={mockStatusData} initialError={null} />);
-    expect(screen.getByRole('button', { name: '立即更新订阅' })).toBeDefined();
-    expect(screen.getByRole('link', { name: '输出产物中心' })).toBeDefined();
-    expect(screen.getAllByRole('link', { name: '下载' }).length).toBeGreaterThan(0);
-  });
-});
+  it('manages structured config drafts without runtime capability cards', async () => {
+    const ConfigPage = (await import('@/pages/config')).default
+    render(<ConfigPage initialConfigs={['default']} frontendConfig={{}} initialError={null} />)
+    expect(screen.queryByRole('tab', { name: '运行能力' })).toBeNull()
+    fireEvent.change(screen.getByLabelText('protocols.sing_box_configs'), { target: { value: 'default, vless-reality' } })
+    expect(screen.getByText('字段差异')).toBeDefined()
+    expect(screen.getByText(/vless-reality/)).toBeDefined()
+  })
+})

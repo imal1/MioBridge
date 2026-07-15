@@ -7,6 +7,7 @@ import { DashboardForegroundService, createNodeForegroundAdapters } from './dash
 import { DashboardSystemdService, createNodeSystemdAdapters } from './dashboard/systemd.js';
 import { SelfMaintenanceService } from './self/service.js';
 import { createNodeSelfMaintenanceAdapters } from './self/nodeAdapters.js';
+import { readFile } from 'node:fs/promises';
 
 const output = {
   stdout(message: string) { process.stdout.write(`${message}\n`); },
@@ -26,6 +27,10 @@ const maintenance = new SelfMaintenanceService({
   ...(process.env.MIOBRIDGE_VERSION ? { targetVersion: process.env.MIOBRIDGE_VERSION } : {}),
   ...(process.env.MIOBRIDGE_RELEASE_BASE_URL ? { releaseBaseUrl: process.env.MIOBRIDGE_RELEASE_BASE_URL } : {}),
 });
+const commandAbort = new AbortController();
+const abortCommand = () => commandAbort.abort();
+process.once('SIGINT', abortCommand);
+process.once('SIGTERM', abortCommand);
 const exitCode = await runCli(process.argv.slice(2), {
   createCore: () => composition.core,
   setup: new DependencySetupService({ paths: composition.paths, adapters: createNodeSetupAdapters(), configured: {
@@ -36,8 +41,7 @@ const exitCode = await runCli(process.argv.slice(2), {
   maintenance: {
     upgrade: () => maintenance.upgrade(),
     async uninstall(purge) {
-      const status = await dashboardDaemon.status();
-      if (status.state !== 'unsupported' && (status.active || status.enabled)) await dashboardDaemon.stop();
+      await dashboardDaemon.uninstall();
       return maintenance.uninstall({ purge });
     },
   },
@@ -51,6 +55,10 @@ const exitCode = await runCli(process.argv.slice(2), {
     daemon: action => dashboardDaemon[action](),
   },
   output,
+  readTextFile: path => readFile(path, 'utf8'),
+  signal: commandAbort.signal,
   version: CLI_VERSION,
 });
+process.removeListener('SIGINT', abortCommand);
+process.removeListener('SIGTERM', abortCommand);
 process.exitCode = exitCode;

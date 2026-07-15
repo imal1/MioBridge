@@ -14,8 +14,8 @@ Keep this document short; workflow files are the source of truth.
   URLs, provider-failure journal guidance, and headless status after provider
   removal. It never tests or creates a root system service.
 - `release.yml`: tags package both Linux architectures, run CLI contracts and a
-  real user-systemd install, then upload CLI archives, Agent binaries, and
-  `SHA256SUMS` to GitHub Releases.
+  real user-systemd install, then upload CLI archives, Agent binaries, the POSIX
+  `install-agent.sh`, and `SHA256SUMS` to GitHub Releases.
 
 Production deploys are handled by Vercel Git Integration, not GitHub Actions.
 The old SSH/systemd `deploy.yml` and `health-check.yml` workflows were removed.

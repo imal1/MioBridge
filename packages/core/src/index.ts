@@ -24,7 +24,13 @@ export {
   type StateStore,
   type StateStoreOptions,
 } from './state/stateStore.js';
-export type { Config, FullConfig } from './types/config.js';
+export type {
+  ActorRole, Config, ConfigApplyResult, ConfigFieldDefinition, ConfigValidationIssue,
+  ConfigValidationResult, DeploymentPolicyConfig, FullConfig, NotificationWebhookConfig,
+  SubscriptionPolicyConfig,
+} from './types/config.js';
+export { LocalLogService, type LocalLogEntry, type LocalLogQuery, type LocalLogResult } from './logs/localLogService.js';
+export { MetricsService, type ArtifactMetric, type ClusterMetricsSource, type MetricsSnapshot } from './metrics/metricsService.js';
 export { buildClashSubscription, buildClashSubscriptionResult, dedupeProxySources, type ClashSubscriptionResult, type CollectedProxySource } from './artifacts/sources.js';
 export { SingBoxAdapter, type SingBoxAdapterOptions } from './kernels/singBoxAdapter.js';
 export { MihomoAdapter, type MihomoAdapterOptions } from './kernels/mihomoAdapter.js';
@@ -35,6 +41,6 @@ export { AgentClient, type AgentClientOptions } from './nodes/agentClient.js';
 export { NodeRepository, validateNodeKernels } from './nodes/nodeRepository.js';
 export { NodeAggregationService, type RemoteSourceCollection } from './nodes/nodeAggregationService.js';
 export type { ClusterStatus, KernelRuntimeStatus, LogsResult, NodeAgentInfo, NodeConfig, NodeKernelConfig, NodeSshConfig, NodeStatus } from './nodes/types.js';
-export { ArtifactService, type ArtifactServiceOptions, type ClashConverter, type LocalSourceCollector, type RemoteSourceCollector, type SourceCollection, type UpdateResult } from './artifacts/artifactService.js';
+export { ArtifactService, type ArtifactServiceOptions, type ClashConverter, type LocalSourceCollector, type RemoteSourceCollector, type SourceCollection, type SubscriptionPreflight, type UpdateResult } from './artifacts/artifactService.js';
 export { StatusService, type BuildMetadata, type StatusInfo, type StatusKernel, type StatusServiceOptions } from './status/statusService.js';
 export { MioBridgeCore, type MioBridgeCoreOptions } from './mioBridgeCore.js';

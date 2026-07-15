@@ -106,14 +106,15 @@ describe('core routes', () => {
     expect(body.status).toBe('healthy');
     expect(body.uptime).toBeTypeOf('number');
     expect(body.memory).toBeDefined();
-    expect(body.version).toBeDefined();
+    expect(body.version).toBe('1.0.0');
   });
 
   it('GET /health returns 503 on error', async () => {
-    // Simulate error by mocking process.uptime to throw is not clean;
-    // instead verify the route handles the error path.
-    // For now, the happy path is covered; the 503 branch is tested via
-    // the broader error handler pattern.
+    const deps = stubDeps({ getStatus: async () => { throw new Error('status failed'); } });
+    const { handled, res } = await dispatch('GET', '/health', deps);
+    expect(handled).toBe(true);
+    expect(res.statusCode).toBe(503);
+    expect(JSON.parse(res.body)).toMatchObject({ status: 'unhealthy', error: 'status failed' });
   });
 });
 

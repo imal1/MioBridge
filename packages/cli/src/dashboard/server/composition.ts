@@ -6,7 +6,9 @@ export type { DashboardRouteRegistrar } from './http.js';
 /** Public core surface available to dashboard HTTP routes. */
 export type DashboardCorePort = Pick<
   MioBridgeCore,
-  'getStatus' | 'updateSubscription' | 'artifacts'
+  'getStatus' | 'updateSubscription' | 'preflightSubscription' | 'artifacts' | 'config' | 'state'
+    | 'getConfigPath' | 'getEffectiveConfig' | 'getConfigValue' | 'setConfigValue' | 'setConfigValues'
+    | 'restoreLastGoodConfig' | 'validateConfig' | 'getLocalLogs' | 'getMetricsSnapshot'
 >;
 
 /**
@@ -30,6 +32,9 @@ export interface DashboardOperationsPort {
   readonly getClusterHealth: (nodeId?: string) => Promise<OperationsResult>;
   readonly triggerClusterUpdate: (nodeId?: string) => Promise<OperationsResult>;
   readonly addNode: (body: unknown) => Promise<OperationsResult>;
+  readonly preflightNode: (body: unknown) => Promise<OperationsResult>;
+  readonly updateNode: (nodeId: string, body: unknown) => Promise<OperationsResult>;
+  readonly deleteNode: (nodeId: string, force?: boolean) => Promise<OperationsResult>;
   readonly updateNodeKernels: (nodeId: string, kernels: unknown) => Promise<OperationsResult>;
   readonly restartAgent: (nodeId: string) => Promise<OperationsResult>;
   readonly startAgent: (nodeId: string) => Promise<OperationsResult>;
@@ -42,6 +47,19 @@ export interface DashboardOperationsPort {
   readonly detectKernels: (body: unknown) => Promise<OperationsResult>;
   readonly installKernel: (nodeId: string, kernelType: string) => Promise<OperationsResult>;
   readonly uninstallKernel: (nodeId: string, kernelType: string) => Promise<OperationsResult>;
+  readonly kernelAction: (nodeId: string, kernelType: string, action: string) => Promise<OperationsResult>;
+  readonly startComponentDeployment: (
+    nodeId: string, component: string, operation: string,
+    input?: { idempotencyKey?: string; options?: { preserveConfig?: boolean; preserveData?: boolean } },
+  ) => Promise<OperationsResult>;
+  readonly getComponentDeployments: (nodeIds?: string[]) => Promise<OperationsResult>;
+  readonly getComponentDeployment: (taskId: string) => Promise<OperationsResult>;
+  readonly cancelComponentDeployment: (taskId: string) => Promise<OperationsResult>;
+  readonly retryComponentDeployment: (taskId: string) => Promise<OperationsResult>;
+  readonly getDeploymentEvents: (taskId: string, afterEventId?: string) => Promise<OperationsResult>;
+  readonly getDeploymentLog: (taskId: string) => Promise<OperationsResult>;
+  readonly getManualAgentConfig: (nodeId: string) => Promise<OperationsResult>;
+  readonly getComponentStates: (nodeIds?: string[]) => Promise<OperationsResult>;
 }
 
 // ── Config + logs ───────────────────────────────────────────────────
@@ -75,6 +93,20 @@ export interface DashboardConvertPort {
   readonly testProtocols: () => Promise<OperationsResult>;
 }
 
+export interface DashboardSubscriptionPort {
+  readonly preflight: () => Promise<OperationsResult>;
+  readonly start: (idempotencyKey?: string) => Promise<OperationsResult>;
+  readonly list: () => Promise<OperationsResult>;
+  readonly get: (jobId: string) => Promise<OperationsResult>;
+  readonly retry: (jobId: string) => Promise<OperationsResult>;
+  readonly events: (jobId: string, afterEventId?: string) => Promise<OperationsResult>;
+  readonly artifacts: () => Promise<OperationsResult>;
+  readonly previewArtifact: (name: string) => Promise<OperationsResult>;
+  readonly validateArtifacts: (name?: string) => Promise<OperationsResult>;
+  readonly policy: () => Promise<OperationsResult>;
+  readonly updatePolicy: (body: unknown) => Promise<OperationsResult>;
+}
+
 // ── Composition ─────────────────────────────────────────────────────
 
 export interface DashboardServerDependencies {
@@ -83,6 +115,7 @@ export interface DashboardServerDependencies {
   readonly config: DashboardConfigPort;
   readonly yaml: DashboardYamlPort;
   readonly convert: DashboardConvertPort;
+  readonly subscription: DashboardSubscriptionPort;
 }
 
 export interface DashboardServerComposition extends DashboardServerDependencies {

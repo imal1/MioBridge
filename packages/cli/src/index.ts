@@ -1,4 +1,4 @@
-export { CLI_VERSION, formatStatus, helpText, parseCommand, runCli, type CliCore, type CliDependencies, type CliOutput } from './command.js';
+export { CLI_VERSION, formatMetrics, formatStatus, helpText, parseCommand, runCli, type CliCore, type CliDependencies, type CliOutput } from './command.js';
 export { createNodeCore, type NodeCoreComposition, type NodeCoreOptions } from './composition.js';
 export { detectLinuxPlatform, type LinuxArchitecture, type LinuxPlatform } from './platform/linux.js';
 export { PINNED_ARTIFACTS } from './setup/catalog.js';
@@ -18,5 +18,6 @@ export type { SelfMaintenanceAdapters, SelfMaintenanceOptions } from './self/ser
 export { createNodeSelfMaintenanceAdapters } from './self/nodeAdapters.js';
 export { createDashboardServerComposition } from './dashboard/server/composition.js';
 export { DashboardRouteRegistry, createDashboardTestRequest, createDashboardTestResponse } from './dashboard/server/http.js';
-export type { DashboardCorePort, DashboardConfigPort, DashboardConvertPort, DashboardOperationsPort, DashboardServerComposition, DashboardServerDependencies, DashboardYamlPort, LogFilters, OperationsResult } from './dashboard/server/composition.js';
+export type { DashboardCorePort, DashboardConfigPort, DashboardConvertPort, DashboardOperationsPort, DashboardServerComposition, DashboardServerDependencies, DashboardSubscriptionPort, DashboardYamlPort, LogFilters, OperationsResult } from './dashboard/server/composition.js';
+export { SubscriptionJobService, type ArtifactState, type SubscriptionJob, type SubscriptionJobEvent, type SubscriptionJobStatus, type SubscriptionJobStep, type SubscriptionPolicy } from './operations/subscriptionJobs.js';
 export type { DashboardHeaders, DashboardHttpMethod, DashboardRequest, DashboardResponse, DashboardRoute, DashboardRouteHandler, DashboardRouteRegistrar, DashboardTestRequestOptions, DashboardTestResponse } from './dashboard/server/http.js';

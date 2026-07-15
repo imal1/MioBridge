@@ -19,6 +19,7 @@ async function fixture(overrides: Partial<SystemdAdapters> = {}, state: { active
   }));
   const calls: Array<[string, readonly string[]]> = [];
   const files = new Map<string, string>();
+  const removed: string[] = [];
   const ok = (stdout = ''): CommandResult => ({ exitCode: 0, stdout, stderr: '' });
   const adapters: SystemdAdapters = {
     platform: 'linux', username: 'alice', cliPath: '/home/alice/.local/bin/miobridge', unitDirectory: join(root, 'systemd'), effectivePath: '/managed/bin:/usr/bin',
@@ -32,19 +33,22 @@ async function fixture(overrides: Partial<SystemdAdapters> = {}, state: { active
         return status === 'active' ? ok('active\n') : { exitCode: status === 'activating' ? 0 : 3, stdout: `${status}\n`, stderr: '' };
       }
       if (args.includes('is-enabled')) return state.enabled ? ok('enabled\n') : { exitCode: 1, stdout: 'disabled\n', stderr: '' };
+      if (args.includes('reset-failed')) { state.activeStatus = 'inactive'; return ok(); }
       if (args.includes('enable') && args.includes('--now')) {
         if (state.startFails) return { exitCode: 1, stdout: '', stderr: 'provider crashed' };
-        state.active = true; state.enabled = true; return ok();
+        state.active = true; state.enabled = true; delete state.activeStatus; return ok();
       }
       if (args.includes('disable') && args.includes('--now')) { state.active = false; state.activeStatus = 'inactive'; state.enabled = false; return ok(); }
       return ok();
     },
     async writeAtomic(path, content) { files.set(path, content); },
+    async remove(path) { removed.push(path); files.delete(path); },
     async isPortAvailable() { return true; },
+    async waitForReady() { return true; },
     async confirmEnableLinger() { return true; },
     ...overrides,
   };
-  return { service: new DashboardSystemdService({ baseDir: root, configFile: join(root, 'config.yaml'), distDir: join(root, 'dist') }, adapters), calls, files, state };
+  return { service: new DashboardSystemdService({ baseDir: root, configFile: join(root, 'config.yaml'), distDir: join(root, 'dist') }, adapters), calls, files, removed, state };
 }
 
 describe('dashboard systemd user lifecycle', () => {
@@ -101,6 +105,11 @@ describe('dashboard systemd user lifecycle', () => {
     await expect(failure.service.start()).rejects.toThrow('provider crashed');
   });
 
+  it('does not report a newly active service as started before HTTP is ready', async () => {
+    const pending = await fixture({ waitForReady: async () => false });
+    await expect(pending.service.start()).rejects.toThrow('did not become ready');
+  });
+
   it('distinguishes a failed provider from an idempotently stopped service', async () => {
     const broken = await fixture({ run: async (command, args) => {
       if (args.includes('show-environment')) return { exitCode: 0, stdout: '', stderr: '' };
@@ -112,6 +121,13 @@ describe('dashboard systemd user lifecycle', () => {
     await expect(broken.service.status()).resolves.toMatchObject({ state: 'broken', enabled: true, active: false });
   });
 
+  it('resets a failed unit before attempting a clean start', async () => {
+    const failed = await fixture({}, { activeStatus: 'failed', enabled: false });
+    await expect(failed.service.start()).resolves.toMatchObject({ state: 'running', active: true });
+    expect(failed.calls.some(([, args]) => args.includes('reset-failed'))).toBe(true);
+    expect(failed.calls.some(([, args]) => args.includes('enable') && args.includes('--now'))).toBe(true);
+  });
+
   it('disables a failed or restart-looping unit instead of leaving it enabled', async () => {
     const failed = await fixture({}, { activeStatus: 'failed', enabled: true });
     await expect(failed.service.stop()).resolves.toMatchObject({ state: 'stopped', enabled: false });
@@ -120,5 +136,20 @@ describe('dashboard systemd user lifecycle', () => {
     const restarting = await fixture({}, { activeStatus: 'activating', enabled: true });
     await expect(restarting.service.stop()).resolves.toMatchObject({ state: 'stopped', enabled: false });
     expect(restarting.calls.some(([, args]) => args.includes('disable') && args.includes('--now'))).toBe(true);
+  });
+
+  it('removes the managed unit and reloads systemd during CLI uninstall', async () => {
+    const installed = await fixture({}, { active: true, enabled: true });
+    await installed.service.uninstall();
+    expect(installed.removed).toEqual([installed.service.unitPath]);
+    expect(installed.calls.some(([, args]) => args.includes('disable') && args.includes('--now'))).toBe(true);
+    expect(installed.calls.some(([, args]) => args.includes('daemon-reload'))).toBe(true);
+  });
+
+  it('still removes the managed unit when user systemd is unavailable', async () => {
+    const unsupported = await fixture({ platform: 'darwin' });
+    await unsupported.service.uninstall();
+    expect(unsupported.removed).toEqual([unsupported.service.unitPath]);
+    expect(unsupported.calls).toEqual([]);
   });
 });

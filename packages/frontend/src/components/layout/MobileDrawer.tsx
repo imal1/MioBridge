@@ -9,8 +9,12 @@ import { NAV_ITEMS, type NavIcon } from './navigation'
 const ICONS: Record<NavIcon, string> = {
   overview: 'ph:gauge-light',
   subscription: 'ph:arrows-clockwise-light',
+  outputs: 'ph:files-light',
   nodes: 'ph:hard-drives-light',
   deploy: 'ph:paper-plane-tilt-light',
+  agents: 'ph:heartbeat-light',
+  runtimes: 'ph:cpu-light',
+  status: 'ph:shield-check-light',
   logs: 'ph:terminal-window-light',
   config: 'ph:sliders-horizontal-light',
   api: 'ph:globe-hemisphere-west-light',

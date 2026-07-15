@@ -1,24 +1,26 @@
 import { createServer, IncomingMessage, ServerResponse } from 'http';
-import { loadConfig } from './config';
+import { checkConfig } from './config';
 import { handleStatus } from './handlers/status';
 import { handleUpdate } from './handlers/update';
 import { handleHealth } from './handlers/health';
 import { handleUrls } from './handlers/urls';
 import { handleLogs } from './handlers/logs';
-import * as path from 'path';
-import * as os from 'os';
 import { AGENT_VERSION } from './version';
-
-const CONFIG_PATH = process.env.MIOBRIDGE_AGENT_CONFIG ||
-  path.join(os.homedir(), '.config', 'miobridge-agent', 'agent.yaml');
+import { AgentArgumentError, parseAgentArguments } from './cli';
 
 async function main() {
-  if (process.argv.includes('--version') || process.argv.includes('-v')) {
+  const command = parseAgentArguments(process.argv.slice(2));
+  if (command.kind === 'version') {
     process.stdout.write(`${AGENT_VERSION}\n`);
     return;
   }
+  if (command.kind === 'check-config') {
+    await checkConfig(command.configPath);
+    process.stdout.write(`Agent configuration is valid: ${command.configPath}\n`);
+    return;
+  }
   console.log('MioBridge Agent starting...');
-  const config = await loadConfig(CONFIG_PATH);
+  const config = await checkConfig(command.configPath);
   console.log(`Config loaded: node=${config.node.id}, kernels=${config.kernels.map(item => item.type).join(',')}, port=${config.port}`);
 
   const server = createServer(async (req: IncomingMessage, res: ServerResponse) => {
@@ -71,5 +73,5 @@ async function main() {
 
 main().catch((err) => {
   console.error('Agent failed to start:', err);
-  process.exit(1);
+  process.exit(err instanceof AgentArgumentError ? 2 : 1);
 });

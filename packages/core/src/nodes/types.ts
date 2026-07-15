@@ -16,14 +16,15 @@ export interface NodeSshConfig {
 }
 export interface NodeConfig {
   id: string; name: string; host: string; port?: number; secret: string;
-  kernels: NodeKernelConfig[]; location: string; enabled: boolean;
+  kernels: NodeKernelConfig[]; location: string; enabled: boolean; tags?: string[];
   ssh?: NodeSshConfig; agent?: NodeAgentInfo;
 }
 export interface NodeStatus {
   nodeId: string; name: string; configuredKernels: NodeKernelConfig[];
   kernels: KernelRuntimeStatus[]; location: string; online: boolean; error?: string;
+  host?: string; enabled?: boolean; tags?: string[]; sshUser?: string; sshPort?: number; sshHostKey?: string;
   latency?: number; nodesCount?: number; subscriptionExists?: boolean;
-  clashExists?: boolean; mihomoAvailable?: boolean; version?: string;
+  clashExists?: boolean; mihomoAvailable?: boolean; mihomoVersion?: string; version?: string;
   uptime?: number; agent?: NodeAgentInfo;
 }
 export interface ClusterStatus {

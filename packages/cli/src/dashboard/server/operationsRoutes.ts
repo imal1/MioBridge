@@ -101,6 +101,61 @@ export function registerOperationsRoutes(
     },
   });
 
+  // POST /api/cluster/nodes/preflight
+  registrar.register({
+    method: 'POST',
+    path: '/api/cluster/nodes/preflight',
+    handler: async (req: DashboardRequest, res: DashboardResponse) => {
+      try {
+        const result = await ops.preflightNode(req.body);
+        res.json({ success: true, data: result.data, timestamp: NOW() });
+      } catch (error: unknown) {
+        const msg = error instanceof Error ? error.message : 'Unknown error';
+        res.status(400).json({ success: false, error: msg, timestamp: NOW() });
+      }
+    },
+  });
+
+  // PATCH /api/cluster/nodes
+  registrar.register({
+    method: 'PATCH',
+    path: '/api/cluster/nodes',
+    handler: async (req: DashboardRequest, res: DashboardResponse) => {
+      try {
+        const { nodeId } = (req.body as Record<string, unknown>) || {};
+        if (typeof nodeId !== 'string' || !nodeId) {
+          res.status(400).json({ success: false, error: '缺少 nodeId', timestamp: NOW() });
+          return;
+        }
+        const result = await ops.updateNode(nodeId, req.body);
+        res.json({ success: true, data: result.data, timestamp: NOW() });
+      } catch (error: unknown) {
+        const msg = error instanceof Error ? error.message : 'Unknown error';
+        res.status(400).json({ success: false, error: msg, timestamp: NOW() });
+      }
+    },
+  });
+
+  // DELETE /api/cluster/nodes
+  registrar.register({
+    method: 'DELETE',
+    path: '/api/cluster/nodes',
+    handler: async (req: DashboardRequest, res: DashboardResponse) => {
+      try {
+        const { nodeId, force } = (req.body as Record<string, unknown>) || {};
+        if (typeof nodeId !== 'string' || !nodeId) {
+          res.status(400).json({ success: false, error: '缺少 nodeId', timestamp: NOW() });
+          return;
+        }
+        const result = await ops.deleteNode(nodeId, force === true);
+        res.json({ success: true, data: result.data, timestamp: NOW() });
+      } catch (error: unknown) {
+        const msg = error instanceof Error ? error.message : 'Unknown error';
+        res.status(400).json({ success: false, error: msg, timestamp: NOW() });
+      }
+    },
+  });
+
   // ── Agent lifecycle ────────────────────────────────────────────────
 
   const agentActions: Array<{
@@ -236,6 +291,66 @@ export function registerOperationsRoutes(
       try {
         const { nodeId, kernelType } = (req.body as Record<string, unknown>) || {};
         const result = await ops.uninstallKernel(String(nodeId), String(kernelType));
+        res.json({ success: true, data: result.data, timestamp: NOW() });
+      } catch (error: unknown) {
+        const msg = error instanceof Error ? error.message : 'Unknown error';
+        res.status(500).json({ success: false, error: msg, timestamp: NOW() });
+      }
+    },
+  });
+
+  // POST /api/cluster/kernel/action — runtime lifecycle only
+  registrar.register({
+    method: 'POST',
+    path: '/api/cluster/kernel/action',
+    handler: async (req: DashboardRequest, res: DashboardResponse) => {
+      try {
+        const { nodeId, kernelType, action } = (req.body as Record<string, unknown>) || {};
+        if (![nodeId, kernelType, action].every(value => typeof value === 'string' && value)) {
+          res.status(400).json({ success: false, error: '缺少 nodeId、kernelType 或 action', timestamp: NOW() });
+          return;
+        }
+        const result = await ops.kernelAction(String(nodeId), String(kernelType), String(action));
+        res.json({ success: true, data: result.data, timestamp: NOW() });
+      } catch (error: unknown) {
+        const msg = error instanceof Error ? error.message : 'Unknown error';
+        res.status(500).json({ success: false, error: msg, timestamp: NOW() });
+      }
+    },
+  });
+
+  // POST /api/cluster/deployments — component-aware deployment queue
+  registrar.register({
+    method: 'POST',
+    path: '/api/cluster/deployments',
+    handler: async (req: DashboardRequest, res: DashboardResponse) => {
+      try {
+        const { nodeIds, component, operation } = (req.body as Record<string, unknown>) || {};
+        if (!Array.isArray(nodeIds) || nodeIds.length === 0 || nodeIds.some(id => typeof id !== 'string') ||
+            typeof component !== 'string' || typeof operation !== 'string') {
+          res.status(400).json({ success: false, error: '缺少有效的 nodeIds、component 或 operation', timestamp: NOW() });
+          return;
+        }
+        const tasks = await Promise.all(nodeIds.map(async nodeId =>
+          (await ops.startComponentDeployment(String(nodeId), component, operation)).data));
+        res.status(202).json({ success: true, data: { tasks }, message: '部署任务已进入队列', timestamp: NOW() });
+      } catch (error: unknown) {
+        const msg = error instanceof Error ? error.message : 'Unknown error';
+        res.status(400).json({ success: false, error: msg, timestamp: NOW() });
+      }
+    },
+  });
+
+  // GET /api/cluster/deployments?nodes=
+  registrar.register({
+    method: 'GET',
+    path: '/api/cluster/deployments',
+    handler: async (req: DashboardRequest, res: DashboardResponse) => {
+      try {
+        const nodes = typeof req.query?.nodes === 'string'
+          ? req.query.nodes.split(',').map(item => item.trim()).filter(Boolean)
+          : undefined;
+        const result = await ops.getComponentDeployments(nodes);
         res.json({ success: true, data: result.data, timestamp: NOW() });
       } catch (error: unknown) {
         const msg = error instanceof Error ? error.message : 'Unknown error';

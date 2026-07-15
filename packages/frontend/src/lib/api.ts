@@ -1,5 +1,5 @@
 import ky, { HTTPError } from 'ky';
-import { KERNEL_TYPES, type KernelDetection, type KernelType, type NodeConfig, type NodeKernelConfig, type SshAuthMethod } from '@/lib/types';
+import { KERNEL_TYPES, type ArtifactState, type ComponentDeployStatus, type ComponentState, type DeployComponent, type DeployOperation, type KernelDetection, type KernelType, type MetricsSnapshot, type MetricsSummary, type NodeConfig, type NodeKernelConfig, type SshAuthMethod, type SubscriptionJob, type SubscriptionPolicy, type SubscriptionPreflight } from '@/lib/types';
 import type { FrontendConfig } from '@/lib/configApi';
 
 export type DetectKernelsPayload =
@@ -54,6 +54,10 @@ export function validateKernelDetections(value: unknown): KernelDetection[] {
 // Vite development proxies these same-origin paths to the CLI dashboard server.
 const API_BASE_URL = '';
 
+function createIdempotencyKey(): string {
+  return globalThis.crypto?.randomUUID?.() ?? `web-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+}
+
 // 创建 ky 实例
 const apiClient = ky.create({
   prefixUrl: API_BASE_URL,
@@ -104,9 +108,11 @@ export interface UpdateResult {
 export interface ApiResponse<T = any> {
   success: boolean;
   data?: T;
-  error?: string;
+  error?: any;
   message?: string;
   timestamp: string;
+  requestId?: string;
+  role?: 'admin';
 }
 
 export interface ConvertResult {
@@ -128,6 +134,12 @@ export interface LogsResult {
   updatedAt: string;
   nodeId?: string;
   nodeName?: string;
+}
+
+export interface NodePreflightResult {
+  hostKey: string;
+  architecture: string;
+  checks: Array<{ key: string; label: string; ok: boolean; detail: string }>;
 }
 
 // 自定义错误类
@@ -218,13 +230,29 @@ class ApiService {
     }
   }
 
-  async getLogs(nodeId?: string, file?: string, level?: string, query?: string): Promise<ApiResponse<LogsResult>> {
+  async validateConfig(): Promise<ApiResponse<unknown>> {
+    try {
+      return await apiClient.get('api/yaml/validate').json<ApiResponse<unknown>>();
+    } catch (error) {
+      return this.handleError(error);
+    }
+  }
+
+  async getLogs(
+    nodeId?: string, file?: string, level?: string, query?: string,
+    filters: { source?: 'control' | 'agent' | 'deployment' | 'subscription'; component?: string; taskId?: string; from?: string; to?: string } = {},
+  ): Promise<ApiResponse<LogsResult>> {
     try {
       const params = new URLSearchParams();
       if (nodeId) params.set('node', nodeId);
       if (file) params.set('file', file);
       if (level && level !== 'all') params.set('level', level);
       if (query) params.set('q', query);
+      if (filters.source) params.set('source', filters.source);
+      if (filters.component) params.set('component', filters.component);
+      if (filters.taskId) params.set('taskId', filters.taskId);
+      if (filters.from) params.set('from', filters.from);
+      if (filters.to) params.set('to', filters.to);
       const suffix = params.toString() ? `?${params.toString()}` : '';
       return await apiClient.get(`api/logs${suffix}`).json<ApiResponse<LogsResult>>();
     } catch (error) {
@@ -300,13 +328,48 @@ class ApiService {
     kernels: NodeKernelConfig[];
     location: string;
     sshUser: string;
+    sshPort?: number;
+    sshHostKey?: string;
     sshAuthMethod: SshAuthMethod;
     sshPassword?: string;
     sshPrivateKey?: string;
     sshPrivateKeyName?: string;
+    tags?: string[];
   }): Promise<ApiResponse<NodeConfig>> {
     try {
       return await apiClient.post('api/cluster/nodes', { json: data }).json<ApiResponse>();
+    } catch (error) {
+      return this.handleError(error);
+    }
+  }
+
+  async preflightNode(ssh: {
+    host: string; user: string; port?: number; authMethod: SshAuthMethod;
+    password?: string; privateKey?: string;
+  }): Promise<ApiResponse<NodePreflightResult>> {
+    try {
+      return await apiClient.post('api/cluster/nodes/preflight', { json: { ssh } }).json<ApiResponse<NodePreflightResult>>();
+    } catch (error) {
+      return this.handleError(error);
+    }
+  }
+
+  async updateNode(nodeId: string, patch: {
+    name?: string; host?: string; location?: string; enabled?: boolean;
+    sshUser?: string; sshPort?: number; sshAuthMethod?: SshAuthMethod;
+    sshPassword?: string; sshPrivateKey?: string;
+    tags?: string[];
+  }): Promise<ApiResponse<NodeConfig>> {
+    try {
+      return await apiClient.patch('api/cluster/nodes', { json: { nodeId, ...patch } }).json<ApiResponse<NodeConfig>>();
+    } catch (error) {
+      return this.handleError(error);
+    }
+  }
+
+  async deleteNode(nodeId: string, force = false): Promise<ApiResponse<{ nodeId: string; deleted: boolean }>> {
+    try {
+      return await apiClient.delete('api/cluster/nodes', { json: { nodeId, force } }).json<ApiResponse<{ nodeId: string; deleted: boolean }>>();
     } catch (error) {
       return this.handleError(error);
     }
@@ -349,6 +412,162 @@ class ApiService {
     } catch (error) {
       return this.handleError(error);
     }
+  }
+
+  async startComponentDeployment(
+    nodeId: string, component: DeployComponent, operation: DeployOperation,
+    options: { preserveConfig: boolean; preserveData: boolean } = { preserveConfig: true, preserveData: true },
+  ): Promise<ApiResponse<{ taskId: string }>> {
+    try {
+      return await apiClient.post('api/deployments', {
+        headers: { 'Idempotency-Key': createIdempotencyKey() }, json: { nodeId, component, operation, options },
+      }).json<ApiResponse<{ taskId: string }>>();
+    } catch (error) {
+      return this.handleError(error);
+    }
+  }
+
+  async preflightDeployment(nodeId: string): Promise<ApiResponse<NodePreflightResult>> {
+    try {
+      return await apiClient.post(`api/cluster/nodes/${encodeURIComponent(nodeId)}/preflight`).json<ApiResponse<NodePreflightResult>>();
+    } catch (error) { return this.handleError(error); }
+  }
+
+  async getComponentDeployments(nodeIds?: string[]): Promise<ApiResponse<{ deployments: Record<string, ComponentDeployStatus> }>> {
+    try {
+      const suffix = nodeIds?.length ? `?nodes=${encodeURIComponent(nodeIds.join(','))}` : '';
+      return await apiClient.get(`api/deployments${suffix}`)
+        .json<ApiResponse<{ deployments: Record<string, ComponentDeployStatus> }>>();
+    } catch (error) {
+      return this.handleError(error);
+    }
+  }
+
+  async getComponentDeployment(taskId: string): Promise<ApiResponse<ComponentDeployStatus>> {
+    try { return await apiClient.get(`api/deployments/${encodeURIComponent(taskId)}`).json<ApiResponse<ComponentDeployStatus>>(); }
+    catch (error) { return this.handleError(error); }
+  }
+
+  async cancelComponentDeployment(taskId: string): Promise<ApiResponse<ComponentDeployStatus>> {
+    try { return await apiClient.post(`api/deployments/${encodeURIComponent(taskId)}/cancel`).json<ApiResponse<ComponentDeployStatus>>(); }
+    catch (error) { return this.handleError(error); }
+  }
+
+  async retryComponentDeployment(taskId: string): Promise<ApiResponse<{ taskId: string }>> {
+    try { return await apiClient.post(`api/deployments/${encodeURIComponent(taskId)}/retry`).json<ApiResponse<{ taskId: string }>>(); }
+    catch (error) { return this.handleError(error); }
+  }
+
+  manualAgentConfigUrl(nodeId: string): string {
+    return `/api/deployments/agent/manual-config?nodeId=${encodeURIComponent(nodeId)}`;
+  }
+
+  async getComponentStates(nodeIds?: string[]): Promise<ApiResponse<{ states: ComponentState[]; updatedAt: string }>> {
+    try {
+      const suffix = nodeIds?.length ? `?nodes=${encodeURIComponent(nodeIds.join(','))}` : '';
+      return await apiClient.get(`api/cluster/components${suffix}`).json<ApiResponse<{ states: ComponentState[]; updatedAt: string }>>();
+    } catch (error) { return this.handleError(error); }
+  }
+
+  async preflightSubscription(): Promise<ApiResponse<SubscriptionPreflight>> {
+    try { return await apiClient.post('api/subscription-jobs/preflight').json<ApiResponse<SubscriptionPreflight>>(); }
+    catch (error) { return this.handleError(error); }
+  }
+
+  async startSubscriptionJob(): Promise<ApiResponse<{ jobId: string }>> {
+    try {
+      return await apiClient.post('api/subscription-jobs', { headers: { 'Idempotency-Key': createIdempotencyKey() } }).json<ApiResponse<{ jobId: string }>>();
+    } catch (error) { return this.handleError(error); }
+  }
+
+  async getSubscriptionJobs(): Promise<ApiResponse<{ jobs: SubscriptionJob[] }>> {
+    try { return await apiClient.get('api/subscription-jobs').json<ApiResponse<{ jobs: SubscriptionJob[] }>>(); }
+    catch (error) { return this.handleError(error); }
+  }
+
+  async retrySubscriptionJob(jobId: string): Promise<ApiResponse<{ jobId: string }>> {
+    try { return await apiClient.post(`api/subscription-jobs/${encodeURIComponent(jobId)}/retry`).json<ApiResponse<{ jobId: string }>>(); }
+    catch (error) { return this.handleError(error); }
+  }
+
+  async getArtifacts(): Promise<ApiResponse<{ artifacts: ArtifactState[] }>> {
+    try { return await apiClient.get('api/artifacts').json<ApiResponse<{ artifacts: ArtifactState[] }>>(); }
+    catch (error) { return this.handleError(error); }
+  }
+
+  async previewArtifact(name: ArtifactState['name']): Promise<ApiResponse<{ name: string; content: string; truncated: boolean }>> {
+    try { return await apiClient.get(`api/artifacts/${encodeURIComponent(name)}/preview`).json<ApiResponse<{ name: string; content: string; truncated: boolean }>>(); }
+    catch (error) { return this.handleError(error); }
+  }
+
+  async validateArtifacts(name?: ArtifactState['name']): Promise<ApiResponse<{ artifacts: ArtifactState[] }>> {
+    try { return await apiClient.post('api/artifacts/validate', { json: name ? { name } : {} }).json<ApiResponse<{ artifacts: ArtifactState[] }>>(); }
+    catch (error) { return this.handleError(error); }
+  }
+
+  async getSubscriptionPolicy(): Promise<ApiResponse<SubscriptionPolicy>> {
+    try { return await apiClient.get('api/subscription-policy').json<ApiResponse<SubscriptionPolicy>>(); }
+    catch (error) { return this.handleError(error); }
+  }
+
+  async updateSubscriptionPolicy(policy: SubscriptionPolicy): Promise<ApiResponse<SubscriptionPolicy>> {
+    try { return await apiClient.put('api/subscription-policy', { json: policy }).json<ApiResponse<SubscriptionPolicy>>(); }
+    catch (error) { return this.handleError(error); }
+  }
+
+  async getConfigSchema(): Promise<ApiResponse<{ fields: Array<{ path: string; type: string; restartRequired: boolean; minimum?: number; maximum?: number; allowed?: string[] }> }>> {
+    try { return await apiClient.get('api/config/schema').json(); }
+    catch (error) { return this.handleError(error); }
+  }
+
+  async getEffectiveConfig(): Promise<ApiResponse<{ config: Record<string, unknown>; path: string }>> {
+    try { return await apiClient.get('api/config/effective').json(); }
+    catch (error) { return this.handleError(error); }
+  }
+
+  async validateConfigSource(source: string): Promise<ApiResponse<{ valid: boolean; issues: Array<{ path: string; message: string }> }>> {
+    try { return await apiClient.post('api/config/validate', { json: { source }, throwHttpErrors: false }).json(); }
+    catch (error) { return this.handleError(error); }
+  }
+
+  async patchConfig(path: string, value: unknown): Promise<ApiResponse<{ path: string; value: unknown; applied: boolean; restartRequired: boolean }>> {
+    try { return await apiClient.patch('api/config', { json: { path, value } }).json(); }
+    catch (error) { return this.handleError(error); }
+  }
+
+  async patchConfigValues(changes: Array<{ path: string; value: unknown }>): Promise<ApiResponse<{ results: Array<{ path: string; value: unknown; applied: boolean; restartRequired: boolean }>; restartRequired: boolean; backupPath?: string }>> {
+    try { return await apiClient.patch('api/config', { json: { changes } }).json(); }
+    catch (error) { return this.handleError(error); }
+  }
+
+  async restoreConfig(): Promise<ApiResponse<{ restored: true; backupPath: string }>> {
+    try { return await apiClient.post('api/config/restore').json(); }
+    catch (error) { return this.handleError(error); }
+  }
+
+  async previewConfigImport(source: string): Promise<ApiResponse<{ validation: unknown; differences: Array<{ path: string; before: unknown; after: unknown }> }>> {
+    try { return await apiClient.post('api/config/import/preview', { json: { source }, throwHttpErrors: false }).json(); }
+    catch (error) { return this.handleError(error); }
+  }
+
+  async getMetrics(range: '24h' | '7d' | '30d' = '24h'): Promise<ApiResponse<{ range: string; snapshot: MetricsSnapshot; history: MetricsSnapshot[]; summary: MetricsSummary }>> {
+    try { return await apiClient.get(`api/metrics?range=${range}`).json(); }
+    catch (error) { return this.handleError(error); }
+  }
+
+  async getOpenApi(): Promise<any> {
+    try { return await apiClient.get('api/openapi.json').json(); }
+    catch (error) { return this.handleError(error); }
+  }
+
+  async testWebhook(): Promise<ApiResponse<{ id: string; event: string; ok: boolean; statusCode: number; timestamp: string }>> {
+    try { return await apiClient.post('api/notifications/test').json(); }
+    catch (error) { return this.handleError(error); }
+  }
+
+  async getNotificationHistory(): Promise<ApiResponse<{ records: Array<{ id: string; event: string; ok: boolean; statusCode: number; timestamp: string }> }>> {
+    try { return await apiClient.get('api/notifications/history').json(); }
+    catch (error) { return this.handleError(error); }
   }
 
   // Agent 管理
@@ -404,6 +623,14 @@ class ApiService {
   async uninstallKernel(nodeId: string, kernelType: string): Promise<ApiResponse> {
     try {
       return await apiClient.post('api/cluster/kernel/uninstall', { json: { nodeId, kernelType } }).json<ApiResponse>();
+    } catch (error) {
+      return this.handleError(error);
+    }
+  }
+
+  async kernelAction(nodeId: string, kernelType: KernelType, action: 'start' | 'stop' | 'restart'): Promise<ApiResponse> {
+    try {
+      return await apiClient.post('api/cluster/kernel/action', { json: { nodeId, kernelType, action } }).json<ApiResponse>();
     } catch (error) {
       return this.handleError(error);
     }

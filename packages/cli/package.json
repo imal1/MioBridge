@@ -23,7 +23,8 @@
   },
   "dependencies": {
     "@miobridge/core": "workspace:*",
-    "ssh2": "^1.17.0"
+    "ssh2": "^1.17.0",
+    "yaml": "^2.8.1"
   },
   "devDependencies": {
     "@types/node": "^24.0.8",

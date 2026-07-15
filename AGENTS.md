@@ -17,7 +17,8 @@ dashboard, and `packages/core/` owns framework-independent behavior.
 - `agent` is distributed as checksum-covered Linux x64/arm64 release binaries;
   child servers never install Bun or compile Agent source.
 - Server operations after bootstrap must be exposed through the `miobridge`
-  binary, not new management shell scripts.
+  binary, not new management shell scripts. `scripts/install-agent.sh` is the
+  one child-node Agent bootstrap exception.
 - Runtime config/data/logs/backups live under `~/.config/miobridge`, independent
   of cwd. Config is `~/.config/miobridge/config.yaml`.
 - External binaries are `mihomo` and optionally `sing-box`; prefer
@@ -53,6 +54,8 @@ Do not run root `npx tsc --noEmit`; use the frontend, CLI, and core workspace co
 
 - `scripts/install.sh` is the sole server bootstrap shell and installs a verified
   release CLI to `~/.local/bin/miobridge` plus its static dashboard provider.
+- `scripts/install-agent.sh` bootstraps only the release Agent binary, config,
+  and systemd unit on a child node; it never installs CLI, Bun, or kernels.
 - After bootstrap, lifecycle operations use `miobridge` commands only.
 - Release archives, Agent binaries, and checksums are produced by
   `scripts/package-cli-release.sh`.

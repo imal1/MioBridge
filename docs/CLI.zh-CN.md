@@ -82,6 +82,22 @@ Setup 错误会隐藏凭据和查询参数中的密钥。
 远端 Agent 也遵循同一分层：CLI 选择同版本的 x64/arm64 压缩 Agent 制品，
 校验 `SHA256SUMS` 后安装到子节点，不安装 Bun，也不编译源码。
 
+子节点也可以从部署中心下载 `agent.yaml`，再使用同一个 Release 内的独立安装器：
+
+```bash
+scp agent.yaml root@child:/tmp/miobridge-agent.yaml
+curl -fsSL https://github.com/imal1/miobridge/releases/latest/download/install-agent.sh \
+  -o /tmp/install-agent.sh
+sudo sh /tmp/install-agent.sh --config /tmp/miobridge-agent.yaml
+```
+
+该脚本只管理 `/usr/local/bin/miobridge-agent`、
+`/etc/miobridge-agent/agent.yaml` 和 systemd unit。它会依次校验 checksum、
+执行 `--version`、执行 `--check-config`、原子替换文件、重启服务并检查本机
+`/health`；启动或健康检查失败会恢复原二进制、配置与 unit。它不安装主 CLI、
+Dashboard、Bun、mihomo 或任何协议核心。镜像与独立参数模式见
+[DEPLOYMENT.md](./DEPLOYMENT.md)。
+
 ## Dashboard provider 与 systemd 用户服务
 
 Release 压缩包已包含仪表盘，由 `install.sh` 安装、`miobridge upgrade`
@@ -100,15 +116,17 @@ miobridge dashboard stop
 ```
 
 `start` 会写入 `~/.config/systemd/user/miobridge-dashboard.service`，再通过
-`systemctl --user` 启动。它会先询问是否启用 systemd linger；要在登出后继续运行
+`systemctl --user` 启动，并等待 `/health` 可用后才报告成功；失败状态会先
+`reset-failed` 再重试。它会先询问是否启用 systemd linger；要在登出后继续运行
 必须启用。非交互会话会提示手动执行：
 
 ```bash
 sudo loginctl enable-linger "$USER"
 ```
 
-没有 root system unit 或 PID 文件回退。CLI 会拒绝被占用的仪表盘
-端口。排查日志：
+没有 root system unit 或 PID 文件回退。CLI 会拒绝被占用的仪表盘端口。
+`miobridge uninstall` 会停用并删除该 user unit，再执行 `daemon-reload`，不会
+遗留指向已删除 CLI 的服务。排查日志：
 
 ```bash
 journalctl --user -u miobridge-dashboard.service -f

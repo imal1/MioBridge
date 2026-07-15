@@ -57,7 +57,18 @@ export class NodeRepository {
       id: node.id, name: node.name, host: node.host, port: node.port ?? node.agent?.port ?? 3001,
       secret: node.secret ?? '', kernels: validateNodeKernels(node.kernels),
       location: node.location ?? '', enabled: node.enabled !== false,
+      ...(normalizeTags(node.tags).length ? { tags: normalizeTags(node.tags) } : {}),
       ...(node.ssh ? { ssh: node.ssh } : {}), ...(node.agent ? { agent: node.agent } : {}),
     };
   }
+}
+
+function normalizeTags(value: unknown): string[] {
+  if (value === undefined) return [];
+  if (!Array.isArray(value)) throw new Error('节点标签必须是数组');
+  const tags = value.map(item => {
+    if (typeof item !== 'string' || !item.trim() || item.trim().length > 48) throw new Error('节点标签必须是 1 到 48 个字符');
+    return item.trim();
+  });
+  return [...new Set(tags)].slice(0, 20);
 }
