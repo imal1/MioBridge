@@ -31,7 +31,7 @@ function harness(overrides: Partial<SelfMaintenanceAdapters> = {}) {
     remove: async path => { removed.push(path); },
     ...overrides,
   };
-  const service = new SelfMaintenanceService({ currentVersion: '1.0.0', executablePath: '/home/user/.local/bin/miobridge', dashboardPath: '/home/user/.config/miobridge/dist/dashboard', adapters });
+  const service = new SelfMaintenanceService({ currentVersion: '1.0.0', executablePath: '/home/user/.local/bin/miobridge', dashboardPath: '/home/user/.config/miobridge/dist/dashboard', configDir: '/home/user/.config/miobridge', adapters });
   return { service, installed, removed, versions, dashboards };
 }
 
@@ -62,6 +62,16 @@ describe('CLI self maintenance', () => {
     ]);
   });
 
+  it('removes the complete runtime directory only with explicit purge', async () => {
+    const { service, removed } = harness();
+    await expect(service.uninstall({ purge: true })).resolves.toContain('managed dependencies removed');
+    expect(removed).toEqual([
+      '/home/user/.local/bin/miobridge',
+      '/home/user/.local/bin/.miobridge-cli-version',
+      '/home/user/.config/miobridge',
+    ]);
+  });
+
   it('extracts the executable from the release tarball', async () => {
     const root = await mkdtemp(join(tmpdir(), 'miobridge-self-tar-'));
     try {
@@ -74,13 +84,18 @@ describe('CLI self maintenance', () => {
       await writeFile(binary, '#!/bin/sh\necho 1.2.3\n');
       await chmod(binary, 0o755);
       execFileSync('tar', ['-czf', archive, '-C', root, 'miobridge', 'dashboard']);
-      const adapters = createNodeSelfMaintenanceAdapters();
-      const archiveData = await readFile(archive);
-      const extracted = await adapters.extractTarGzipEntry(archiveData, 'miobridge');
-      expect(new TextDecoder().decode(extracted)).toContain('echo 1.2.3');
-      const installedDashboard = join(root, 'installed-dashboard');
-      await adapters.installDashboard(installedDashboard, archiveData);
-      expect(await readFile(join(installedDashboard, 'artifact', 'index.html'), 'utf8')).toContain('current');
+      vi.stubGlobal('DecompressionStream', undefined);
+      try {
+        const adapters = createNodeSelfMaintenanceAdapters();
+        const archiveData = await readFile(archive);
+        const extracted = await adapters.extractTarGzipEntry(archiveData, 'miobridge');
+        expect(new TextDecoder().decode(extracted)).toContain('echo 1.2.3');
+        const installedDashboard = join(root, 'installed-dashboard');
+        await adapters.installDashboard(installedDashboard, archiveData);
+        expect(await readFile(join(installedDashboard, 'artifact', 'index.html'), 'utf8')).toContain('current');
+      } finally {
+        vi.unstubAllGlobals();
+      }
     } finally {
       await rm(root, { recursive: true, force: true });
     }

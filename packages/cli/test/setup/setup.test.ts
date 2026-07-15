@@ -1,16 +1,31 @@
 import { describe, expect, it, vi } from 'vitest';
 import { createRuntimePaths } from '@miobridge/core';
 import { detectLinuxPlatform } from '../../src/platform/linux.js';
+import { downloadBytes } from '../../src/platform/download.js';
 import { DependencySetupService } from '../../src/setup/service.js';
 import { createNodeSetupAdapters } from '../../src/setup/nodeAdapters.js';
 import { chmod, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { deflateRawSync, gzipSync } from 'node:zlib';
 import type { ArtifactCatalog, SetupAdapters } from '../../src/setup/types.js';
 
 const bytes = new Uint8Array([1, 2, 3]);
 const artifact = { version: 'v1.2.3', url: 'https://user:secret@example.test/download?token=private', sha256: 'trusted', archive: 'binary' as const, versionArgs: ['--version'] };
 const artifacts: ArtifactCatalog = { mihomo: { x64: artifact, arm64: artifact } };
+
+function zipEntry(name: string, contents: Uint8Array): Uint8Array {
+  const encodedName = Buffer.from(name);
+  const compressed = deflateRawSync(contents);
+  const header = Buffer.alloc(30);
+  header.writeUInt32LE(0x04034b50, 0);
+  header.writeUInt16LE(20, 4);
+  header.writeUInt16LE(8, 8);
+  header.writeUInt32LE(compressed.length, 18);
+  header.writeUInt32LE(contents.length, 22);
+  header.writeUInt16LE(encodedName.length, 26);
+  return new Uint8Array(Buffer.concat([header, encodedName, compressed]));
+}
 
 function harness(overrides: Partial<SetupAdapters> = {}, executable = new Set<string>()) {
   const installed: string[] = [];
@@ -27,6 +42,30 @@ function harness(overrides: Partial<SetupAdapters> = {}, executable = new Set<st
 describe('Linux platform detection', () => {
   it('maps supported architectures and distro', () => expect(detectLinuxPlatform({ platform: 'linux', architecture: 'aarch64', osRelease: 'ID=ubuntu\n' })).toEqual({ os: 'linux', architecture: 'arm64', distro: 'ubuntu' }));
   it.each([['darwin', 'x64', 'operating system'], ['linux', 'riscv64', 'architecture']])('rejects unsupported %s/%s', (platform, architecture, message) => expect(() => detectLinuxPlatform({ platform, architecture })).toThrow(message));
+});
+
+describe('release downloads', () => {
+  it('retries transient fetch failures before returning verified bytes', async () => {
+    const fetcher = vi.fn()
+      .mockRejectedValueOnce(new Error('connection reset'))
+      .mockResolvedValueOnce(new Response(bytes));
+    await expect(downloadBytes('https://example.test/artifact', {
+      attempts: 2,
+      retryDelayMs: 0,
+      fetcher,
+    })).resolves.toEqual(bytes);
+    expect(fetcher).toHaveBeenCalledTimes(2);
+  });
+
+  it('reports the final error after exhausting retries', async () => {
+    const fetcher = vi.fn(async () => { throw new Error('network unavailable'); });
+    await expect(downloadBytes('https://example.test/artifact', {
+      attempts: 3,
+      retryDelayMs: 0,
+      fetcher,
+    })).rejects.toThrow('network unavailable');
+    expect(fetcher).toHaveBeenCalledTimes(3);
+  });
 });
 
 describe('DependencySetupService', () => {
@@ -68,6 +107,30 @@ describe('DependencySetupService', () => {
 });
 
 describe('atomic managed installation', () => {
+  it('extracts gzip dependencies without relying on browser stream globals', async () => {
+    const contents = new TextEncoder().encode('mihomo executable fixture');
+    vi.stubGlobal('DecompressionStream', undefined);
+    try {
+      const result = await createNodeSetupAdapters().extract(new Uint8Array(gzipSync(contents)), {
+        ...artifact,
+        archive: 'gzip',
+      });
+      expect(result).toEqual(contents);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('extracts deflated zip dependencies with node-compatible zlib', async () => {
+    const contents = new TextEncoder().encode('zip executable fixture');
+    const result = await createNodeSetupAdapters().extract(zipEntry('tool.exe', contents), {
+      ...artifact,
+      archive: 'zip',
+      entry: 'tool.exe',
+    });
+    expect(result).toEqual(contents);
+  });
+
   it('preserves the previous executable when validation fails', async () => {
     const directory = await mkdtemp(join(tmpdir(), 'miobridge-setup-test-'));
     const target = join(directory, 'mihomo');

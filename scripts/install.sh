@@ -139,7 +139,11 @@ echo "MioBridge CLI $VERSION installed at $binary"
 echo "Dashboard provider installed at $dashboard"
 if [ "$RUN_SETUP" -eq 1 ]; then
   echo "Installing required runtime dependencies through the CLI..."
-  "$binary" setup --yes
+  if ! "$binary" setup --yes; then
+    echo "MioBridge CLI $VERSION is installed, but runtime dependency setup failed." >&2
+    echo "Retry with: $binary setup --yes" >&2
+    exit 1
+  fi
 fi
 
 case ":${PATH:-}:" in

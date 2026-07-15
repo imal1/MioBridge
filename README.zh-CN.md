@@ -35,6 +35,7 @@ miobridge --help              # 列出所有命令
 ```bash
 miobridge dashboard stop
 miobridge uninstall           # 保留配置、数据、日志和备份
+miobridge uninstall --purge   # 同时删除配置、数据及托管依赖
 ```
 
 ## 开发

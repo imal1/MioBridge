@@ -20,7 +20,7 @@ afterEach(() => {
   temporaryRoots.clear();
 });
 
-function fixture() {
+function fixture(options: { readonly setupFails?: boolean } = {}) {
   const dir = temporary('miobridge-release-test-');
   const binaries = join(dir, 'binaries');
   const release = join(dir, 'release');
@@ -32,7 +32,12 @@ function fixture() {
   writeFileSync(join(provider, 'artifact', 'index.html'), '<main>MioBridge</main>\n');
   for (const arch of ['x64', 'arm64']) {
     const file = join(binaries, arch);
-    writeFileSync(file, `#!/bin/sh\necho ${arch}-v1\n`);
+    writeFileSync(file, [
+      '#!/bin/sh',
+      ...(options.setupFails ? ['if [ "$1" = setup ]; then echo dependency-download-failed >&2; exit 1; fi'] : []),
+      `echo ${arch}-v1`,
+      '',
+    ].join('\n'));
     chmodSync(file, 0o755);
     const agent = join(binaries, `agent-${arch}`);
     writeFileSync(agent, '#!/bin/sh\necho 1.2.3\n');
@@ -159,6 +164,19 @@ describe('CLI release distribution', () => {
     expect(result.status).not.toBe(0);
     expect(result.stderr).toContain('checksum verification failed');
     expect(execFileSync(binary, { encoding: 'utf8' }).trim()).toBe('previous');
+  });
+
+  it('distinguishes a runtime setup failure from the completed CLI installation', () => {
+    const { dir, release } = fixture({ setupFails: true });
+    const installDir = join(dir, 'installed');
+    const result = spawnSync('sh', [installer, '--version', '1.2.3', '--base-url', `file://${release}`, '--install-dir', installDir], {
+      env: { ...process.env, HOME: dir, PATH: fakePlatform(dir, 'x86_64') }, encoding: 'utf8',
+    });
+    expect(result.status).not.toBe(0);
+    expect(result.stderr).toContain('dependency-download-failed');
+    expect(result.stderr).toContain('MioBridge CLI 1.2.3 is installed, but runtime dependency setup failed.');
+    expect(result.stderr).toContain(`Retry with: ${join(installDir, 'miobridge')} setup --yes`);
+    expect(execFileSync(join(installDir, 'miobridge'), { encoding: 'utf8' }).trim()).toBe('x64-v1');
   });
 
   it('replaces only CLI-owned files and preserves user configuration', () => {

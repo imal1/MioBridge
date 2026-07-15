@@ -32,7 +32,8 @@ describe('CLI command contract', () => {
     expect(parseCommand(['setup'])).toEqual({ kind: 'setup', assumeYes: false });
     expect(parseCommand(['setup', '--yes'])).toEqual({ kind: 'setup', assumeYes: true });
     expect(parseCommand(['upgrade'])).toEqual({ kind: 'upgrade' });
-    expect(parseCommand(['uninstall'])).toEqual({ kind: 'uninstall' });
+    expect(parseCommand(['uninstall'])).toEqual({ kind: 'uninstall', purge: false });
+    expect(parseCommand(['uninstall', '--purge'])).toEqual({ kind: 'uninstall', purge: true });
     expect(parseCommand(['update'])).toEqual({ kind: 'update' });
     expect(parseCommand(['status'])).toEqual({ kind: 'status', json: false });
     expect(parseCommand(['status', '--json'])).toEqual({ kind: 'status', json: true });
@@ -79,7 +80,10 @@ describe('CLI command contract', () => {
     const maintenance = { upgrade: vi.fn(async () => 'upgraded'), uninstall: vi.fn(async () => 'removed') };
     expect(await runCli(['upgrade'], { ...run.dependencies, maintenance })).toBe(0);
     expect(await runCli(['uninstall'], { ...run.dependencies, maintenance })).toBe(0);
-    expect(run.stdout).toEqual(['upgraded', 'removed']);
+    expect(await runCli(['uninstall', '--purge'], { ...run.dependencies, maintenance })).toBe(0);
+    expect(maintenance.uninstall).toHaveBeenNthCalledWith(1, false);
+    expect(maintenance.uninstall).toHaveBeenNthCalledWith(2, true);
+    expect(run.stdout).toEqual(['upgraded', 'removed', 'removed']);
     expect(run.createCore).not.toHaveBeenCalled();
   });
 

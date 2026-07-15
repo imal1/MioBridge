@@ -7,6 +7,12 @@ metadata:
 
 # Bug Fixes
 
+- 2026-07-14: Managed dependencies and self-upgrade archives use `node:zlib`;
+  release CLIs no longer depend on the unavailable `DecompressionStream` global.
+- 2026-07-14: CLI artifact downloads retry transient network and timeout failures
+  with bounded per-attempt timeouts before setup or upgrade fails.
+- 2026-07-14: `uninstall --purge` removes the CLI and complete runtime directory;
+  plain `uninstall` remains the safe configuration-preserving default.
 - 2026-07-14: The one-line installer resolves and verifies a release without
   relying on its source path, then atomically installs both the CLI and dashboard;
   piped execution never looks for `/home/<user>/manage.sh`.

@@ -6,10 +6,14 @@ import { dirname } from 'node:path';
 import { createInterface } from 'node:readline/promises';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
+import { gunzip, inflateRaw } from 'node:zlib';
 import type { Artifact, SetupAdapters } from './types.js';
 import { detectLinuxPlatform } from '../platform/linux.js';
+import { downloadBytes } from '../platform/download.js';
 
 const execFileAsync = promisify(execFile);
+const gunzipAsync = promisify(gunzip);
+const inflateRawAsync = promisify(inflateRaw);
 
 async function command(path: string, args: readonly string[]): Promise<string> {
   const result = await execFileAsync(path, [...args], { timeout: 15_000, maxBuffer: 1024 * 1024 });
@@ -17,8 +21,9 @@ async function command(path: string, args: readonly string[]): Promise<string> {
 }
 
 async function decompress(data: Uint8Array, format: 'gzip' | 'deflate-raw'): Promise<Uint8Array> {
-  const stream = new Blob([new Uint8Array(data).buffer]).stream().pipeThrough(new DecompressionStream(format));
-  return new Uint8Array(await new Response(stream).arrayBuffer());
+  const input = Buffer.from(data.buffer, data.byteOffset, data.byteLength);
+  const output = format === 'gzip' ? await gunzipAsync(input) : await inflateRawAsync(input);
+  return new Uint8Array(output);
 }
 
 async function extractZipEntry(data: Uint8Array, wanted: string): Promise<Uint8Array> {
@@ -72,11 +77,7 @@ export function createNodeSetupAdapters(): SetupAdapters {
       const prompt = createInterface({ input: process.stdin, output: process.stderr });
       try { return /^(?:y|yes)$/i.test((await prompt.question(`${message} [y/N] `)).trim()); } finally { prompt.close(); }
     },
-    async download(url) {
-      const response = await fetch(url, { redirect: 'follow', signal: AbortSignal.timeout(120_000) });
-      if (!response.ok) throw new Error(`Download failed with HTTP ${response.status}`);
-      return new Uint8Array(await response.arrayBuffer());
-    },
+    download: downloadBytes,
     async sha256(data) { return createHash('sha256').update(data).digest('hex'); },
     extract,
     async installAtomic(target, data, validate) {

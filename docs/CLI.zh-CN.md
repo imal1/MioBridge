@@ -59,6 +59,12 @@ miobridge uninstall
 此操作保留 `~/.config/miobridge`，包括 `config.yaml`、数据、订阅产物、日志与
 备份。
 
+如需同时删除 CLI 和整个 MioBridge 运行目录（配置、生成数据、仪表盘及托管依赖）：
+
+```bash
+miobridge uninstall --purge
+```
+
 ## 托管依赖
 
 `miobridge setup` 会将每个工具标记为 `configured`、`managed`、`PATH` 或

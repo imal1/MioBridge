@@ -5,14 +5,17 @@ import { chmod, copyFile, mkdir, open, readFile, rename, rm, writeFile } from 'n
 import { arch, platform } from 'node:os';
 import { dirname, join } from 'node:path';
 import { promisify } from 'node:util';
+import { gunzip as gunzipCallback } from 'node:zlib';
 import { detectLinuxPlatform } from '../platform/linux.js';
+import { downloadBytes } from '../platform/download.js';
 import type { SelfMaintenanceAdapters } from './service.js';
 
 const execFileAsync = promisify(execFile);
+const gunzipAsync = promisify(gunzipCallback);
 
 async function gunzip(data: Uint8Array): Promise<Uint8Array> {
-  const stream = new Blob([new Uint8Array(data).buffer]).stream().pipeThrough(new DecompressionStream('gzip'));
-  return new Uint8Array(await new Response(stream).arrayBuffer());
+  const input = Buffer.from(data.buffer, data.byteOffset, data.byteLength);
+  return new Uint8Array(await gunzipAsync(input));
 }
 
 function tarString(data: Uint8Array, start: number, length: number): string {
@@ -135,11 +138,7 @@ export function createNodeSelfMaintenanceAdapters(): SelfMaintenanceAdapters {
       if (typeof body.tag_name !== 'string') throw new Error('Latest release response has no tag_name');
       return body.tag_name;
     },
-    async download(url) {
-      const response = await fetch(url, { redirect: 'follow', signal: AbortSignal.timeout(120_000) });
-      if (!response.ok) throw new Error(`Download failed with HTTP ${response.status}: ${new URL(url).pathname}`);
-      return new Uint8Array(await response.arrayBuffer());
-    },
+    download: downloadBytes,
     async sha256(data) { return createHash('sha256').update(data).digest('hex'); },
     extractTarGzipEntry,
     installAtomic,
@@ -149,6 +148,6 @@ export function createNodeSelfMaintenanceAdapters(): SelfMaintenanceAdapters {
       return result.stdout.trim();
     },
     async writeVersion(path, version) { await writeFile(path, `${version}\n`, { mode: 0o644 }); },
-    async remove(path) { await rm(path, { force: true }); },
+    async remove(path) { await rm(path, { recursive: true, force: true }); },
   };
 }

@@ -20,6 +20,7 @@ const maintenance = new SelfMaintenanceService({
   currentVersion: CLI_VERSION,
   executablePath: process.execPath,
   dashboardPath: `${composition.paths.distDir}/dashboard`,
+  configDir: composition.paths.baseDir,
   adapters: createNodeSelfMaintenanceAdapters(),
   ...(process.env.MIOBRIDGE_REPOSITORY ? { repository: process.env.MIOBRIDGE_REPOSITORY } : {}),
   ...(process.env.MIOBRIDGE_VERSION ? { targetVersion: process.env.MIOBRIDGE_VERSION } : {}),
@@ -34,10 +35,10 @@ const exitCode = await runCli(process.argv.slice(2), {
   } }),
   maintenance: {
     upgrade: () => maintenance.upgrade(),
-    async uninstall() {
+    async uninstall(purge) {
       const status = await dashboardDaemon.status();
       if (status.state !== 'unsupported' && (status.active || status.enabled)) await dashboardDaemon.stop();
-      return maintenance.uninstall();
+      return maintenance.uninstall({ purge });
     },
   },
   dashboard: {

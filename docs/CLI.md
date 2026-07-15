@@ -62,6 +62,13 @@ miobridge uninstall
 This preserves `~/.config/miobridge`, including `config.yaml`, data, generated
 subscriptions, logs, and backups.
 
+To remove the CLI and the complete MioBridge runtime directory, including
+configuration, generated data, dashboard assets, and managed dependencies:
+
+```bash
+miobridge uninstall --purge
+```
+
 ## Managed dependencies
 
 `miobridge setup` reports each required tool as `configured`, `managed`,

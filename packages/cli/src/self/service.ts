@@ -22,6 +22,7 @@ export interface SelfMaintenanceOptions {
   readonly targetVersion?: string;
   readonly releaseBaseUrl?: string;
   readonly dashboardPath: string;
+  readonly configDir: string;
 }
 
 function normalizeVersion(version: string): string {
@@ -74,9 +75,13 @@ export class SelfMaintenanceService {
     return `MioBridge and dashboard upgraded from ${this.options.currentVersion} to ${version}.`;
   }
 
-  async uninstall(): Promise<string> {
+  async uninstall(options: { readonly purge?: boolean } = {}): Promise<string> {
     await this.options.adapters.remove(this.options.executablePath);
     await this.options.adapters.remove(join(dirname(this.options.executablePath), '.miobridge-cli-version'));
+    if (options.purge) {
+      await this.options.adapters.remove(this.options.configDir);
+      return 'MioBridge CLI, configuration, data, and managed dependencies removed.';
+    }
     return 'MioBridge CLI removed. Configuration and data were preserved.';
   }
 }

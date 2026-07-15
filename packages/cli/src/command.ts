@@ -22,7 +22,7 @@ export interface CliDependencies {
   readonly setup?: Pick<DependencySetupService, 'run'>;
   readonly maintenance?: {
     upgrade(): Promise<string>;
-    uninstall(): Promise<string>;
+    uninstall(purge: boolean): Promise<string>;
   };
   readonly dashboard?: {
     foreground(): Promise<{ readonly exitCode: number; readonly healthUrl: string }>;
@@ -36,7 +36,7 @@ type ParsedCommand =
   | { readonly kind: 'update' }
   | { readonly kind: 'setup'; readonly assumeYes: boolean }
   | { readonly kind: 'upgrade' }
-  | { readonly kind: 'uninstall' }
+  | { readonly kind: 'uninstall'; readonly purge: boolean }
   | { readonly kind: 'dashboard-foreground' }
   | { readonly kind: 'dashboard-daemon'; readonly action: DashboardDaemonAction; readonly json: boolean }
   | { readonly kind: 'status'; readonly json: boolean };
@@ -48,7 +48,8 @@ Usage: miobridge <command> [options]
 Commands:
   setup [--yes]   Discover and install managed dependencies
   upgrade         Upgrade this CLI to the latest verified release
-  uninstall       Remove this CLI; preserve configuration and data
+  uninstall [--purge]
+                  Remove this CLI; --purge also removes configuration and data
   update          Generate subscription artifacts
   status [--json] Show headless runtime status
   dashboard foreground
@@ -78,9 +79,14 @@ export function parseCommand(args: readonly string[]): ParsedCommand {
     if (args.length === 2 && (args[1] === '--yes' || args[1] === '-y')) return { kind: 'setup', assumeYes: true };
     throw new Error(`Unexpected argument: ${args[1]}`);
   }
-  if (args[0] === 'upgrade' || args[0] === 'uninstall') {
+  if (args[0] === 'upgrade') {
     if (args.length > 1) throw new Error(`Unexpected argument: ${args[1]}`);
-    return { kind: args[0] };
+    return { kind: 'upgrade' };
+  }
+  if (args[0] === 'uninstall') {
+    if (args.length === 1) return { kind: 'uninstall', purge: false };
+    if (args.length === 2 && args[1] === '--purge') return { kind: 'uninstall', purge: true };
+    throw new Error(`Unexpected argument: ${args[1]}`);
   }
   if (args[0] === 'status') {
     if (args.length === 1) return { kind: 'status', json: false };
@@ -141,9 +147,14 @@ export async function runCli(args: readonly string[], dependencies: CliDependenc
       dependencies.output.stdout(formatSetupStatus(await dependencies.setup.run({ assumeYes: command.assumeYes })));
       return 0;
     }
-    if (command.kind === 'upgrade' || command.kind === 'uninstall') {
+    if (command.kind === 'upgrade') {
       if (!dependencies.maintenance) throw new Error('CLI maintenance adapters are unavailable');
-      dependencies.output.stdout(await dependencies.maintenance[command.kind]());
+      dependencies.output.stdout(await dependencies.maintenance.upgrade());
+      return 0;
+    }
+    if (command.kind === 'uninstall') {
+      if (!dependencies.maintenance) throw new Error('CLI maintenance adapters are unavailable');
+      dependencies.output.stdout(await dependencies.maintenance.uninstall(command.purge));
       return 0;
     }
     if (command.kind === 'dashboard-foreground') {

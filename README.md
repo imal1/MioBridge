@@ -37,6 +37,7 @@ SPA and API routes. It needs no Node.js runtime or separate web server.
 ```bash
 miobridge dashboard stop
 miobridge uninstall           # preserve config, data, logs, and backups
+miobridge uninstall --purge   # also remove config, data, and managed dependencies
 ```
 
 ## Development
