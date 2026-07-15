@@ -13,13 +13,15 @@ curl -fsSL https://raw.githubusercontent.com/imal1/MioBridge/main/scripts/instal
 ```
 
 引导脚本安装经过校验的 Linux CLI 与静态仪表盘，随后由 CLI 安装固定版本的运行依赖；
-不会克隆或构建源码仓库。运行数据位于 `~/.config/miobridge/`。
+不会克隆或构建源码仓库。默认把当前服务器配置为本机节点；如仅使用子节点，可给安装脚本
+传入 `--no-local-node`。运行数据位于 `~/.config/miobridge/`。
 
 ## CLI
 
 ```bash
 miobridge update              # 刷新订阅
 miobridge status --json       # 查看服务状态
+miobridge nodes configure     # 选择是否配置本机节点
 miobridge dashboard start     # 启动仪表盘 + API（端口 3000）
 miobridge dashboard stop      # 停止仪表盘
 miobridge dashboard status    # 查看仪表盘状态

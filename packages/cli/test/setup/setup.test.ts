@@ -4,6 +4,8 @@ import { detectLinuxPlatform } from '../../src/platform/linux.js';
 import { downloadBytes } from '../../src/platform/download.js';
 import { DependencySetupService } from '../../src/setup/service.js';
 import { createNodeSetupAdapters } from '../../src/setup/nodeAdapters.js';
+import { LocalKernelInstallationService } from '../../src/setup/kernelService.js';
+import { PINNED_KERNEL_ARTIFACTS } from '../../src/setup/kernelCatalog.js';
 import { chmod, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -25,6 +27,16 @@ function zipEntry(name: string, contents: Uint8Array): Uint8Array {
   header.writeUInt32LE(contents.length, 22);
   header.writeUInt16LE(encodedName.length, 26);
   return new Uint8Array(Buffer.concat([header, encodedName, compressed]));
+}
+
+function tarEntry(name: string, contents: Uint8Array): Uint8Array {
+  const size = Math.ceil(contents.length / 512) * 512;
+  const archive = Buffer.alloc(512 + size + 1024);
+  archive.write(name, 0, 100, 'utf8');
+  archive.write(`${contents.length.toString(8).padStart(11, '0')}\0`, 124, 12, 'ascii');
+  archive[156] = '0'.charCodeAt(0);
+  Buffer.from(contents).copy(archive, 512);
+  return new Uint8Array(archive);
 }
 
 function harness(overrides: Partial<SetupAdapters> = {}, executable = new Set<string>()) {
@@ -131,6 +143,16 @@ describe('atomic managed installation', () => {
     expect(result).toEqual(contents);
   });
 
+  it('extracts a binary from a gzip-compressed tar archive', async () => {
+    const contents = new TextEncoder().encode('sing-box executable fixture');
+    const result = await createNodeSetupAdapters().extract(new Uint8Array(gzipSync(tarEntry('release/sing-box', contents))), {
+      ...artifact,
+      archive: 'tar-gzip',
+      entry: 'release/sing-box',
+    });
+    expect(result).toEqual(contents);
+  });
+
   it('preserves the previous executable when validation fails', async () => {
     const directory = await mkdtemp(join(tmpdir(), 'miobridge-setup-test-'));
     const target = join(directory, 'mihomo');
@@ -139,5 +161,26 @@ describe('atomic managed installation', () => {
       await expect(createNodeSetupAdapters().installAtomic(target, new TextEncoder().encode('replacement'), async () => { throw new Error('bad version'); })).rejects.toThrow('bad version');
       expect(await readFile(target, 'utf8')).toBe('previous');
     } finally { await rm(directory, { recursive: true, force: true }); }
+  });
+});
+
+describe('local kernel installation', () => {
+  it('downloads, verifies, and installs a configured kernel into the managed bin directory', async () => {
+    const installed: string[] = [];
+    const pinned = PINNED_KERNEL_ARTIFACTS['sing-box'].x64;
+    const paths = createRuntimePaths({ env: { PATH: '/usr/bin' }, platformBaseDir: '/runtime' });
+    const adapters: SetupAdapters = {
+      platform: async () => ({ os: 'linux', architecture: 'x64', distro: 'debian' }),
+      existsExecutable: async () => false,
+      probeVersion: async () => `sing-box version ${pinned.version}`,
+      confirm: async () => false,
+      download: async () => bytes,
+      sha256: async () => pinned.sha256,
+      extract: async data => data,
+      installAtomic: async (path, _data, validate) => { await validate(`${path}.tmp`); installed.push(path); },
+    };
+    const result = await new LocalKernelInstallationService(paths, adapters).ensure('sing-box');
+    expect(result).toMatchObject({ type: 'sing-box', path: '/runtime/bin/sing-box', installed: true });
+    expect(installed).toEqual(['/runtime/bin/sing-box']);
   });
 });

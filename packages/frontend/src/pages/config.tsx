@@ -98,17 +98,17 @@ export default function ConfigPage({ initialConfigs, initialStatus, initialClust
 
   const app: Partial<FrontendConfig['app']> = frontendConfig?.app ?? {}
   const protocols: Partial<FrontendConfig['protocols']> = frontendConfig?.protocols ?? {}
-  const childNodes = cluster?.nodes || []
+  const allNodes = cluster?.nodes || []
   const kernelCapabilities = (Object.keys(kernelLabels) as KernelType[]).map((kernel) => {
-    const nodes = childNodes.filter(node => node.configuredKernels.some(config => config.type === kernel))
+    const nodes = allNodes.filter(node => node.configuredKernels.some(config => config.type === kernel))
     const accessible = nodes.filter(node => {
       const runtime = node.kernels.find(status => status.type === kernel)
       return node.online && runtime?.monitored && runtime.accessible
     }).length
     return {
-      label: `${kernelLabels[kernel]} 子节点`,
+      label: `${kernelLabels[kernel]} 节点`,
       ok: nodes.length > 0 && accessible === nodes.length,
-      detail: nodes.length > 0 ? `${accessible}/${nodes.length} 可用` : '无子节点',
+      detail: nodes.length > 0 ? `${accessible}/${nodes.length} 可用` : '无节点',
     }
   })
 
@@ -178,7 +178,7 @@ export default function ConfigPage({ initialConfigs, initialStatus, initialClust
             </TabsContent>
             <TabsContent value="capabilities" className="grid gap-3 md:grid-cols-2">
               {[
-                { label: 'Mihomo 转换', ok: Boolean(status?.mihomoAvailable), detail: status?.mihomoVersion || '未检测到' },
+                { label: 'Mihomo 转换', ok: Boolean(status?.mihomoAvailable), detail: status?.mihomoAvailable ? status.mihomoVersion || '版本未知' : '运行 miobridge setup --yes' },
                 ...kernelCapabilities,
                 { label: 'subscription.txt', ok: Boolean(status?.subscriptionExists), detail: status?.subscriptionExists ? '已生成' : '未生成' },
                 { label: 'clash.yaml', ok: Boolean(status?.clashExists), detail: status?.clashExists ? '已生成' : '未生成' },

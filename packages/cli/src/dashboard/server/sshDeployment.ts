@@ -3,13 +3,16 @@ import { randomUUID } from 'node:crypto';
 import { posix } from 'node:path';
 import {
   KERNEL_TYPES,
+  isLocalNode,
   validateNodeKernels,
   type KernelType,
   type NodeConfig,
   type NodeKernelConfig,
+  type NodeStatus,
 } from '@miobridge/core';
 import { Client, type ClientChannel, type ConnectConfig } from 'ssh2';
 import type { NodeCoreComposition } from '../../composition.js';
+import type { LocalKernelInstaller } from '../../setup/kernelService.js';
 
 const AGENT_REMOTE_PATH = '/usr/local/bin/miobridge-agent';
 const AGENT_CONFIG_PATH = '/etc/miobridge-agent/agent.yaml';
@@ -45,11 +48,203 @@ export interface KernelDetection {
 export interface DeployStatus {
   readonly nodeId: string;
   readonly deploymentId: string;
-  readonly step: 'connect' | 'kernel' | 'agent' | 'start' | 'verify' | 'done';
-  readonly status: 'pending' | 'running' | 'success' | 'error';
+  readonly scope: DeploymentScope;
+  readonly step: 'connect' | 'configure' | 'kernel' | 'agent' | 'start' | 'verify' | 'done';
+  readonly status: 'pending' | 'running' | 'success' | 'error' | 'no_kernels';
   readonly message: string;
   readonly progress: number;
   readonly startedAt: number;
+}
+
+export type DeploymentScope = 'listener' | 'kernels' | 'all';
+
+export type DeploymentCheckCategory = 'prerequisite' | 'listener' | 'kernel';
+export type DeploymentCheckStatus = 'ready' | 'action_required' | 'blocked';
+
+export interface DeploymentCheck {
+  readonly id: string;
+  readonly category: DeploymentCheckCategory;
+  readonly label: string;
+  readonly status: DeploymentCheckStatus;
+  readonly message: string;
+  readonly kernelType?: KernelType;
+}
+
+export interface DeploymentPlan {
+  readonly nodeId: string;
+  readonly nodeName: string;
+  readonly kind: 'local' | 'child';
+  readonly preflightReady: boolean;
+  readonly deployable: boolean;
+  readonly ready: boolean;
+  readonly recommendedScope: DeploymentScope | null;
+  readonly blockers: readonly string[];
+  readonly checks: readonly DeploymentCheck[];
+  readonly target?: {
+    readonly host: string;
+    readonly user: string;
+    readonly port: number;
+  };
+}
+
+export interface DeploymentPlanOptions {
+  readonly sshConfigured?: boolean;
+  readonly credentialAvailable?: boolean;
+  readonly sshHost?: string;
+  readonly sshUser?: string;
+  readonly sshPort?: number;
+}
+
+export function isDeploymentScope(value: unknown): value is DeploymentScope {
+  return value === 'listener' || value === 'kernels' || value === 'all';
+}
+
+function isLocalRuntimeNode(node: NodeStatus): boolean {
+  return node.kind === 'local' || node.nodeId === 'local';
+}
+
+function listenerStatus(node: NodeStatus): { deployed: boolean; listening: boolean; error?: string } {
+  return node.listener ?? (isLocalRuntimeNode(node)
+    ? { deployed: true, listening: node.online }
+    : { deployed: Boolean(node.agent?.deployed), listening: node.online });
+}
+
+export function planNodeDeployment(node: NodeStatus, options: DeploymentPlanOptions = {}): DeploymentPlan {
+  const local = isLocalRuntimeNode(node);
+  const checks: DeploymentCheck[] = [];
+  const blockers: string[] = [];
+
+  if (local) {
+    checks.push({
+      id: 'prerequisite:local', category: 'prerequisite', label: '本机执行环境', status: 'ready',
+      message: '由当前 MioBridge 服务直接部署',
+    });
+  } else if (!options.sshConfigured) {
+    const message = '未配置 SSH 连接信息';
+    blockers.push(message);
+    checks.push({ id: 'prerequisite:ssh', category: 'prerequisite', label: 'SSH 凭据', status: 'blocked', message });
+  } else if (!options.credentialAvailable) {
+    const message = 'SSH 凭据已丢失，需要重新配置节点';
+    blockers.push(message);
+    checks.push({ id: 'prerequisite:ssh', category: 'prerequisite', label: 'SSH 凭据', status: 'blocked', message });
+  } else {
+    checks.push({
+      id: 'prerequisite:ssh', category: 'prerequisite', label: 'SSH 凭据', status: 'ready',
+      message: '连接信息和凭据已保存',
+    });
+  }
+
+  const listener = listenerStatus(node);
+  const listenerReady = listener.deployed && listener.listening;
+  checks.push({
+    id: 'listener', category: 'listener', label: local ? '本机监听程序' : 'Agent 监听程序',
+    status: listenerReady ? 'ready' : 'action_required',
+    message: listenerReady
+      ? '已部署并成功监听'
+      : !listener.deployed
+        ? `尚未部署${listener.error ? `：${listener.error}` : ''}`
+        : `未成功监听${listener.error ? `：${listener.error}` : ''}`,
+  });
+
+  if (node.configuredKernels.length === 0) {
+    const message = '未配置内核，请先选择至少一个内核';
+    blockers.push(message);
+    checks.push({
+      id: 'kernel:none', category: 'kernel', label: '内核配置', status: 'blocked', message,
+    });
+  } else {
+    const runtimeByType = new Map(node.kernels.map(kernel => [kernel.type, kernel]));
+    for (const configured of node.configuredKernels) {
+      const runtime = runtimeByType.get(configured.type);
+      let status: DeploymentCheckStatus = 'ready';
+      let message = runtime?.version ? `已就绪 · ${runtime.version}` : '已部署、监听且可访问';
+      if (!runtime?.detected) {
+        status = 'action_required';
+        message = `尚未安装${runtime?.error ? `：${runtime.error}` : ''}`;
+      } else if (!runtime.monitored) {
+        status = 'action_required';
+        message = '已安装，但监听程序尚未加载';
+      } else if (!runtime.accessible) {
+        status = 'action_required';
+        message = `监听配置不可访问${runtime.error ? `：${runtime.error}` : ''}`;
+      }
+      checks.push({
+        id: `kernel:${configured.type}`, category: 'kernel', label: configured.type,
+        status, message, kernelType: configured.type,
+      });
+    }
+  }
+
+  const prerequisiteReady = checks
+    .filter(check => check.category === 'prerequisite')
+    .every(check => check.status === 'ready');
+  const hasKernels = node.configuredKernels.length > 0;
+  const kernelsReady = hasKernels && checks
+    .filter(check => check.category === 'kernel')
+    .every(check => check.status === 'ready');
+  const deployable = prerequisiteReady && hasKernels;
+  const ready = deployable && listenerReady && kernelsReady;
+  const recommendedScope: DeploymentScope | null = !deployable || ready
+    ? null
+    : !listenerReady && !kernelsReady
+      ? 'all'
+      : !listenerReady ? 'listener' : 'kernels';
+
+  return {
+    nodeId: node.nodeId,
+    nodeName: node.name,
+    kind: local ? 'local' : 'child',
+    preflightReady: deployable,
+    deployable,
+    ready,
+    recommendedScope,
+    blockers,
+    checks,
+    ...(!local && options.sshHost && options.sshUser ? {
+      target: { host: options.sshHost, user: options.sshUser, port: options.sshPort ?? 22 },
+    } : {}),
+  };
+}
+
+export function assessNodeDeployment(node: NodeStatus, progress?: DeployStatus | null): DeployStatus {
+  if (progress?.status === 'pending' || progress?.status === 'running') return progress;
+  const base = {
+    nodeId: node.nodeId,
+    deploymentId: progress?.deploymentId ?? `runtime-${node.nodeId}`,
+    scope: progress?.scope ?? 'all',
+    step: 'verify' as const,
+    startedAt: progress?.startedAt ?? 0,
+  };
+  const listener = listenerStatus(node);
+  if (!listener.deployed) {
+    return { ...base, status: 'error', message: `监听程序未部署${listener.error ? `：${listener.error}` : ''}`, progress: 10 };
+  }
+  if (!listener.listening) {
+    return { ...base, status: 'error', message: `监听程序未成功监听${listener.error ? `：${listener.error}` : ''}`, progress: 25 };
+  }
+  if (node.configuredKernels.length === 0) {
+    return { ...base, status: 'no_kernels', message: '暂无内核', progress: 0 };
+  }
+
+  const runtimeByType = new Map(node.kernels.map(kernel => [kernel.type, kernel]));
+  const issues = node.configuredKernels.flatMap(config => {
+    const runtime = runtimeByType.get(config.type);
+    if (!runtime?.detected) return [`${config.type} 未部署${runtime?.error ? `：${runtime.error}` : ''}`];
+    if (!runtime.monitored) return [`${config.type} 未监听`];
+    if (!runtime.accessible) return [`${config.type} 监听不可访问${runtime.error ? `：${runtime.error}` : ''}`];
+    return [];
+  });
+  if (issues.length > 0) {
+    const ready = node.configuredKernels.length - issues.length;
+    const progressValue = Math.round(50 + (ready / node.configuredKernels.length) * 40);
+    return { ...base, status: 'error', message: `内核未就绪：${issues.join('；')}`, progress: progressValue };
+  }
+  return {
+    ...base,
+    status: 'success',
+    message: `监听程序正常，${node.configuredKernels.length} 个已配置内核全部就绪`,
+    progress: 100,
+  };
 }
 
 interface SshTarget {
@@ -84,7 +279,7 @@ function shellQuote(value: string): string {
   return `'${value.replace(/'/g, `'\\''`)}'`;
 }
 
-function validatePrivateKey(value: string): void {
+export function validatePrivateKey(value: string): void {
   if (Buffer.byteLength(value, 'utf8') > 64 * 1024) throw new Error('SSH 私钥不能超过 64 KiB');
   const trimmed = value.trim();
   if (!trimmed.includes('PRIVATE KEY-----')) throw new Error('无效的 SSH 私钥');
@@ -107,8 +302,13 @@ export function agentRelease(
 
 export class SshDeploymentService {
   readonly #progress = new Map<string, DeployStatus>();
+  readonly #subscribers = new Set<(status: DeployStatus) => void>();
+  readonly #starting = new Set<string>();
 
-  constructor(private readonly composition: NodeCoreComposition) {}
+  constructor(
+    private readonly composition: NodeCoreComposition,
+    private readonly localKernels?: LocalKernelInstaller,
+  ) {}
 
   async detect(body: unknown): Promise<KernelDetection[]> {
     const input = inputObject(body);
@@ -123,28 +323,47 @@ export class SshDeploymentService {
     }
   }
 
-  async startDeployment(nodeId: string, kernels?: unknown): Promise<{ deploymentId: string }> {
-    const node = await this.findNode(nodeId);
-    const requested = validateNodeKernels(kernels === undefined ? node.kernels : kernels, false).map(kernel => {
-      const current = node.kernels.find(item => item.type === kernel.type);
-      return current?.configPath ? { ...kernel, configPath: current.configPath } : kernel;
-    });
-    const deploymentId = randomUUID();
-    const startedAt = Date.now();
-    this.setProgress({ nodeId, deploymentId, step: 'connect', status: 'pending', message: '等待 SSH 连接', progress: 0, startedAt });
-    await this.composition.repository.update(nodeId, current => ({
-      ...current,
-      agent: {
-        deployed: current.agent?.deployed ?? false,
-        version: current.agent?.version ?? '',
-        lastDeploy: current.agent?.lastDeploy ?? '',
-        port: current.port ?? current.agent?.port ?? 3001,
-        status: 'deploying',
-        deploymentId,
-      },
-    }));
-    void this.runDeployment(node, requested, deploymentId, startedAt);
-    return { deploymentId };
+  async startDeployment(nodeId: string, kernels?: unknown, scope: DeploymentScope = 'all'): Promise<{ deploymentId: string }> {
+    const active = this.#progress.get(nodeId);
+    if (this.#starting.has(nodeId) || active?.status === 'pending' || active?.status === 'running') {
+      throw new Error(`节点 ${nodeId} 正在部署，请等待当前任务完成`);
+    }
+    this.#starting.add(nodeId);
+    try {
+      const node = await this.findNode(nodeId);
+      const requested = validateNodeKernels(kernels === undefined ? node.kernels : kernels, isLocalNode(node) || scope === 'listener').map(kernel => {
+        const current = node.kernels.find(item => item.type === kernel.type);
+        return current?.configPath ? { ...kernel, configPath: current.configPath } : kernel;
+      });
+      const deploymentId = randomUUID();
+      const startedAt = Date.now();
+      if (isLocalNode(node)) {
+        this.setProgress({ nodeId, deploymentId, scope, step: 'configure', status: 'running', message: '正在准备本机部署', progress: 5, startedAt });
+        void this.runLocalDeployment(nodeId, requested, deploymentId, scope, startedAt);
+        return { deploymentId };
+      }
+      this.setProgress({ nodeId, deploymentId, scope, step: 'connect', status: 'pending', message: '等待 SSH 连接', progress: 0, startedAt });
+      await this.composition.repository.update(nodeId, current => ({
+        ...current,
+        agent: {
+          deployed: current.agent?.deployed ?? false,
+          version: current.agent?.version ?? '',
+          lastDeploy: current.agent?.lastDeploy ?? '',
+          port: current.port ?? current.agent?.port ?? 3001,
+          status: 'deploying',
+          deploymentId,
+        },
+      }));
+      void this.runDeployment(node, requested, deploymentId, scope, startedAt);
+      return { deploymentId };
+    } finally {
+      this.#starting.delete(nodeId);
+    }
+  }
+
+  subscribe(listener: (status: DeployStatus) => void): () => void {
+    this.#subscribers.add(listener);
+    return () => { this.#subscribers.delete(listener); };
   }
 
   getProgress(nodeId: string): DeployStatus | null {
@@ -211,40 +430,51 @@ export class SshDeploymentService {
     node: NodeConfig,
     kernels: NodeKernelConfig[],
     deploymentId: string,
+    scope: DeploymentScope,
     startedAt: number,
   ): Promise<void> {
     let target: SshTarget | undefined;
     let ssh: Client | undefined;
     const emit = (step: DeployStatus['step'], status: DeployStatus['status'], message: string, progress: number) => {
       if (this.#progress.get(node.id)?.deploymentId === deploymentId) {
-        this.setProgress({ nodeId: node.id, deploymentId, step, status, message, progress, startedAt });
+        this.setProgress({ nodeId: node.id, deploymentId, scope, step, status, message, progress, startedAt });
       }
     };
     try {
       emit('connect', 'running', '正在建立 SSH 连接', 5);
       target = await this.targetForNode(node.id, kernels);
       ssh = await this.connect(target);
-      emit('connect', 'success', 'SSH 连接成功', 15);
+      emit('connect', 'running', 'SSH 连接成功', 15);
 
       const monitored: NodeKernelConfig[] = [];
-      for (const kernel of kernels) {
-        emit('kernel', 'running', `检查 ${kernel.type} 内核`, 25);
-        await this.ensureKernel(ssh, target, kernel);
-        monitored.push(kernel);
+      if (scope !== 'listener') {
+        for (const [index, kernel] of kernels.entries()) {
+          emit('kernel', 'running', `检查并部署 ${kernel.type} 内核`, 20 + Math.round((index / kernels.length) * 35));
+          await this.ensureKernel(ssh, target, kernel);
+          monitored.push(kernel);
+        }
+        emit('kernel', 'running', `${monitored.length} 个内核已部署`, 55);
+      } else {
+        monitored.push(...kernels);
       }
-      emit('kernel', 'success', `${monitored.length} 个内核已就绪`, 50);
 
-      emit('agent', 'running', '下载并安装已校验 Agent', 60);
-      await this.installAgent(ssh, target, monitored);
-      emit('agent', 'success', 'Agent 已安装', 80);
+      if (scope !== 'kernels') {
+        emit('agent', 'running', '下载并安装已校验监听程序', scope === 'listener' ? 35 : 60);
+        await this.installAgentBinary(ssh, target);
+      } else {
+        const agent = await this.exec(ssh, `test -x ${AGENT_REMOTE_PATH}`);
+        if (agent.code !== 0) throw new Error('监听程序未部署，请先部署监听程序或选择部署全部');
+      }
+      emit('configure', 'running', '写入监听和内核监控配置', scope === 'listener' ? 65 : 72);
+      await this.configureAgent(ssh, target, monitored);
 
-      emit('start', 'running', '启动 Agent 服务', 85);
+      emit('start', 'running', '启动监听程序', scope === 'listener' ? 75 : 82);
       await this.startAgent(ssh, target);
-      emit('start', 'success', 'Agent 已启动', 92);
+      emit('start', 'running', '监听程序已启动', 90);
 
-      emit('verify', 'running', '验证 Agent 健康状态', 95);
+      emit('verify', 'running', '验证监听端口和健康状态', 94);
       await this.verifyAgent(ssh, target);
-      emit('verify', 'success', 'Agent 健康检查通过', 98);
+      emit('verify', 'running', '监听程序健康检查通过，正在核验内核', 98);
 
       await this.completeNode(node.id, deploymentId, current => ({
         ...current,
@@ -258,7 +488,7 @@ export class SshDeploymentService {
           port: target!.agentPort,
         },
       }));
-      emit('done', 'success', `Agent 已部署到节点 ${node.name}`, 100);
+      emit('done', 'success', `${scope === 'listener' ? '监听程序' : scope === 'kernels' ? '内核' : '监听程序和内核'}已部署到节点 ${node.name}`, 100);
     } catch (error) {
       const message = error instanceof Error ? error.message : '部署失败';
       await this.completeNode(node.id, deploymentId, current => ({
@@ -276,6 +506,53 @@ export class SshDeploymentService {
       emit(current?.step ?? 'connect', 'error', message, current?.progress ?? 0);
     } finally {
       ssh?.end();
+    }
+  }
+
+  private async runLocalDeployment(
+    nodeId: string,
+    kernels: readonly NodeKernelConfig[],
+    deploymentId: string,
+    scope: DeploymentScope,
+    startedAt: number,
+  ): Promise<void> {
+    try {
+      if (scope !== 'listener') {
+        if (!this.localKernels) throw new Error('本机内核安装器不可用');
+        for (const [index, kernel] of kernels.entries()) {
+          const progress = 15 + Math.round((index / Math.max(kernels.length, 1)) * 60);
+          this.setProgress({
+            nodeId, deploymentId, scope, step: 'kernel', status: 'running',
+            message: `正在部署本机 ${kernel.type} 内核`, progress, startedAt,
+          });
+          const installed = await this.localKernels.ensure(kernel.type);
+          this.setProgress({
+            nodeId, deploymentId, scope, step: 'kernel', status: 'running',
+            message: `${kernel.type} ${installed.installed ? '安装完成' : '已存在'}，正在继续部署`,
+            progress: 75, startedAt,
+          });
+        }
+      }
+      this.setProgress({
+        nodeId, deploymentId, scope, step: 'verify', status: 'running',
+        message: '正在验证本机监听程序和内核', progress: 90, startedAt,
+      });
+      const cluster = await this.composition.aggregation.getClusterStatus();
+      const node = cluster.nodes.find(item => item.nodeId === nodeId);
+      if (!node) throw new Error(`节点 ${nodeId} 不存在`);
+      const assessed = assessNodeDeployment(node, null);
+      this.setProgress({ ...assessed, nodeId, deploymentId, scope, startedAt });
+    } catch (error) {
+      this.setProgress({
+        nodeId,
+        deploymentId,
+        scope,
+        step: 'verify',
+        status: 'error',
+        message: error instanceof Error ? error.message : '本机部署失败',
+        progress: this.#progress.get(nodeId)?.progress ?? 5,
+        startedAt,
+      });
     }
   }
 
@@ -401,7 +678,7 @@ export class SshDeploymentService {
     if (!(await this.detectKernel(ssh, kernel.type)).installed) throw new Error(`${kernel.type} 安装后检测失败`);
   }
 
-  private async installAgent(ssh: Client, target: SshTarget, kernels: readonly NodeKernelConfig[]): Promise<void> {
+  private async installAgentBinary(ssh: Client, target: SshTarget): Promise<void> {
     const detected = await this.exec(ssh, 'uname -m');
     if (detected.code !== 0) throw new Error(`Agent 架构检测失败: ${(detected.stderr || detected.stdout).trim()}`);
     const machine = detected.stdout.trim();
@@ -429,6 +706,9 @@ export class SshDeploymentService {
     ].join('\n');
     const installed = await this.execRoot(ssh, target, `bash -c ${shellQuote(installScript)}`);
     if (installed.code !== 0) throw new Error(`Agent 安装或校验失败: ${(installed.stderr || installed.stdout).trim().slice(-600)}`);
+  }
+
+  private async configureAgent(ssh: Client, target: SshTarget, kernels: readonly NodeKernelConfig[]): Promise<void> {
     await this.writeRemoteFile(ssh, target, AGENT_CONFIG_PATH, this.agentYaml(target, kernels), 0o600);
     await this.writeRemoteFile(ssh, target, AGENT_SERVICE_PATH, this.systemdUnit(), 0o644);
   }
@@ -478,6 +758,9 @@ export class SshDeploymentService {
 
   private setProgress(status: DeployStatus): void {
     this.#progress.set(status.nodeId, status);
+    for (const subscriber of this.#subscribers) {
+      try { subscriber(status); } catch { /* A disconnected stream must not abort deployment. */ }
+    }
   }
 
   private cleanupProgress(): void {

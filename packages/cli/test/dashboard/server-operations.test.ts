@@ -33,14 +33,18 @@ const stubOps: DashboardOperationsPort = {
   triggerClusterUpdate: async () => ok({ updated: 1, results: {} }),
   addNode: async () => ok({ id: 'n1', name: 'new-node' }),
   updateNodeKernels: async () => ok({ id: 'n1', kernels: [] }),
+  updateNodeConnection: async () => ok({ id: 'n1', host: '10.0.0.2' }),
   restartAgent: async () => ok({}),
   startAgent: async () => ok({}),
   stopAgent: async () => ok({}),
   uninstallAgent: async () => ok({}),
   updateAgent: async () => ok({}),
   deployToNode: async () => ok({ deploymentId: 'd1' }),
+  deployBatch: async () => ok({ started: 1, skipped: 0, failed: 0, results: [] }),
+  getDeploymentPlans: async () => ok({ plans: {} }),
   getDeployProgress: async () => ok({ status: null }),
   getAllDeployStatuses: async () => ok({ deployments: {} }),
+  subscribeDeployProgress: () => () => {},
   detectKernels: async () => ok([]),
   installKernel: async () => ok({}),
   uninstallKernel: async () => ok({}),
@@ -138,16 +142,60 @@ describe('operations routes', () => {
     expect(res.statusCode).toBe(400);
   });
 
+  it('PUT /api/cluster/nodes/connection updates SSH settings', async () => {
+    const { handled, res } = await dispatch('PUT', '/api/cluster/nodes/connection', {
+      nodeId: 'n1', host: '10.0.0.2', user: 'root', authMethod: 'password', password: 'secret',
+    });
+    expect(handled).toBe(true);
+    expect(res.statusCode).toBe(200);
+  });
+
+  it('PUT /api/cluster/nodes/connection requires nodeId', async () => {
+    const { handled, res } = await dispatch('PUT', '/api/cluster/nodes/connection', {});
+    expect(handled).toBe(true);
+    expect(res.statusCode).toBe(400);
+  });
+
   it('POST /api/cluster/deploy returns 202', async () => {
     const { handled, res } = await dispatch('POST', '/api/cluster/deploy', { nodeId: 'n1' });
     expect(handled).toBe(true);
     expect(res.statusCode).toBe(202);
   });
 
+  it('POST /api/cluster/deploy accepts a deployment scope', async () => {
+    const { handled, res } = await dispatch('POST', '/api/cluster/deploy', { nodeId: 'n1', scope: 'listener' });
+    expect(handled).toBe(true);
+    expect(res.statusCode).toBe(202);
+  });
+
+  it('POST /api/cluster/deploy rejects an invalid deployment scope', async () => {
+    const { handled, res } = await dispatch('POST', '/api/cluster/deploy', { nodeId: 'n1', scope: 'invalid' });
+    expect(handled).toBe(true);
+    expect(res.statusCode).toBe(400);
+  });
+
   it('POST /api/cluster/deploy without nodeId returns 400', async () => {
     const { handled, res } = await dispatch('POST', '/api/cluster/deploy', {});
     expect(handled).toBe(true);
     expect(res.statusCode).toBe(400);
+  });
+
+  it('POST /api/cluster/deploy/batch returns 202', async () => {
+    const { handled, res } = await dispatch('POST', '/api/cluster/deploy/batch', { nodeIds: ['n1', 'n1'] });
+    expect(handled).toBe(true);
+    expect(res.statusCode).toBe(202);
+  });
+
+  it('POST /api/cluster/deploy/batch rejects malformed node ids', async () => {
+    const { handled, res } = await dispatch('POST', '/api/cluster/deploy/batch', { nodeIds: 'n1' });
+    expect(handled).toBe(true);
+    expect(res.statusCode).toBe(400);
+  });
+
+  it('GET /api/cluster/deploy/plan returns deployment plans', async () => {
+    const { handled, res } = await dispatch('GET', '/api/cluster/deploy/plan', undefined, { nodes: 'n1,n2' });
+    expect(handled).toBe(true);
+    expect(res.statusCode).toBe(200);
   });
 
   it('POST /api/cluster/deploy/progress', async () => {
@@ -160,6 +208,41 @@ describe('operations routes', () => {
     const { handled, res } = await dispatch('GET', '/api/cluster/deploy/status', undefined, { nodes: 'n1,n2' });
     expect(handled).toBe(true);
     expect(res.statusCode).toBe(200);
+  });
+
+  it('GET /api/cluster/deploy/events opens an unbuffered event stream', async () => {
+    const listeners = new Set<(status: any) => void>();
+    const dependencies = stubDeps();
+    dependencies.operations = {
+      ...stubOps,
+      getAllDeployStatuses: async () => ok({ deployments: { n1: {
+        nodeId: 'n1', deploymentId: 'runtime-n1', scope: 'all', step: 'verify', status: 'error',
+        message: '监听程序未部署', progress: 10, startedAt: 0,
+      } } }),
+      subscribeDeployProgress(listener) {
+        listeners.add(listener);
+        return () => { listeners.delete(listener); };
+      },
+    };
+    const routes = new DashboardRouteRegistry();
+    registerOperationsRoutes(routes, dependencies);
+    const req = createDashboardTestRequest({ method: 'GET', path: '/api/cluster/deploy/events' });
+    const res = createDashboardTestResponse();
+
+    expect(await routes.dispatch(req, res)).toBe(true);
+    expect(res.headers['content-type']).toBe('text/event-stream; charset=utf-8');
+    expect(res.headers['x-accel-buffering']).toBe('no');
+    expect(res.body).toContain('event: progress');
+    expect(res.body).toContain('"nodeId":"n1"');
+
+    for (const listener of listeners) listener({
+      nodeId: 'n1', deploymentId: 'd1', scope: 'listener', step: 'agent', status: 'running',
+      message: '正在安装', progress: 35, startedAt: 1,
+    });
+    expect(res.body).toContain('"progress":35');
+    req.close();
+    expect(res.ended).toBe(true);
+    expect(listeners.size).toBe(0);
   });
 
   it('agent lifecycle routes all return 200', async () => {

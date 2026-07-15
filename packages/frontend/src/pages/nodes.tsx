@@ -2,8 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Icon } from '@iconify/react'
 import { toast } from 'sonner'
 import { apiService } from '@/lib/api'
-import type { ClusterStatus, KernelType, NodeKernelConfig, NodeStatus } from '@/lib/types'
-import type { KernelDetection } from '@/lib/types'
+import { isLocalNode, type ClusterStatus, type KernelDetection, type KernelType, type NodeKernelConfig, type NodeStatus } from '@/lib/types'
 import { AddNodeForm } from '@/components/cluster/AddNodeForm'
 import { KernelDetectionDialog } from '@/components/cluster/KernelDetectionDialog'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
@@ -41,6 +40,7 @@ const FILTERS: Array<{ value: Filter; label: string }> = [
 ]
 
 function agentLabel(node: NodeStatus) {
+  if (isLocalNode(node)) return '本机直连'
   switch (node.agent?.status) {
     case 'running': return '运行中'
     case 'deploying': return '部署中'
@@ -96,7 +96,7 @@ export default function NodesPage({ initialCluster, initialError = null }: Nodes
     const list = cluster?.nodes || []
     if (filter === 'online') return list.filter(node => node.online)
     if (filter === 'offline') return list.filter(node => !node.online)
-    if (filter === 'undeployed') return list.filter(node => node.nodeId !== 'local' && !node.agent?.deployed)
+    if (filter === 'undeployed') return list.filter(node => !isLocalNode(node) && !node.agent?.deployed)
     return list
   }, [cluster?.nodes, filter])
 
@@ -171,8 +171,8 @@ export default function NodesPage({ initialCluster, initialError = null }: Nodes
     <SignalPage
       crumb="Fleet topology"
       title="节点"
-      description="管理子节点和远端 Agent，按生命周期状态执行健康检查、部署和恢复。"
-      status={`子节点心跳 ${cluster?.lastUpdated ? new Date(cluster.lastUpdated).toLocaleTimeString('zh-CN') : '待同步'}`}
+      description="统一查看和管理全部节点的运行状态、监听内核与部署入口。"
+      status={`节点状态 ${cluster?.lastUpdated ? new Date(cluster.lastUpdated).toLocaleTimeString('zh-CN') : '待同步'}`}
       maxWidth="narrow"
       actions={(
         <>
@@ -200,10 +200,10 @@ export default function NodesPage({ initialCluster, initialError = null }: Nodes
 
       <div className="grid gap-5 md:grid-cols-3">
         <Card variant="elevated">
-          <CardHeader className="pb-3"><CardDescription>子节点总数</CardDescription><CardTitle className="signal-value">{cluster?.totalNodes ?? 0}</CardTitle></CardHeader>
+          <CardHeader className="pb-3"><CardDescription>全部节点</CardDescription><CardTitle className="signal-value">{cluster?.totalNodes ?? 0}</CardTitle></CardHeader>
         </Card>
         <Card variant="elevated">
-          <CardHeader className="pb-3"><CardDescription>在线子节点</CardDescription><CardTitle className="signal-value signal-success">{cluster?.onlineNodes ?? 0}</CardTitle></CardHeader>
+          <CardHeader className="pb-3"><CardDescription>在线节点</CardDescription><CardTitle className="signal-value signal-success">{cluster ? `${cluster.onlineNodes}/${cluster.totalNodes}` : '0/0'}</CardTitle></CardHeader>
         </Card>
         <Card variant="elevated">
           <CardHeader className="pb-3"><CardDescription>代理总数</CardDescription><CardTitle className="signal-value">{cluster?.totalProxies ?? 0}</CardTitle></CardHeader>
@@ -215,12 +215,12 @@ export default function NodesPage({ initialCluster, initialError = null }: Nodes
           <div>
             <CardTitle className="text-xl">节点生命周期</CardTitle>
             <CardDescription className="flex items-center gap-1">
-              子节点提供节点源，控制面聚合后生成 raw.txt、subscription.txt 和 clash.yaml。
+              所有节点统一展示；本机节点直接监听本地内核，其他节点通过 Agent 提供节点源。
               <Tooltip>
                 <TooltipTrigger asChild>
                   <Icon icon="ph:info-bold" className="h-3.5 w-3.5 cursor-help" />
                 </TooltipTrigger>
-                <TooltipContent>本机控制面只聚合与转换，不作为子节点参与统计</TooltipContent>
+                <TooltipContent>本机节点无需 SSH；部署页会安装已配置内核并验证实际运行状态</TooltipContent>
               </Tooltip>
             </CardDescription>
           </div>
@@ -245,7 +245,10 @@ export default function NodesPage({ initialCluster, initialError = null }: Nodes
                         <p className="text-sm text-muted-foreground">{kernelSummary(node)} · {node.nodeId}</p>
                       </div>
                     </div>
-                    <Badge variant={node.online ? 'secondary' : 'destructive'}>{node.online ? '在线' : '异常'}</Badge>
+                    <div className="flex flex-col items-end gap-2">
+                      <Badge variant={isLocalNode(node) ? 'default' : 'outline'}>{isLocalNode(node) ? '本机节点' : '节点'}</Badge>
+                      <Badge variant={node.online ? 'secondary' : 'destructive'}>{node.online ? '在线' : '异常'}</Badge>
+                    </div>
                   </div>
                   <div className="mt-4 flex flex-wrap gap-2">
                     <KernelStatusPills
@@ -268,20 +271,20 @@ export default function NodesPage({ initialCluster, initialError = null }: Nodes
                 </button>
                 <div className="mt-5 flex flex-wrap gap-2">
                   <Button size="sm" variant="outline" disabled={busyNode === node.nodeId} onClick={() => runNodeAction(node.nodeId, () => apiService.clusterHealthCheck(node.nodeId))}>检查</Button>
-                  {node.nodeId !== 'local' ? (
+                  {!isLocalNode(node) ? (
                     <Button size="sm" variant="outline" disabled={busyNode === node.nodeId} onClick={() => openKernelEditor(node)}>调整内核</Button>
                   ) : null}
-                  {node.nodeId !== 'local' && !node.agent?.deployed ? (
+                  {!isLocalNode(node) && !node.agent?.deployed ? (
                     <Button size="sm" disabled={busyNode === node.nodeId} onClick={() => runNodeAction(node.nodeId, () => apiService.deployNode(node.nodeId))}>部署</Button>
                   ) : null}
-                  {node.nodeId !== 'local' && node.agent?.status === 'running' ? (
+                  {!isLocalNode(node) && node.agent?.status === 'running' ? (
                     <Button size="sm" variant="outline" disabled={busyNode === node.nodeId} onClick={() => runNodeAction(node.nodeId, () => apiService.restartAgent(node.nodeId))}>重启</Button>
                   ) : null}
                 </div>
               </article>
             ))}
             {nodes.length === 0 ? (
-              <div className="rounded-[24px] border border-[var(--border)] bg-[var(--surface-container)] p-10 text-center text-muted-foreground">还没有匹配的子节点</div>
+              <div className="rounded-[24px] border border-[var(--border)] bg-[var(--surface-container)] p-10 text-center text-muted-foreground">还没有匹配的节点</div>
             ) : null}
           </div>
         </CardContent>
@@ -301,7 +304,8 @@ export default function NodesPage({ initialCluster, initialError = null }: Nodes
                 ['内核', kernelSummary(selectedNode)],
                 ['代理数量', selectedNode.nodesCount ?? '-'],
                 ['版本', selectedNode.version || '-'],
-                ['Agent', `${agentLabel(selectedNode)} ${selectedNode.agent?.version || ''}`],
+                ['节点类型', isLocalNode(selectedNode) ? '本机节点' : '节点'],
+                ...(!isLocalNode(selectedNode) ? [['Agent', `${agentLabel(selectedNode)} ${selectedNode.agent?.version || ''}`]] : []),
               ].map(([label, value]) => (
                 <div key={label} className="flex items-center justify-between gap-4 rounded-2xl bg-[var(--surface-container)] p-3">
                   <span className="text-muted-foreground">{label}</span>

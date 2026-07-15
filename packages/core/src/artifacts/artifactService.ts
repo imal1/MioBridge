@@ -5,7 +5,11 @@ import type { Config } from '../types/config.js';
 import { buildClashSubscriptionResult, dedupeProxySources, type CollectedProxySource } from './sources.js';
 
 export interface SourceCollection { readonly sources: CollectedProxySource[]; readonly errors: string[] }
-export interface LocalSourceCollector { isAvailable(): Promise<boolean>; extractNodeUrls(): Promise<string[]> }
+export interface LocalSourceCollector {
+  isAvailable(): Promise<boolean>;
+  extractNodeUrls(): Promise<string[]>;
+  isConfigured?(): Promise<boolean>;
+}
 export interface RemoteSourceCollector { collectRemoteNodeSources(): Promise<SourceCollection> }
 export interface ClashConverter {
   checkHealth(): Promise<boolean>;
@@ -91,6 +95,7 @@ export class ArtifactService {
 
   private async collectLocal(target: CollectedProxySource[], errors: string[]): Promise<void> {
     try {
+      if (this.options.local.isConfigured && !await this.options.local.isConfigured()) return;
       if (!await this.options.local.isAvailable()) { errors.push('本机: Sing-box不可用，跳过本机节点源'); return; }
       target.push(...(await this.options.local.extractNodeUrls()).map(url => ({ url, kernel: 'sing-box' as const, nodeId: 'local', location: '本机' })));
     } catch (error) { errors.push(`本机来源收集失败: ${error instanceof Error ? error.message : String(error)}`); }

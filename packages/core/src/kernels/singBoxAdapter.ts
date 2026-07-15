@@ -30,6 +30,15 @@ export class SingBoxAdapter implements KernelAdapter {
   async isAvailable(): Promise<boolean> {
     return Boolean(await this.resolveExecutable());
   }
+  async getVersion(): Promise<string | undefined> {
+    const executable = await this.resolveExecutable();
+    if (!executable) return undefined;
+    try {
+      const result = await this.options.process.run(executable, ['version'], { timeout: 5000 });
+      return result.stdout.match(/\bv?\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?\b/)?.[0]
+        ?? result.stdout.trim().split(/\s+/).at(-1);
+    } catch { return undefined; }
+  }
   async extractNodeUrls(): Promise<string[]> {
     const urls: string[] = [];
     const executable = await this.resolveExecutable();

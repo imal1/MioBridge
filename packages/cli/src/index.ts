@@ -13,6 +13,8 @@ export { formatDashboardDaemonStatus, runDashboardDaemonCommand } from './dashbo
 export type { DashboardDaemonAction } from './dashboard/commands.js';
 export { DASHBOARD_UNIT_NAME, DashboardSystemdService, createNodeSystemdAdapters, renderDashboardUserUnit } from './dashboard/systemd.js';
 export type { CommandResult, DashboardDaemonOptions, DashboardDaemonState, DashboardDaemonStatus, SystemdAdapters } from './dashboard/systemd.js';
+export { LocalNodeConfigurationService, formatLocalNodeConfiguration } from './nodes/localConfiguration.js';
+export type { LocalNodeConfigurationAdapters, LocalNodeConfigurationResult } from './nodes/localConfiguration.js';
 export { SelfMaintenanceService } from './self/service.js';
 export type { SelfMaintenanceAdapters, SelfMaintenanceOptions } from './self/service.js';
 export { createNodeSelfMaintenanceAdapters } from './self/nodeAdapters.js';

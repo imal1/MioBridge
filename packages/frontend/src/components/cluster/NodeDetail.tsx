@@ -8,7 +8,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
-import type { NodeStatus } from '@/lib/types';
+import { isLocalNode, type NodeStatus } from '@/lib/types';
 import { KernelRuntimeDetails } from './KernelStatus';
 
 interface NodeDetailProps {
@@ -77,7 +77,7 @@ export function NodeDetail({
     }
   };
 
-  const isLocal = node.nodeId === 'local';
+  const isLocal = isLocalNode(node);
 
   return (
     <Dialog open={isOpen} onOpenChange={(open) => { if (!open) onClose(); }}>
@@ -123,7 +123,7 @@ export function NodeDetail({
           ) : (
             <InfoRow label="节点角色">
               <span className="text-sm" style={{ color: 'var(--muted-foreground)' }}>
-                子节点仅提供节点源，订阅与 Clash 配置由主节点统一生成
+                节点通过 Agent 提供节点源，订阅与 Clash 配置由控制面统一生成
               </span>
             </InfoRow>
           )}
@@ -167,7 +167,7 @@ export function NodeDetail({
       </div>
 
       {/* Agent deployment info — only for remote nodes */}
-      {node.nodeId !== 'local' && node.agent && (
+      {!isLocal && node.agent && (
         <div className="mt-4 rounded-2xl bg-[var(--surface-container)] p-3">
           <h4
             className="text-xs font-semibold uppercase tracking-widest mb-2"

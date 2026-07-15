@@ -50,9 +50,31 @@ async function extractZipEntry(data: Uint8Array, wanted: string): Promise<Uint8A
   throw new Error(`Archive entry not found: ${wanted}`);
 }
 
+function extractTarEntry(data: Uint8Array, wanted: string): Uint8Array {
+  const decoder = new TextDecoder();
+  for (let offset = 0; offset + 512 <= data.length;) {
+    const header = data.subarray(offset, offset + 512);
+    if (header.every(value => value === 0)) break;
+    const readField = (start: number, length: number) => decoder.decode(header.subarray(start, start + length)).replace(/\0.*$/s, '').trim();
+    const name = readField(0, 100);
+    const prefix = readField(345, 155);
+    const path = prefix ? `${prefix}/${name}` : name;
+    const size = Number.parseInt(readField(124, 12) || '0', 8);
+    if (!Number.isFinite(size) || size < 0) throw new Error('Invalid tar entry size');
+    const contentOffset = offset + 512;
+    if (path === wanted) return data.slice(contentOffset, contentOffset + size);
+    offset = contentOffset + Math.ceil(size / 512) * 512;
+  }
+  throw new Error(`Archive entry not found: ${wanted}`);
+}
+
 async function extract(data: Uint8Array, artifact: Artifact): Promise<Uint8Array> {
   if (artifact.archive === 'binary') return data;
   if (artifact.archive === 'gzip') return decompress(data, 'gzip');
+  if (artifact.archive === 'tar-gzip') {
+    if (!artifact.entry) throw new Error('Tar archive has no entry');
+    return extractTarEntry(await decompress(data, 'gzip'), artifact.entry);
+  }
   if (!artifact.entry) throw new Error('Zip artifact has no entry');
   return extractZipEntry(data, artifact.entry);
 }

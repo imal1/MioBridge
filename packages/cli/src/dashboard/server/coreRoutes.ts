@@ -47,12 +47,13 @@ export function registerCoreRoutes(
     path: '/health',
     handler: async (_req: DashboardRequest, res: DashboardResponse) => {
       try {
+        const status = await deps.core.getStatus();
         res.json({
           status: 'healthy',
           timestamp: NOW(),
           uptime: process.uptime(),
           memory: process.memoryUsage(),
-          version: process.env.MIOBRIDGE_VERSION ?? '0.0.0',
+          version: status.version,
         });
       } catch (error: unknown) {
         const msg = error instanceof Error ? error.message : 'Unknown error';

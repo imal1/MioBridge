@@ -7,6 +7,21 @@ metadata:
 
 # Bug Fixes
 
+- 2026-07-15: Deployment status is synthesized from listener and configured
+  kernel runtime health. Saving local-node configuration can no longer produce
+  success/100%; an empty configured-kernel set reports `no_kernels`.
+- 2026-07-15: The deployment page includes the registered local node; local
+  deployment applies monitored-kernel configuration without requiring SSH or an
+  Agent, while other nodes retain the SSH/Agent path.
+- 2026-07-15: `dashboard start` waits for the provider `/health` endpoint before
+  reporting success, avoiding an active-but-not-yet-listening systemd race.
+- 2026-07-15: CLI uninstall stops, disables, deletes, and daemon-reloads the
+  managed Dashboard user unit so it cannot reference the removed executable.
+- 2026-07-15: Dashboard `/health` reports the compiled CLI/Core version instead
+  of the unrelated runtime `MIOBRIDGE_VERSION` upgrade override or `0.0.0`.
+- 2026-07-15: The self-hosted dashboard obtains mihomo status from the local CLI
+  API and gives `miobridge setup --yes` as the remediation when the server binary
+  is absent; it no longer presents the missing binary as an unexplained state.
 - 2026-07-14: Managed dependencies and self-upgrade archives use `node:zlib`;
   release CLIs no longer depend on the unavailable `DecompressionStream` global.
 - 2026-07-14: CLI artifact downloads retry transient network and timeout failures

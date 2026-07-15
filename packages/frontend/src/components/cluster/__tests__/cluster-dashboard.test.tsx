@@ -69,20 +69,20 @@ describe('Cluster Dashboard Page', () => {
     vi.restoreAllMocks();
   });
 
-  it('should render current overview with child cluster counts', async () => {
+  it('should render current overview with all node counts', async () => {
     const Dashboard = (await import('@/components/Dashboard')).default;
     render(<Dashboard initialCluster={mockClusterData} initialStatus={mockStatusData} initialError={null} />);
     expect(screen.getByRole('heading', { name: '总览' })).toBeDefined();
     expect(screen.getByText('订阅节点')).toBeDefined();
     expect(screen.getByText('12')).toBeDefined();
-    expect(screen.getByText('子节点在线')).toBeDefined();
+    expect(screen.getByText('节点在线')).toBeDefined();
     expect(screen.getByText('1/2')).toBeDefined();
   });
 
   it('counts ready kernels against desired configured kernels', async () => {
     const Dashboard = (await import('@/components/Dashboard')).default;
     render(<Dashboard initialCluster={mockClusterData} initialStatus={mockStatusData} initialError={null} />);
-    expect(screen.getByText('子节点内核')).toBeDefined();
+    expect(screen.getByText('节点内核')).toBeDefined();
     expect(screen.getByText('1/4 可用')).toBeDefined();
   });
 
@@ -104,8 +104,8 @@ describe('Cluster Dashboard Page', () => {
   it('should show no-node remote Agent state as actionable', async () => {
     const Dashboard = (await import('@/components/Dashboard')).default;
     render(<Dashboard initialCluster={{ totalNodes: 0, onlineNodes: 0, totalProxies: 0, nodes: [], lastUpdated: new Date().toISOString() }} initialStatus={mockStatusData} initialError={null} />);
-    expect(screen.getByText('远端 Agent')).toBeDefined();
-    expect(screen.getByText('尚未添加子节点')).toBeDefined();
+    expect(screen.getByText('Agent 部署')).toBeDefined();
+    expect(screen.getByText('当前节点无需 Agent')).toBeDefined();
     expect(screen.getAllByText('处理').length).toBeGreaterThan(0);
   });
 
@@ -119,7 +119,7 @@ describe('Cluster Dashboard Page', () => {
     const Dashboard = (await import('@/components/Dashboard')).default;
     render(<Dashboard initialCluster={null} initialError={null} />);
     expect(screen.getByRole('link', { name: /添加节点/ })).toBeDefined();
-    expect(screen.getByRole('link', { name: /部署 Agent/ })).toBeDefined();
+    expect(screen.getByRole('link', { name: /部署节点/ })).toBeDefined();
   });
 
   it('should render update and artifact actions', async () => {

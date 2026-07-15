@@ -31,6 +31,9 @@ describe('CLI command contract', () => {
   it('parses the stable command surface and rejects invalid options', () => {
     expect(parseCommand(['setup'])).toEqual({ kind: 'setup', assumeYes: false });
     expect(parseCommand(['setup', '--yes'])).toEqual({ kind: 'setup', assumeYes: true });
+    expect(parseCommand(['setup', '--yes', '--no-local-node'])).toEqual({ kind: 'setup', assumeYes: true, localNode: false });
+    expect(parseCommand(['nodes', 'configure'])).toEqual({ kind: 'nodes-configure' });
+    expect(parseCommand(['nodes', 'configure', '--local-node'])).toEqual({ kind: 'nodes-configure', localNode: true });
     expect(parseCommand(['upgrade'])).toEqual({ kind: 'upgrade' });
     expect(parseCommand(['uninstall'])).toEqual({ kind: 'uninstall', purge: false });
     expect(parseCommand(['uninstall', '--purge'])).toEqual({ kind: 'uninstall', purge: true });
@@ -43,6 +46,7 @@ describe('CLI command contract', () => {
     expect(parseCommand(['dashboard', 'start'])).toEqual({ kind: 'dashboard-daemon', action: 'start', json: false });
     expect(parseCommand(['dashboard', 'status', '--json'])).toEqual({ kind: 'dashboard-daemon', action: 'status', json: true });
     expect(() => parseCommand(['status', '--verbose'])).toThrow('Unexpected argument');
+    expect(() => parseCommand(['setup', '--local-node', '--no-local-node'])).toThrow('Choose only one');
     expect(() => parseCommand(['dashboard'])).toThrow('Missing dashboard action');
   });
 
@@ -68,11 +72,23 @@ describe('CLI command contract', () => {
   it('runs setup without composing core', async () => {
     const run = harness({ updateSubscription: vi.fn(), getStatus: vi.fn() } as unknown as CliCore);
     const setup = { run: vi.fn(async () => [{ name: 'sing-box' as const, required: false, capability: 'optional', origin: 'missing' as const }]) };
-    const dependencies = { ...run.dependencies, setup };
+    const localNode = { configure: vi.fn(async () => ({ enabled: false, changed: false, message: 'disabled' })) };
+    const dependencies = { ...run.dependencies, setup, localNode };
     expect(await runCli(['setup'], dependencies)).toBe(0);
     expect(setup.run).toHaveBeenCalledWith({ assumeYes: false });
+    expect(localNode.configure).toHaveBeenCalledWith({ assumeYes: false });
     expect(run.createCore).not.toHaveBeenCalled();
     expect(run.stdout[0]).toContain('sing-box: missing');
+    expect(run.stdout[0]).toContain('local-node: disabled');
+  });
+
+  it('configures the local node later without composing core', async () => {
+    const run = harness({ updateSubscription: vi.fn(), getStatus: vi.fn() } as unknown as CliCore);
+    const localNode = { configure: vi.fn(async () => ({ enabled: true, changed: true, message: 'enabled' })) };
+    expect(await runCli(['nodes', 'configure', '--local-node'], { ...run.dependencies, localNode })).toBe(0);
+    expect(localNode.configure).toHaveBeenCalledWith({ enabled: true });
+    expect(run.stdout).toEqual(['local-node: enabled [changed] — enabled']);
+    expect(run.createCore).not.toHaveBeenCalled();
   });
 
   it('runs upgrade and uninstall through binary maintenance adapters', async () => {

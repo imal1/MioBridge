@@ -4,6 +4,11 @@ import type { NodeConfig, NodeKernelConfig } from './types.js';
 import { KERNEL_TYPES, type KernelType } from '../kernels/types.js';
 
 const NODES_KEY = 'nodes.yaml';
+export const LOCAL_NODE_ID = 'local';
+
+export function isLocalNode(node: Pick<NodeConfig, 'id' | 'kind'>): boolean {
+  return node.kind === 'local' || node.id === LOCAL_NODE_ID;
+}
 
 export function validateNodeKernels(value: unknown, allowEmpty = true): NodeKernelConfig[] {
   if (!Array.isArray(value) || (!allowEmpty && value.length === 0)) throw new Error('至少选择一个内核');
@@ -37,6 +42,35 @@ export class NodeRepository {
     await this.store.set(this.key, stringify({ nodes: nodes.map(node => this.normalize(node)) }, { lineWidth: 0 }));
   }
 
+  async configureLocalNode(enabled: boolean): Promise<NodeConfig | null> {
+    return this.store.withLock(this.key, async () => {
+      const nodes = await this.list({ enabledOnly: false });
+      const existing = nodes.find(node => isLocalNode(node));
+      const children = nodes.filter(node => !isLocalNode(node));
+      if (!enabled) {
+        await this.save(children);
+        return null;
+      }
+      const local = this.normalize({
+        ...existing,
+        id: LOCAL_NODE_ID,
+        kind: 'local',
+        name: existing?.name ?? '本机节点',
+        host: '127.0.0.1',
+        secret: '',
+        kernels: [{ type: 'sing-box' }],
+        location: existing?.location ?? '本机',
+        enabled: true,
+      });
+      await this.save([local, ...children]);
+      return local;
+    });
+  }
+
+  async isLocalNodeConfigured(): Promise<boolean> {
+    return (await this.list()).some(node => isLocalNode(node));
+  }
+
   async update(nodeId: string, update: (node: NodeConfig) => NodeConfig | void): Promise<NodeConfig> {
     return this.store.withLock(this.key, async () => {
       const nodes = await this.list({ enabledOnly: false });
@@ -53,10 +87,13 @@ export class NodeRepository {
     if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('节点配置无效');
     const node = value as Partial<NodeConfig>;
     if (!node.id || !node.name || !node.host) throw new Error('节点缺少 id、name 或 host');
+    const kind = node.kind ?? (node.id === LOCAL_NODE_ID ? 'local' : 'child');
+    if (kind !== 'local' && kind !== 'child') throw new Error(`节点类型无效: ${String(kind)}`);
+    if (kind === 'local' && node.id !== LOCAL_NODE_ID) throw new Error('本机节点必须使用 local ID');
     return {
       id: node.id, name: node.name, host: node.host, port: node.port ?? node.agent?.port ?? 3001,
       secret: node.secret ?? '', kernels: validateNodeKernels(node.kernels),
-      location: node.location ?? '', enabled: node.enabled !== false,
+      location: node.location ?? '', enabled: node.enabled !== false, kind,
       ...(node.ssh ? { ssh: node.ssh } : {}), ...(node.agent ? { agent: node.agent } : {}),
     };
   }

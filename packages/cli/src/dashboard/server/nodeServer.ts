@@ -1,4 +1,5 @@
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
+import type { Socket } from 'node:net';
 import type { DashboardServerDependencies } from './composition.js';
 import { registerCompatRoutes } from './compatRoutes.js';
 import { registerCoreRoutes } from './coreRoutes.js';
@@ -46,7 +47,7 @@ async function readBody(request: IncomingMessage): Promise<unknown> {
   return contentType.includes('application/json') ? JSON.parse(source) : source;
 }
 
-function requestAdapter(request: IncomingMessage, url: URL, method: DashboardHttpMethod, body: unknown): DashboardRequest {
+function requestAdapter(request: IncomingMessage, response: ServerResponse, url: URL, method: DashboardHttpMethod, body: unknown): DashboardRequest {
   const listeners = new Map<() => void, () => void>();
   return {
     method: method === 'HEAD' ? 'GET' : method,
@@ -61,10 +62,10 @@ function requestAdapter(request: IncomingMessage, url: URL, method: DashboardHtt
     onClose(listener) {
       const wrapped = () => listener();
       listeners.set(listener, wrapped);
-      request.once('close', wrapped);
+      response.once('close', wrapped);
       return () => {
         const registered = listeners.get(listener);
-        if (registered) request.off('close', registered);
+        if (registered) response.off('close', registered);
         listeners.delete(listener);
       };
     },
@@ -96,8 +97,11 @@ function registerRoutes(routes: DashboardRouteRegistry, dependencies: DashboardS
 export async function runNodeDashboardServer(options: NodeDashboardServerOptions): Promise<number> {
   const routes = new DashboardRouteRegistry();
   registerRoutes(routes, options.dependencies);
+  const responses = new Set<ServerResponse>();
 
   const server = createServer(async (incoming, outgoing) => {
+    responses.add(outgoing);
+    outgoing.once('close', () => responses.delete(outgoing));
     try {
       const method = incoming.method as DashboardHttpMethod | undefined;
       if (!method || !METHODS.has(method)) {
@@ -115,7 +119,7 @@ export async function runNodeDashboardServer(options: NodeDashboardServerOptions
         outgoing.end(JSON.stringify({ success: false, error: error instanceof Error ? error.message : 'Invalid request body' }));
         return;
       }
-      const request = requestAdapter(incoming, url, method, body);
+      const request = requestAdapter(incoming, outgoing, url, method, body);
       const response = responseAdapter(outgoing);
       if (await routes.dispatch(request, response)) return;
       if (method === 'GET' || method === 'HEAD') {
@@ -133,6 +137,11 @@ export async function runNodeDashboardServer(options: NodeDashboardServerOptions
       if (!outgoing.writableEnded) outgoing.end(error instanceof Error ? error.message : 'Internal Server Error');
     }
   });
+  const sockets = new Set<Socket>();
+  server.on('connection', socket => {
+    sockets.add(socket);
+    socket.once('close', () => sockets.delete(socket));
+  });
 
   await new Promise<void>((resolve, reject) => {
     const fail = (error: Error) => reject(error);
@@ -145,7 +154,12 @@ export async function runNodeDashboardServer(options: NodeDashboardServerOptions
 
   return new Promise<number>((resolve, reject) => {
     const signals = ['SIGINT', 'SIGTERM', 'SIGHUP'] as const;
-    const close = () => server.close();
+    const close = () => {
+      for (const response of responses) response.destroy();
+      for (const socket of sockets) socket.destroy();
+      server.closeAllConnections();
+      server.close();
+    };
     const cleanup = () => {
       signals.forEach(signal => process.off(signal, close));
       options.signal?.removeEventListener('abort', close);

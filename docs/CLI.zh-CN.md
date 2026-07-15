@@ -46,6 +46,18 @@ miobridge setup             # 交互式
 miobridge setup --yes       # 非交互式
 ```
 
+首次安装默认把当前服务器配置为本机节点。可以在安装时使用
+`install.sh --no-local-node` 跳过，也可以随时重新配置：
+
+```bash
+miobridge nodes configure                 # 交互选择
+miobridge nodes configure --local-node    # 启用本机节点
+miobridge nodes configure --no-local-node # 仅保留子节点
+```
+
+启用后，本机节点写入 `~/.config/miobridge/nodes.yaml`，Dashboard 会把它标记为
+“本机节点”，监视本机 sing-box，并与需要 Agent/SSH 部署的“子节点”分开处理。
+
 运行时配置、生成产物、备份、日志和托管工具位于
 `~/.config/miobridge`（或 `MIOBRIDGE_CONFIG_DIR`）。`status --json` 只输出一个
 JSON 对象。即使 provider 目录不存在，`update` 和 `status` 仍可运行。

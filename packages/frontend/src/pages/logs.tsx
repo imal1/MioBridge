@@ -57,9 +57,9 @@ export default function LogsPage() {
       .then(result => {
         if (!result.success) return
         const cluster = result.data as ClusterStatus
-        const childNodes = cluster.nodes || []
-        setNodes(childNodes)
-        if (!nodeId && childNodes[0]) setNodeId(childNodes[0].nodeId)
+        const availableNodes = (cluster.nodes || []).filter(node => node.agent?.deployed)
+        setNodes(availableNodes)
+        if (!nodeId && availableNodes[0]) setNodeId(availableNodes[0].nodeId)
       })
       .catch(() => {})
   }, [])
@@ -72,8 +72,8 @@ export default function LogsPage() {
     <SignalPage
       crumb="Diagnostics stream"
       title="日志"
-      description="选择子节点查看 Agent 运行日志，过滤部署、转换和健康检查错误。"
-      status={logs ? `${logs.nodeName || logs.nodeId} · ${logs.file} · ${logs.lines.length} 行` : nodes.length ? '选择子节点' : '暂无子节点'}
+      description="选择已部署 Agent 的节点查看运行日志，过滤部署、转换和健康检查错误。"
+      status={logs ? `${logs.nodeName || logs.nodeId} · ${logs.file} · ${logs.lines.length} 行` : nodes.length ? '选择节点' : '暂无可用节点'}
       maxWidth="narrow"
       actions={(
         <Button variant="outline" onClick={loadLogs} disabled={loading}>
@@ -96,7 +96,7 @@ export default function LogsPage() {
       <Card className="min-h-0 md:min-h-[72vh]">
         {nodes.length === 0 ? (
           <CardContent className="p-10 text-center text-muted-foreground">
-            暂无子节点日志。请先在节点页添加并部署 Agent。
+            暂无节点日志。请先为节点部署 Agent。
           </CardContent>
         ) : null}
         {nodes.length > 0 ? (
@@ -104,11 +104,11 @@ export default function LogsPage() {
         <div className="md:hidden">
           <CardHeader>
             <CardTitle className="text-xl">过滤日志</CardTitle>
-            <CardDescription>从选中的子节点 Agent 读取日志。</CardDescription>
+            <CardDescription>从选中节点的 Agent 读取日志。</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="grid gap-2">
-              <Label htmlFor="log-node-mobile">子节点</Label>
+              <Label htmlFor="log-node-mobile">节点</Label>
               <Select id="log-node-mobile" value={nodeId} onChange={event => { setNodeId(event.target.value); setFile('') }}>
                 {nodes.map(node => <option key={node.nodeId} value={node.nodeId}>{node.name} · {node.location || node.nodeId}</option>)}
               </Select>
@@ -149,11 +149,11 @@ export default function LogsPage() {
             <ResizablePanel defaultSize={28} minSize={22}>
               <CardHeader>
                 <CardTitle className="text-xl">过滤日志</CardTitle>
-                <CardDescription>从选中的子节点 Agent 读取日志。</CardDescription>
+                <CardDescription>从选中节点的 Agent 读取日志。</CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
                 <div className="grid gap-2">
-                  <Label htmlFor="log-node">子节点</Label>
+                  <Label htmlFor="log-node">节点</Label>
                   <Select id="log-node" value={nodeId} onChange={event => { setNodeId(event.target.value); setFile('') }}>
                     {nodes.map(node => <option key={node.nodeId} value={node.nodeId}>{node.name} · {node.location || node.nodeId}</option>)}
                   </Select>

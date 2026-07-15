@@ -18,6 +18,18 @@ async function setup() {
 }
 
 describe('ArtifactService', () => {
+  it('does not collect local sources when the local node role is disabled', async () => {
+    const { config } = await setup();
+    const localExtract = async () => { throw new Error('must not run'); };
+    const service = new ArtifactService({
+      config, logger,
+      local: { isConfigured: async () => false, isAvailable: async () => true, extractNodeUrls: localExtract },
+      remote: { collectRemoteNodeSources: async () => ({ sources: [{ url: 'vless://id@remote.example:443', kernel: 'xray', nodeId: 'r1', location: 'HK' }], errors: [] }) },
+      clash: { checkHealth: async () => true, convertToClashByContent: async content => `proxies:\n${content}` },
+    });
+    expect((await service.updateSubscription()).nodesCount).toBe(1);
+  });
+
   it('writes exact raw/Base64/Clash bytes, preserves source order, and creates a deterministic backup', async () => {
     const { config } = await setup();
     const local = 'vless://id@local.example:443#local';

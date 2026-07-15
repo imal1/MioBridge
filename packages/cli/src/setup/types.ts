@@ -18,7 +18,7 @@ export interface Artifact {
   readonly version: string;
   readonly url: string;
   readonly sha256: string;
-  readonly archive: 'binary' | 'gzip' | 'zip';
+  readonly archive: 'binary' | 'gzip' | 'zip' | 'tar-gzip';
   readonly entry?: string;
   readonly versionArgs: readonly string[];
 }

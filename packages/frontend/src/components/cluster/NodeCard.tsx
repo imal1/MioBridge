@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Icon } from '@iconify/react';
-import type { NodeStatus } from '@/lib/types';
+import { isLocalNode, type NodeStatus } from '@/lib/types';
 import { NodeDetail } from './NodeDetail';
 import { KernelStatusPills } from './KernelStatus';
 
@@ -25,7 +25,8 @@ export function NodeCard({
 }: NodeCardProps) {
   const [expanded, setExpanded] = useState(false);
 
-  const needsDeploy = node.nodeId !== 'local' && !node.agent?.deployed;
+  const local = isLocalNode(node);
+  const needsDeploy = !local && !node.agent?.deployed;
   const isRunning = node.agent?.status === 'running';
   const isDeploying = node.agent?.status === 'deploying';
 
@@ -34,8 +35,14 @@ export function NodeCard({
       <div
         className="garden-card p-5 cursor-pointer transition-all hover:shadow-[var(--shadow-card-hover)]"
         onClick={() => setExpanded(!expanded)}
+        role="button"
         tabIndex={0}
-        onKeyDown={(e) => { if (e.key === 'Enter') setExpanded(!expanded); }}
+        aria-expanded={expanded}
+        onKeyDown={(event) => {
+          if (event.key !== 'Enter' && event.key !== ' ') return;
+          event.preventDefault();
+          setExpanded(!expanded);
+        }}
       >
         <div className="flex items-center justify-between mb-3">
           <div className="flex items-center gap-3">
@@ -46,7 +53,7 @@ export function NodeCard({
             >
               {node.name}
             </h3>
-            {node.nodeId === 'local' && (
+            {local && (
               <span
                 className="text-[10px] px-2 py-0.5 rounded-full font-medium"
                 style={{
@@ -54,7 +61,7 @@ export function NodeCard({
                   color: 'var(--primary-foreground)',
                 }}
               >
-                本机
+                本机节点
               </span>
             )}
           </div>
@@ -84,7 +91,7 @@ export function NodeCard({
             <>
               <span className="flex items-center gap-1">
                 <Icon icon="ph:tree-structure" className="w-3.5 h-3.5" />
-                {node.nodesCount ?? '-'} {node.nodeId === 'local' ? '订阅节点' : '代理'}
+                {node.nodesCount ?? '-'} {local ? '本机代理' : '代理'}
               </span>
               {node.latency !== undefined && node.latency > 0 && (
                 <span className="flex items-center gap-1">
@@ -103,7 +110,7 @@ export function NodeCard({
         </div>
 
         {/* Agent deployment actions — only for remote nodes */}
-        {node.nodeId !== 'local' && (
+        {!local && (
           <div className="flex gap-2 mt-3 pt-3">
             {needsDeploy && (
               <button

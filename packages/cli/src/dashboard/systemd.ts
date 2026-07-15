@@ -1,8 +1,10 @@
 import { execFile } from 'node:child_process';
-import { mkdir, rename, writeFile } from 'node:fs/promises';
+import { mkdir, rename, rm, writeFile } from 'node:fs/promises';
+import { request } from 'node:http';
 import { createServer } from 'node:net';
 import { homedir, userInfo } from 'node:os';
 import { dirname, join } from 'node:path';
+import { setTimeout as delay } from 'node:timers/promises';
 import { promisify } from 'node:util';
 import type { RuntimePaths } from '@miobridge/core';
 import { dashboardManifestPath } from './foreground.js';
@@ -33,7 +35,9 @@ export interface SystemdAdapters {
   readonly effectivePath: string;
   run(command: string, args: readonly string[]): Promise<CommandResult>;
   writeAtomic(path: string, content: string): Promise<void>;
+  remove(path: string): Promise<void>;
   isPortAvailable(host: string, port: number): Promise<boolean>;
+  waitForReady(host: string, port: number): Promise<boolean>;
   confirmEnableLinger(username: string): Promise<boolean>;
 }
 
@@ -100,8 +104,14 @@ export class DashboardSystemdService {
   }
 
   async start(): Promise<DashboardDaemonStatus> {
-    const current = await this.status();
-    if (current.state === 'unsupported' || current.state === 'broken') throw new Error(current.message);
+    let current = await this.status();
+    if (current.state === 'unsupported') throw new Error(current.message);
+    if (current.state === 'broken') {
+      const reset = await this.adapters.run('systemctl', ['--user', 'reset-failed', DASHBOARD_UNIT_NAME]);
+      if (reset.exitCode !== 0) throw new Error(`Could not reset failed dashboard service: ${output(reset) || 'systemctl failed'}`);
+      current = await this.status();
+      if (current.state === 'broken') throw new Error(current.message);
+    }
     if (current.active) return current;
     const host = this.options.host ?? '0.0.0.0';
     const port = this.options.port ?? 3000;
@@ -124,6 +134,9 @@ export class DashboardSystemdService {
       const result = await this.adapters.run('systemctl', args);
       if (result.exitCode !== 0) throw new Error(`systemctl ${args.slice(1).join(' ')} failed: ${output(result) || 'unknown error'}`);
     }
+    if (!(await this.adapters.waitForReady(host, port))) {
+      throw new Error(`Dashboard service did not become ready at http://${host}:${port}/health. Inspect logs with: ${this.journalCommand()}`);
+    }
     const result = await this.status();
     if (!result.active) throw new Error(`Dashboard provider failed to start. Inspect logs with: ${this.journalCommand()}`);
     return result;
@@ -136,6 +149,21 @@ export class DashboardSystemdService {
     const result = await this.adapters.run('systemctl', ['--user', 'disable', '--now', DASHBOARD_UNIT_NAME]);
     if (result.exitCode !== 0 && !/not loaded|does not exist|not found/iu.test(output(result))) throw new Error(`Could not stop dashboard: ${output(result)}`);
     return this.status();
+  }
+
+  async uninstall(): Promise<void> {
+    const supported = await this.supported();
+    if (supported) {
+      const disabled = await this.adapters.run('systemctl', ['--user', 'disable', '--now', DASHBOARD_UNIT_NAME]);
+      if (disabled.exitCode !== 0 && !/not loaded|does not exist|not found/iu.test(output(disabled))) {
+        throw new Error(`Could not remove dashboard service: ${output(disabled)}`);
+      }
+    }
+    await this.adapters.remove(this.unitPath);
+    if (supported) {
+      const reloaded = await this.adapters.run('systemctl', ['--user', 'daemon-reload']);
+      if (reloaded.exitCode !== 0) throw new Error(`Could not reload user systemd after dashboard removal: ${output(reloaded)}`);
+    }
   }
 }
 
@@ -158,12 +186,31 @@ export function createNodeSystemdAdapters(options: { readonly env?: NodeJS.Proce
       await writeFile(temporary, content, { encoding: 'utf8', mode: 0o600 });
       await rename(temporary, path);
     },
+    async remove(path) { await rm(path, { force: true }); },
     isPortAvailable(host, port) {
       return new Promise(resolve => {
         const server = createServer();
         server.once('error', () => resolve(false));
         server.listen(port, host, () => server.close(() => resolve(true)));
       });
+    },
+    async waitForReady(host, port) {
+      const requestHost = host === '0.0.0.0' ? '127.0.0.1' : host === '::' ? '::1' : host;
+      const deadline = Date.now() + 5_000;
+      do {
+        const ready = await new Promise<boolean>(resolve => {
+          const probe = request({ host: requestHost, port, path: '/health', method: 'GET' }, response => {
+            response.resume();
+            resolve(response.statusCode === 200);
+          });
+          probe.setTimeout(500, () => probe.destroy());
+          probe.once('error', () => resolve(false));
+          probe.end();
+        });
+        if (ready) return true;
+        await delay(50);
+      } while (Date.now() < deadline);
+      return false;
     },
     async confirmEnableLinger(username) {
       const input = options.input ?? process.stdin;

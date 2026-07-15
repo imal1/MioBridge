@@ -1,5 +1,6 @@
 import type { MioBridgeCore } from '@miobridge/core';
 import { DashboardRouteRegistry, type DashboardRouteRegistrar } from './http.js';
+import type { DeploymentScope, DeployStatus } from './sshDeployment.js';
 
 export type { DashboardRouteRegistrar } from './http.js';
 
@@ -31,14 +32,18 @@ export interface DashboardOperationsPort {
   readonly triggerClusterUpdate: (nodeId?: string) => Promise<OperationsResult>;
   readonly addNode: (body: unknown) => Promise<OperationsResult>;
   readonly updateNodeKernels: (nodeId: string, kernels: unknown) => Promise<OperationsResult>;
+  readonly updateNodeConnection: (nodeId: string, body: unknown) => Promise<OperationsResult>;
   readonly restartAgent: (nodeId: string) => Promise<OperationsResult>;
   readonly startAgent: (nodeId: string) => Promise<OperationsResult>;
   readonly stopAgent: (nodeId: string) => Promise<OperationsResult>;
   readonly uninstallAgent: (nodeId: string) => Promise<OperationsResult>;
   readonly updateAgent: (nodeId: string) => Promise<OperationsResult>;
-  readonly deployToNode: (nodeId: string, kernels?: unknown) => Promise<OperationsResult>;
+  readonly deployToNode: (nodeId: string, kernels?: unknown, scope?: DeploymentScope) => Promise<OperationsResult>;
+  readonly deployBatch: (nodeIds?: string[]) => Promise<OperationsResult>;
+  readonly getDeploymentPlans: (nodeIds?: string[]) => Promise<OperationsResult>;
   readonly getDeployProgress: (nodeId: string) => Promise<OperationsResult>;
   readonly getAllDeployStatuses: (nodeIds?: string[]) => Promise<OperationsResult>;
+  readonly subscribeDeployProgress: (listener: (status: DeployStatus) => void) => () => void;
   readonly detectKernels: (body: unknown) => Promise<OperationsResult>;
   readonly installKernel: (nodeId: string, kernelType: string) => Promise<OperationsResult>;
   readonly uninstallKernel: (nodeId: string, kernelType: string) => Promise<OperationsResult>;

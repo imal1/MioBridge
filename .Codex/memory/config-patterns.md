@@ -24,3 +24,5 @@ metadata:
 - Agent configs use a non-empty, duplicate-free `kernels` list of sing-box,
   Xray, and/or V2Ray entries, each with an optional config path. A node config
   may use the exact `kernels: []` draft form until its first successful deploy.
+- The local-node choice lives in `nodes.yaml`, not `config.yaml`. Its reserved ID
+  is `local`, host is `127.0.0.1`, and its monitored source kernel is sing-box.

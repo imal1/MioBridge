@@ -49,6 +49,19 @@ miobridge setup             # interactive
 miobridge setup --yes       # non-interactive
 ```
 
+Fresh installs configure the current server as the local node by default. Pass
+`install.sh --no-local-node` to opt out, or change the role later:
+
+```bash
+miobridge nodes configure
+miobridge nodes configure --local-node
+miobridge nodes configure --no-local-node
+```
+
+The local-node choice is stored in `~/.config/miobridge/nodes.yaml`. The
+dashboard monitors its local sing-box runtime separately from Agent-backed child
+nodes.
+
 Runtime config, generated outputs, backups, logs, and managed tools belong
 under `~/.config/miobridge` (or `MIOBRIDGE_CONFIG_DIR`). `status --json` emits
 only one JSON object. `update` and `status` work with no provider directory.

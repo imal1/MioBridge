@@ -2,7 +2,7 @@ import { Icon } from '@iconify/react'
 import { useCallback, useEffect, useState } from 'react'
 import { toast } from 'sonner'
 import { apiService, type ApiStatus, type UpdateResult } from '@/lib/api'
-import type { ClusterStatus } from '@/lib/types'
+import { isLocalNode, type ClusterStatus } from '@/lib/types'
 import { useBackendReachable } from '@/context/AppContext'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
@@ -24,7 +24,7 @@ const FILES = [
 
 const workflow = [
   { label: '添加节点', href: '/nodes', icon: 'ph:plus-light' },
-  { label: '部署 Agent', href: '/deploy', icon: 'ph:paper-plane-tilt-light' },
+  { label: '部署节点', href: '/deploy', icon: 'ph:paper-plane-tilt-light' },
   { label: '更新订阅', href: '/subscription', icon: 'ph:arrows-clockwise-light' },
   { label: '验证输出', href: '/subscription', icon: 'ph:file-arrow-down-light' },
 ]
@@ -89,18 +89,24 @@ export default function Dashboard({ initialCluster = null, initialStatus = null,
   }, [refresh])
 
   const missingFiles = status ? FILES.filter(file => !status[file.key]) : FILES
-  const remoteNodes = cluster?.nodes.filter(node => node.nodeId !== 'local') || []
+  const localNode = cluster?.nodes.find(isLocalNode)
+  const remoteNodes = cluster?.nodes.filter(node => !isLocalNode(node)) || []
   const undeployedNodes = remoteNodes.filter(node => !node.agent?.deployed)
-  const configuredKernels = remoteNodes.flatMap(node => node.configuredKernels.map(config => ({ node, config })))
+  const configuredKernels = (cluster?.nodes || []).flatMap(node => node.configuredKernels.map(config => ({ node, config })))
   const healthyKernels = configuredKernels.filter(({ node, config }) => {
     const runtime = node.kernels.find(kernel => kernel.type === config.type)
     return node.online && runtime?.monitored && runtime.accessible
   })
   const remoteAgentReady = remoteNodes.length > 0 && undeployedNodes.length === 0
   const readiness = [
-    { label: '远端 Agent', ok: remoteAgentReady, desc: remoteNodes.length === 0 ? '尚未添加子节点' : undeployedNodes.length ? `${undeployedNodes.length} 个节点待部署` : '子节点 Agent 已部署' },
-    { label: '子节点内核', ok: configuredKernels.length > 0 && healthyKernels.length === configuredKernels.length, desc: configuredKernels.length === 0 ? '等待子节点上报' : `${healthyKernels.length}/${configuredKernels.length} 可用` },
-    { label: 'mihomo 转换', ok: Boolean(status?.mihomoAvailable), desc: status?.mihomoVersion || '未检测到版本' },
+    ...(localNode ? [{
+      label: '本机节点',
+      ok: localNode.online && localNode.kernels.some(kernel => kernel.monitored && kernel.accessible),
+      desc: localNode.kernels.find(kernel => kernel.type === 'sing-box')?.accessible ? '本机 sing-box 已纳入监听' : '本机 sing-box 不可用',
+    }] : []),
+    { label: 'Agent 部署', ok: remoteAgentReady, desc: remoteNodes.length === 0 ? '当前节点无需 Agent' : undeployedNodes.length ? `${undeployedNodes.length} 个节点待部署` : '节点 Agent 已部署' },
+    { label: '节点内核', ok: configuredKernels.length > 0 && healthyKernels.length === configuredKernels.length, desc: configuredKernels.length === 0 ? '等待节点上报' : `${healthyKernels.length}/${configuredKernels.length} 可用` },
+    { label: 'mihomo 转换', ok: Boolean(status?.mihomoAvailable), desc: status?.mihomoAvailable ? status.mihomoVersion || '版本未知' : '服务器未安装；运行 miobridge setup --yes' },
     { label: '文件写入', ok: missingFiles.length === 0, desc: missingFiles.length ? `缺少 ${missingFiles.map(file => file.name).join('、')}` : '输出产物可用' },
   ]
 
@@ -189,7 +195,7 @@ export default function Dashboard({ initialCluster = null, initialStatus = null,
             </CardHeader>
             <CardContent className="space-y-5 text-sm text-muted-foreground">
               <p>raw.txt / clash.yaml {missingFiles.length === 0 ? '已生成' : '待生成'}</p>
-              <p>子节点在线 <span className="signal-mono text-foreground">{cluster ? `${cluster.onlineNodes}/${cluster.totalNodes}` : '-'}</span></p>
+              <p>节点在线 <span className="signal-mono text-foreground">{cluster ? `${cluster.onlineNodes}/${cluster.totalNodes}` : '-'}</span></p>
             </CardContent>
           </Card>
 

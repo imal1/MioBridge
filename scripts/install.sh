@@ -7,6 +7,7 @@ INSTALL_DIR="${MIOBRIDGE_INSTALL_DIR:-$HOME/.local/bin}"
 CONFIG_DIR="${MIOBRIDGE_CONFIG_DIR:-$HOME/.config/miobridge}"
 BASE_URL="${MIOBRIDGE_RELEASE_BASE_URL:-}"
 RUN_SETUP=1
+LOCAL_NODE=1
 
 usage() {
   cat <<'EOF'
@@ -14,7 +15,8 @@ Install the self-contained MioBridge CLI and its required runtime dependencies.
 
 Usage: install.sh [--version VERSION] [--repository OWNER/REPO]
                   [--install-dir DIR] [--config-dir DIR]
-                  [--base-url URL] [--skip-setup]
+                  [--base-url URL] [--local-node|--no-local-node]
+                  [--skip-setup]
 
 With no version, the latest GitHub release is installed. Environment equivalents:
 MIOBRIDGE_VERSION, MIOBRIDGE_REPOSITORY, MIOBRIDGE_INSTALL_DIR,
@@ -29,6 +31,8 @@ while [ "$#" -gt 0 ]; do
     --install-dir) INSTALL_DIR=${2:?missing install directory}; shift 2 ;;
     --config-dir) CONFIG_DIR=${2:?missing config directory}; shift 2 ;;
     --base-url) BASE_URL=${2:?missing base URL}; shift 2 ;;
+    --local-node) LOCAL_NODE=1; shift ;;
+    --no-local-node) LOCAL_NODE=0; shift ;;
     --skip-setup) RUN_SETUP=0; shift ;;
     -h|--help) usage; exit 0 ;;
     *) echo "unknown option: $1" >&2; usage >&2; exit 2 ;;
@@ -139,7 +143,14 @@ echo "MioBridge CLI $VERSION installed at $binary"
 echo "Dashboard provider installed at $dashboard"
 if [ "$RUN_SETUP" -eq 1 ]; then
   echo "Installing required runtime dependencies through the CLI..."
-  if ! "$binary" setup --yes; then
+  if [ "$LOCAL_NODE" -eq 1 ]; then
+    setup_status=0
+    "$binary" setup --yes --local-node || setup_status=$?
+  else
+    setup_status=0
+    "$binary" setup --yes --no-local-node || setup_status=$?
+  fi
+  if [ "$setup_status" -ne 0 ]; then
     echo "MioBridge CLI $VERSION is installed, but runtime dependency setup failed." >&2
     echo "Retry with: $binary setup --yes" >&2
     exit 1

@@ -1,5 +1,5 @@
 import ky, { HTTPError } from 'ky';
-import { KERNEL_TYPES, type KernelDetection, type KernelType, type NodeConfig, type NodeKernelConfig, type SshAuthMethod } from '@/lib/types';
+import { KERNEL_TYPES, type BatchDeploymentResult, type DeploymentPlan, type DeploymentScope, type KernelDetection, type KernelType, type NodeConfig, type NodeKernelConfig, type SshAuthMethod } from '@/lib/types';
 import type { FrontendConfig } from '@/lib/configApi';
 
 export type DetectKernelsPayload =
@@ -285,12 +285,41 @@ class ApiService {
   }
 
   // 部署节点
-  async deployNode(nodeId: string, kernels?: NodeKernelConfig[]): Promise<ApiResponse> {
+  async deployNode(
+    nodeId: string,
+    scopeOrKernels: DeploymentScope | NodeKernelConfig[] = 'all',
+    kernels?: NodeKernelConfig[],
+  ): Promise<ApiResponse> {
     try {
-      return await apiClient.post('api/cluster/deploy', { json: { nodeId, ...(kernels ? { kernels } : {}) } }).json<ApiResponse>();
+      const scope = Array.isArray(scopeOrKernels) ? 'all' : scopeOrKernels;
+      const requestedKernels = Array.isArray(scopeOrKernels) ? scopeOrKernels : kernels;
+      return await apiClient.post('api/cluster/deploy', { json: { nodeId, scope, ...(requestedKernels ? { kernels: requestedKernels } : {}) } }).json<ApiResponse>();
     } catch (error) {
       return this.handleError(error);
     }
+  }
+
+  async deployBatch(nodeIds?: string[]): Promise<ApiResponse<BatchDeploymentResult>> {
+    try {
+      return await apiClient.post('api/cluster/deploy/batch', {
+        json: nodeIds ? { nodeIds } : {},
+      }).json<ApiResponse<BatchDeploymentResult>>();
+    } catch (error) {
+      return this.handleError(error);
+    }
+  }
+
+  async getDeploymentPlans(nodeIds?: string[]): Promise<ApiResponse<{ plans: Record<string, DeploymentPlan> }>> {
+    try {
+      const suffix = nodeIds?.length ? `?nodes=${encodeURIComponent(nodeIds.join(','))}` : '';
+      return await apiClient.get(`api/cluster/deploy/plan${suffix}`).json<ApiResponse<{ plans: Record<string, DeploymentPlan> }>>();
+    } catch (error) {
+      return this.handleError(error);
+    }
+  }
+
+  getDeployEventsUrl(): string {
+    return `${API_BASE_URL}/api/cluster/deploy/events`;
   }
 
   // 添加节点
@@ -325,6 +354,23 @@ class ApiService {
   async updateNodeKernels(nodeId: string, kernels: NodeKernelConfig[]): Promise<ApiResponse<NodeConfig>> {
     try {
       return await apiClient.put('api/cluster/nodes', { json: { nodeId, kernels } }).json<ApiResponse<NodeConfig>>();
+    } catch (error) {
+      return this.handleError(error);
+    }
+  }
+
+  async updateNodeConnection(nodeId: string, connection: {
+    host: string;
+    user: string;
+    port: number;
+    authMethod: SshAuthMethod;
+    password?: string;
+    privateKey?: string;
+  }): Promise<ApiResponse<NodeConfig>> {
+    try {
+      return await apiClient.put('api/cluster/nodes/connection', {
+        json: { nodeId, ...connection },
+      }).json<ApiResponse<NodeConfig>>();
     } catch (error) {
       return this.handleError(error);
     }

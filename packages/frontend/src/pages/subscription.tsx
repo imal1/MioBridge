@@ -63,7 +63,7 @@ export default function SubscriptionPage() {
     <SignalPage
       crumb="Subscription pipeline"
       title="订阅"
-      description="自动聚合子节点来源并生成 raw.txt、subscription.txt 和 clash.yaml。"
+      description="自动聚合全部节点来源并生成 raw.txt、subscription.txt 和 clash.yaml。"
       status={`最近生成 ${formatDate(status?.clashLastUpdated || status?.subscriptionLastUpdated)}`}
       maxWidth="narrow"
       actions={(

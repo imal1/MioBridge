@@ -81,6 +81,13 @@ describe('dashboard foreground lifecycle', () => {
     expect((await fetch(`http://127.0.0.1:${port}/api/yaml/frontend`)).status).toBe(200);
     expect(await (await fetch(`http://127.0.0.1:${port}/subscription.txt`)).text()).toBe('subscription');
     expect(await (await fetch(`http://127.0.0.1:${port}/nodes`)).text()).toContain('MioBridge');
+    const events = await fetch(`http://127.0.0.1:${port}/api/cluster/deploy/events`);
+    expect(events.headers.get('content-type')).toBe('text/event-stream; charset=utf-8');
+    expect(events.headers.get('x-accel-buffering')).toBe('no');
+    const reader = events.body!.getReader();
+    const firstEvent = await reader.read();
+    expect(firstEvent.done).toBe(false);
+    expect(new TextDecoder().decode(firstEvent.value)).toContain(': connected');
     controller.abort();
     await expect(running).resolves.toBe(0);
   });

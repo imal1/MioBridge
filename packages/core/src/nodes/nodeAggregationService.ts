@@ -1,27 +1,59 @@
 import { dedupeProxySources, type CollectedProxySource } from '../artifacts/sources.js';
 import { KERNEL_TYPES } from '../kernels/types.js';
 import { AgentClient } from './agentClient.js';
-import { NodeRepository } from './nodeRepository.js';
+import { isLocalNode, NodeRepository } from './nodeRepository.js';
 import type { ClusterStatus, KernelRuntimeStatus, NodeConfig, NodeStatus } from './types.js';
 
 export interface RemoteSourceCollection { sources: CollectedProxySource[]; errors: string[] }
+export interface LocalNodeMonitor { status(node: NodeConfig): Promise<NodeStatus> }
 
 export class NodeAggregationService {
   private readonly cache = new Map<string, NodeStatus>();
-  constructor(private readonly repository: NodeRepository, private readonly agent: AgentClient) {}
+  constructor(
+    private readonly repository: NodeRepository,
+    private readonly agent: AgentClient,
+    private readonly local?: LocalNodeMonitor,
+  ) {}
   getNodeCache(): ReadonlyMap<string, NodeStatus> { return this.cache; }
 
   async collectRemoteNodeSources(): Promise<RemoteSourceCollection> {
-    const nodes = await this.repository.list();
+    const nodes = (await this.repository.list()).filter(node => !isLocalNode(node));
     const results = await Promise.all(nodes.map(node => this.collectSources(node)));
     return { sources: results.flatMap(r => r.sources), errors: results.flatMap(r => r.errors) };
   }
 
   async getClusterStatus(): Promise<ClusterStatus> {
     const nodes = await this.repository.list();
-    const [statuses, collection] = await Promise.all([Promise.all(nodes.map(node => this.status(node))), Promise.all(nodes.map(node => this.collectSources(node)))]);
-    const sources = collection.flatMap(result => result.sources);
-    return { totalNodes: statuses.length, onlineNodes: statuses.filter(s => s.online).length, totalProxies: dedupeProxySources(sources).length, nodes: statuses, lastUpdated: new Date().toISOString() };
+    const statuses = await Promise.all(nodes.map(node => isLocalNode(node) ? this.localStatus(node) : this.status(node)));
+    const childNodes = nodes.filter(node => !isLocalNode(node));
+    const collection = await Promise.all(childNodes.map(node => this.collectSources(node)));
+    const childSources = dedupeProxySources(collection.flatMap(result => result.sources));
+    const localProxies = statuses.filter(status => status.kind === 'local').reduce((sum, status) => sum + (status.nodesCount ?? 0), 0);
+    return {
+      totalNodes: statuses.length,
+      onlineNodes: statuses.filter(status => status.online).length,
+      totalProxies: localProxies + childSources.length,
+      localNodes: statuses.filter(status => status.kind === 'local').length,
+      childNodes: statuses.filter(status => status.kind !== 'local').length,
+      nodes: statuses,
+      lastUpdated: new Date().toISOString(),
+    };
+  }
+
+  private async localStatus(node: NodeConfig): Promise<NodeStatus> {
+    if (!this.local) {
+      return { nodeId: node.id, name: node.name, kind: 'local', configuredKernels: node.kernels, kernels: unavailable(node.kernels), location: node.location, online: false, listener: { deployed: false, listening: false, error: '本机节点监视器不可用' }, error: '本机节点监视器不可用' };
+    }
+    try {
+      const status = { ...await this.local.status(node), listener: { deployed: true, listening: true } };
+      this.cache.set(node.id, status);
+      return status;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      const status: NodeStatus = { nodeId: node.id, name: node.name, kind: 'local', configuredKernels: node.kernels, kernels: unavailable(node.kernels), location: node.location, online: false, listener: { deployed: true, listening: false, error: message }, error: message };
+      this.cache.set(node.id, status);
+      return status;
+    }
   }
 
   private async collectSources(node: NodeConfig): Promise<RemoteSourceCollection> {
@@ -50,12 +82,12 @@ export class NodeAggregationService {
   }
 
   private async status(node: NodeConfig): Promise<NodeStatus> {
-    const base: NodeStatus = { nodeId: node.id, name: node.name, configuredKernels: node.kernels, kernels: unavailable(node.kernels), location: node.location, online: false };
+    const base: NodeStatus = { nodeId: node.id, name: node.name, kind: 'child', configuredKernels: node.kernels, kernels: unavailable(node.kernels), location: node.location, online: false, listener: { deployed: Boolean(node.agent?.deployed), listening: false, ...(!node.agent?.deployed ? { error: 'Agent 未部署' } : {}) }, ...(node.agent ? { agent: node.agent } : {}) };
     try {
       const json = await this.agent.get(node, '/api/status') as Record<string, unknown>;
       const data = (json.data ?? json) as Record<string, unknown>;
       const kernels = this.agent.validateKernelStatuses(data.kernels);
-      const status: NodeStatus = { ...base, online: true, kernels, nodesCount: kernels.reduce((sum,k) => sum+k.nodesCount, 0), ...(node.agent ? { agent: node.agent } : {}), ...(typeof data.version === 'string' ? { version: data.version } : {}), ...(typeof data.uptime === 'number' ? { uptime: data.uptime } : {}) };
+      const status: NodeStatus = { ...base, online: true, listener: { deployed: true, listening: true }, kernels, nodesCount: kernels.reduce((sum,k) => sum+k.nodesCount, 0), ...(typeof data.version === 'string' ? { version: data.version } : {}), ...(typeof data.uptime === 'number' ? { uptime: data.uptime } : {}) };
       this.cache.set(node.id, status); return status;
     } catch (error) { const status = { ...base, error: error instanceof Error && error.name === 'AbortError' ? '请求超时' : `连接失败: ${error instanceof Error ? error.message : String(error)}` }; this.cache.set(node.id, status); return status; }
   }

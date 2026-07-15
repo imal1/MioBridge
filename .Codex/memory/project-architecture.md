@@ -45,3 +45,25 @@ metadata:
   TypeScript configuration, and unused server dependencies were removed.
 - Linux release archives contain both the compiled CLI and static dashboard.
   Install and self-upgrade replace both without requiring a server runtime.
+
+## 2026-07-15 — Explicit local-node role
+
+- `nodes.yaml` stores an explicit `kind: local|child`. The optional `local`
+  record is monitored in-process and never sent through the Agent/SSH path;
+  child nodes retain Agent-backed collection and deployment.
+- Local sing-box sources participate in artifacts only when the local-node role
+  is enabled. Cluster DTOs include the local node and separate local/child counts.
+- Dashboard pages present one unified node collection. `kind: local|child`
+  remains an internal routing distinction rather than a separate user-facing
+  child-node category.
+- Node runtime DTOs expose listener deployment/listening separately from kernel
+  runtime. Deployment readiness requires the listener plus every configured
+  kernel to be detected, monitored, and accessible.
+
+## 2026-07-15 — Deployment plan contract
+
+- The CLI dashboard exposes structured per-node deployment plans and server-side
+  batch orchestration. Plans separate prerequisites, listener readiness, and
+  configured-kernel readiness and recommend the smallest repair scope.
+- Deployment execution is single-flight per node; frontend progress is an SSE
+  projection of the server task and terminal success remains runtime-derived.
