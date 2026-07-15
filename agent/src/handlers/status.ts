@@ -1,6 +1,7 @@
 import type { AgentConfig } from '../config';
 import { hmacVerify } from '../hmac';
 import { collectKernelSources } from './urls';
+import { AGENT_VERSION } from '../version';
 
 interface IncomingRequest {
   method?: string;
@@ -35,7 +36,7 @@ export async function handleStatus(
           kernels,
           nodesCount: sources.length,
           uptime: process.uptime(),
-          version: '1.0.0',
+          version: AGENT_VERSION,
         },
         timestamp: new Date().toISOString(),
       }),

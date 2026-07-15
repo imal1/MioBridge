@@ -3,6 +3,8 @@ name: CLI Linux systemd E2E
 on:
   pull_request:
     branches: [main]
+  push:
+    branches: [main]
   workflow_dispatch:
 
 jobs:
@@ -41,10 +43,10 @@ jobs:
       - name: Verify user-systemd lifecycle from compiled release
         run: |
           set -euo pipefail
-          docker cp dist/cli-release/miobridge-0.0.0-e2e-linux-x64.tar.gz miobridge-systemd-e2e:/tmp/release.tar.gz
-          docker exec miobridge-systemd-e2e sh -c 'mkdir /tmp/release && tar -xzf /tmp/release.tar.gz -C /tmp/release'
-          docker cp scripts/e2e-cli-systemd.sh miobridge-systemd-e2e:/tmp/e2e-cli-systemd.sh
-          docker exec miobridge-systemd-e2e bash /tmp/e2e-cli-systemd.sh /tmp/release/miobridge
+          docker cp dist/cli-release/miobridge-0.0.0-e2e-linux-x64.tar.gz miobridge-systemd-e2e:/root/release.tar.gz
+          docker exec miobridge-systemd-e2e sh -c 'mkdir /root/release && tar -xzf /root/release.tar.gz -C /root/release'
+          docker cp scripts/e2e-cli-systemd.sh miobridge-systemd-e2e:/root/e2e-cli-systemd.sh
+          docker exec miobridge-systemd-e2e bash /root/e2e-cli-systemd.sh /root/release/miobridge
       - name: Print systemd logs on failure
         if: failure()
         run: docker logs miobridge-systemd-e2e || true

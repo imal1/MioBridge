@@ -1,15 +1,27 @@
 import { execFileSync, spawnSync } from 'node:child_process';
-import { chmodSync, copyFileSync, mkdirSync, mkdtempSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { chmodSync, copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 
 const root = resolve(import.meta.dirname, '../../../..');
 const packageScript = join(root, 'scripts/package-cli-release.sh');
 const installer = join(root, 'scripts/install.sh');
+const temporaryRoots = new Set<string>();
+
+function temporary(prefix: string): string {
+  const path = mkdtempSync(join(tmpdir(), prefix));
+  temporaryRoots.add(path);
+  return path;
+}
+
+afterEach(() => {
+  for (const path of temporaryRoots) rmSync(path, { recursive: true, force: true });
+  temporaryRoots.clear();
+});
 
 function fixture() {
-  const dir = mkdtempSync(join(tmpdir(), 'miobridge-release-test-'));
+  const dir = temporary('miobridge-release-test-');
   const binaries = join(dir, 'binaries');
   const release = join(dir, 'release');
   mkdirSync(binaries);
@@ -22,6 +34,9 @@ function fixture() {
     const file = join(binaries, arch);
     writeFileSync(file, `#!/bin/sh\necho ${arch}-v1\n`);
     chmodSync(file, 0o755);
+    const agent = join(binaries, `agent-${arch}`);
+    writeFileSync(agent, '#!/bin/sh\necho 1.2.3\n');
+    chmodSync(agent, 0o755);
   }
   execFileSync('bash', [packageScript, '1.2.3'], {
     cwd: tmpdir(),
@@ -30,6 +45,8 @@ function fixture() {
       MIOBRIDGE_RELEASE_DIR: release,
       MIOBRIDGE_BINARY_X64: join(binaries, 'x64'),
       MIOBRIDGE_BINARY_ARM64: join(binaries, 'arm64'),
+      MIOBRIDGE_AGENT_BINARY_X64: join(binaries, 'agent-x64'),
+      MIOBRIDGE_AGENT_BINARY_ARM64: join(binaries, 'agent-arm64'),
       MIOBRIDGE_DASHBOARD_PROVIDER_DIR: provider,
     },
   });
@@ -47,7 +64,7 @@ function fakePlatform(dir: string, machine: string) {
 
 describe('CLI release distribution', () => {
   it('cleans and rebuilds core before compiling release sources', () => {
-    const sandbox = mkdtempSync(join(tmpdir(), 'miobridge-release-clean-'));
+    const sandbox = temporary('miobridge-release-clean-');
     const sandboxScript = join(sandbox, 'scripts', 'package-cli-release.sh');
     const coreDir = join(sandbox, 'packages', 'core');
     const log = join(sandbox, 'bun.log');
@@ -93,6 +110,8 @@ describe('CLI release distribution', () => {
       `run --cwd ${coreDir} build`,
       expect.stringContaining(`build ${join(sandbox, 'packages', 'cli', 'src', 'main.ts')} --compile --target=bun-linux-x64`),
       expect.stringContaining(`build ${join(sandbox, 'packages', 'cli', 'src', 'main.ts')} --compile --target=bun-linux-arm64`),
+      expect.stringContaining(`build ${join(sandbox, 'agent', 'src', 'server.ts')} --compile --target=bun-linux-x64`),
+      expect.stringContaining(`build ${join(sandbox, 'agent', 'src', 'server.ts')} --compile --target=bun-linux-arm64`),
     ]);
     expect(readFileSync(join(coreDir, 'dist', 'index.js'), 'utf8')).toBe('fresh');
   });
@@ -106,6 +125,7 @@ describe('CLI release distribution', () => {
       const listing = execFileSync('tar', ['-tvzf', join(release, archive)], { encoding: 'utf8' });
       const binaryLine = listing.split('\n').find((line) => line.endsWith(' miobridge'));
       expect(binaryLine?.startsWith('-rwx')).toBe(true);
+      expect(statSync(join(release, `miobridge-agent-1.2.3-linux-${arch}.gz`)).size).toBeGreaterThan(0);
     }
   });
 

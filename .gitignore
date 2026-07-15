@@ -2,8 +2,6 @@
 node_modules/
 
 # Lockfiles are intentionally not committed
-bun.lock
-bun.lockb
 
 # Other package managers (not used in this project)
 package-lock.json

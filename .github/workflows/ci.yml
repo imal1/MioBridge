@@ -24,7 +24,7 @@ jobs:
         with:
           bun-version: 1.2.13
 
-      - run: bun install
+      - run: bun install --frozen-lockfile
 
       - run: bun run lint
 
@@ -41,7 +41,7 @@ jobs:
         with:
           bun-version: 1.2.13
 
-      - run: bun install
+      - run: bun install --frozen-lockfile
 
       - run: bun run core:typecheck
 
@@ -64,7 +64,7 @@ jobs:
         with:
           bun-version: 1.2.13
 
-      - run: bun install
+      - run: bun install --frozen-lockfile
 
       - run: bun run core:test
 
@@ -85,7 +85,7 @@ jobs:
         with:
           bun-version: 1.2.13
 
-      - run: bun install
+      - run: bun install --frozen-lockfile
 
       - run: bun run core:build
       - run: bun run cli:typecheck
@@ -111,6 +111,14 @@ jobs:
           done
           grep -F 'miobridge-0.0.0-ci-linux-x64.tar.gz' dist/cli-release/SHA256SUMS
           grep -F 'miobridge-0.0.0-ci-linux-arm64.tar.gz' dist/cli-release/SHA256SUMS
+          for arch in x64 arm64; do
+            agent="dist/cli-release/miobridge-agent-0.0.0-ci-linux-$arch.gz"
+            gzip -t "$agent"
+            grep -F "$(basename "$agent")" dist/cli-release/SHA256SUMS
+          done
+          gzip -dc dist/cli-release/miobridge-agent-0.0.0-ci-linux-x64.gz > "$RUNNER_TEMP/miobridge-agent"
+          chmod 0755 "$RUNNER_TEMP/miobridge-agent"
+          test "$("$RUNNER_TEMP/miobridge-agent" --version)" = 0.0.0-ci
 
   build:
     name: Build (Vite SPA)
@@ -125,7 +133,7 @@ jobs:
         with:
           bun-version: 1.2.13
 
-      - run: bun install
+      - run: bun install --frozen-lockfile
 
       - run: bun run build
 

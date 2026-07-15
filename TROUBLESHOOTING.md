@@ -18,7 +18,7 @@ curl -fsS http://127.0.0.1:3000/health
 - A remote Agent is offline: verify its public Agent port is reachable. Normal
   health and source checks use Agent HTTP plus HMAC, not SSH fallback.
 - SSH detection or deployment failed: verify the saved SSH credential, host key,
-  sudo access, and outbound access to the Agent source archive. On the child node,
+  sudo access, and outbound access to the MioBridge Release assets. On the child node,
   inspect `journalctl -u miobridge-agent -n 100 --no-pager`.
 - `Dashboard provider is not installed`: reinstall the release or use
   `miobridge upgrade` when a newer release is available.

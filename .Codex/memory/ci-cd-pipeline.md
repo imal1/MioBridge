@@ -58,3 +58,14 @@ compilation and includes the Vite provider in each architecture archive.
 Installer, self-upgrade validation, and `miobridge --version` share the same
 release identity. Manual `release.yml` dispatches create the version tag and
 GitHub Release instead of building assets without publishing them.
+
+## 2026-07-15 — Release is gated by a real Linux install
+
+The release workflow now verifies the compiled x64 version, installs the staged
+archive through `install.sh`, and runs the user-systemd lifecycle E2E before
+uploading assets. The standalone E2E also runs on `main`; container fixtures use
+`/root` because `/tmp` is mounted as tmpfs and is unsuitable for `docker cp`.
+The same release also publishes checksum-covered Agent binaries for Linux x64
+and arm64 so remote nodes never build Agent source. Frontend tests use one
+Vitest worker so resource contention cannot turn module imports into
+nondeterministic five-second timeouts.

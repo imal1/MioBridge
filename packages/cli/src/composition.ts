@@ -103,7 +103,7 @@ export function createNodeCore(options: NodeCoreOptions = {}): NodeCoreCompositi
   const state = createStateStore({ paths, env, logger });
   const repository = new NodeRepository(state);
   const yaml = new YamlService({ paths, logger });
-  const configService = new ConfigService(yaml, paths, options.metadata?.version ?? '0.1.0');
+  const configService = new ConfigService(yaml, paths, options.metadata?.version ?? '0.2.0');
   const fullConfig = configService.getFullConfig();
   const config = configService.getConfig();
   const local = options.local ?? new SingBoxAdapter({
@@ -122,7 +122,7 @@ export function createNodeCore(options: NodeCoreOptions = {}): NodeCoreCompositi
     ...(env.MIOBRIDGE_MIHOMO_PATH ? { envPath: env.MIOBRIDGE_MIHOMO_PATH } : {}),
   });
   const core = new MioBridgeCore({
-    paths, state, logger, metadata: options.metadata ?? { version: '0.1.0' }, yaml,
+    paths, state, logger, metadata: options.metadata ?? { version: '0.2.0' }, yaml,
     local, remote, mihomo,
     ...(options.uptime ? { uptime: options.uptime } : {}),
   });

@@ -212,9 +212,9 @@ describe('DeployProgressDialog', () => {
     const status = {
       nodeId: 'node-sg',
       deploymentId: 'deploy-sg',
-      step: 'bun' as const,
+      step: 'agent' as const,
       status: 'running' as const,
-      message: '安装 Bun...',
+      message: '下载并安装已校验 Agent...',
       progress: 40,
       startedAt: Date.now(),
     };
@@ -227,6 +227,6 @@ describe('DeployProgressDialog', () => {
       })
     );
     expect(screen.getByText('正在部署 新加坡')).toBeDefined();
-    expect(screen.getByText('安装 Bun...')).toBeDefined();
+    expect(screen.getByText('下载并安装已校验 Agent...')).toBeDefined();
   });
 });

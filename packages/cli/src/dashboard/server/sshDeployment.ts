@@ -45,7 +45,7 @@ export interface KernelDetection {
 export interface DeployStatus {
   readonly nodeId: string;
   readonly deploymentId: string;
-  readonly step: 'connect' | 'bun' | 'kernel' | 'agent' | 'start' | 'verify' | 'done';
+  readonly step: 'connect' | 'kernel' | 'agent' | 'start' | 'verify' | 'done';
   readonly status: 'pending' | 'running' | 'success' | 'error';
   readonly message: string;
   readonly progress: number;
@@ -93,12 +93,16 @@ function validatePrivateKey(value: string): void {
   }
 }
 
-function sourceTarballUrl(): string {
-  if (process.env.MIOBRIDGE_AGENT_SOURCE_TARBALL) return process.env.MIOBRIDGE_AGENT_SOURCE_TARBALL;
-  const repository = process.env.MIOBRIDGE_REPOSITORY ?? 'imal1/MioBridge';
-  const version = process.env.MIOBRIDGE_BUILD_VERSION;
-  const ref = process.env.MIOBRIDGE_AGENT_SOURCE_REF ?? (version ? `v${version}` : 'main');
-  return `https://codeload.github.com/${repository}/tar.gz/${encodeURIComponent(ref)}`;
+export function agentRelease(
+  version: string,
+  architecture: 'x64' | 'arm64',
+  env: NodeJS.ProcessEnv = process.env,
+): { artifact: string; baseUrl: string } {
+  const repository = env.MIOBRIDGE_REPOSITORY ?? 'imal1/MioBridge';
+  return {
+    artifact: `miobridge-agent-${version}-linux-${architecture}.gz`,
+    baseUrl: env.MIOBRIDGE_RELEASE_BASE_URL ?? `https://github.com/${repository}/releases/download/v${version}`,
+  };
 }
 
 export class SshDeploymentService {
@@ -222,19 +226,15 @@ export class SshDeploymentService {
       ssh = await this.connect(target);
       emit('connect', 'success', 'SSH 连接成功', 15);
 
-      emit('bun', 'running', '检查远端 Bun 编译环境', 20);
-      await this.ensureBun(ssh, target);
-      emit('bun', 'success', 'Bun 已就绪', 35);
-
       const monitored: NodeKernelConfig[] = [];
       for (const kernel of kernels) {
-        emit('kernel', 'running', `检查 ${kernel.type} 内核`, 40);
+        emit('kernel', 'running', `检查 ${kernel.type} 内核`, 25);
         await this.ensureKernel(ssh, target, kernel);
         monitored.push(kernel);
       }
-      emit('kernel', 'success', `${monitored.length} 个内核已就绪`, 55);
+      emit('kernel', 'success', `${monitored.length} 个内核已就绪`, 50);
 
-      emit('agent', 'running', '构建并安装 Agent', 60);
+      emit('agent', 'running', '下载并安装已校验 Agent', 60);
       await this.installAgent(ssh, target, monitored);
       emit('agent', 'success', 'Agent 已安装', 80);
 
@@ -379,19 +379,6 @@ export class SshDeploymentService {
     return this.exec(ssh, elevated, target.ssh.password ? `${target.ssh.password}\n` : undefined);
   }
 
-  private async ensureBun(ssh: Client, target: SshTarget): Promise<void> {
-    const current = await this.exec(ssh, 'export PATH="$HOME/.bun/bin:$PATH"; command -v bun >/dev/null 2>&1 && bun --version');
-    if (current.code === 0) return;
-    const installed = await this.exec(ssh, 'curl -fsSL https://bun.sh/install | bash');
-    if (installed.code !== 0) throw new Error(`Bun 安装失败: ${(installed.stderr || installed.stdout).trim()}`);
-    const verified = await this.exec(ssh, 'export PATH="$HOME/.bun/bin:$PATH"; bun --version');
-    if (verified.code !== 0) throw new Error(`Bun 验证失败: ${(verified.stderr || verified.stdout).trim()}`);
-    if (target.ssh.user !== 'root') {
-      const sudo = await this.execRoot(ssh, target, 'true');
-      if (sudo.code !== 0) throw new Error('当前 SSH 用户无法执行 sudo');
-    }
-  }
-
   private async detectKernel(ssh: Client, type: KernelType): Promise<KernelDetection> {
     try {
       const result = await this.exec(ssh, `${type} version 2>&1`);
@@ -415,21 +402,33 @@ export class SshDeploymentService {
   }
 
   private async installAgent(ssh: Client, target: SshTarget, kernels: readonly NodeKernelConfig[]): Promise<void> {
-    const output = `/tmp/miobridge-agent-${target.nodeId}`;
-    const url = sourceTarballUrl();
-    const buildScript = [
+    const detected = await this.exec(ssh, 'uname -m');
+    if (detected.code !== 0) throw new Error(`Agent 架构检测失败: ${(detected.stderr || detected.stdout).trim()}`);
+    const machine = detected.stdout.trim();
+    const architecture = /^(x86_64|amd64)$/.test(machine)
+      ? 'x64'
+      : /^(aarch64|arm64)$/.test(machine) ? 'arm64' : null;
+    if (!architecture) throw new Error(`不支持的 Agent 架构: ${machine}`);
+    const version = process.env.MIOBRIDGE_BUILD_VERSION ?? '0.2.0';
+    const release = agentRelease(version, architecture);
+    const installScript = [
       'set -e',
-      'export PATH="$HOME/.bun/bin:$PATH"',
-      'workdir=$(mktemp -d /tmp/miobridge-agent-build.XXXXXX)',
+      'workdir=$(mktemp -d /tmp/miobridge-agent-install.XXXXXX)',
       `trap 'rm -rf "$workdir"' EXIT`,
-      `curl -fsSL ${shellQuote(url)} -o "$workdir/source.tar.gz"`,
-      'tar -xzf "$workdir/source.tar.gz" -C "$workdir" --strip-components=1',
-      `cd "$workdir/agent" && bun build src/server.ts --compile --outfile ${shellQuote(output)}`,
+      'command -v sha256sum >/dev/null && command -v gzip >/dev/null',
+      'if command -v curl >/dev/null; then download() { curl -fsSL --retry 3 "$1" -o "$2"; }; elif command -v wget >/dev/null; then download() { wget -qO "$2" "$1"; }; else exit 127; fi',
+      `download ${shellQuote(`${release.baseUrl}/${release.artifact}`)} "$workdir/agent.gz"`,
+      `download ${shellQuote(`${release.baseUrl}/SHA256SUMS`)} "$workdir/SHA256SUMS"`,
+      `expected=$(awk -v name=${shellQuote(release.artifact)} '$2 == name || $2 == "*" name { print $1; exit }' "$workdir/SHA256SUMS")`,
+      '[ -n "$expected" ]',
+      'actual=$(sha256sum "$workdir/agent.gz" | awk \'{print $1}\')',
+      '[ "$actual" = "$expected" ]',
+      'gzip -dc "$workdir/agent.gz" > "$workdir/agent"',
+      `test "$(chmod 755 "$workdir/agent" && "$workdir/agent" --version)" = ${shellQuote(version)}`,
+      `mkdir -p /etc/miobridge-agent /usr/local/bin && install -m 755 "$workdir/agent" ${AGENT_REMOTE_PATH}`,
     ].join('\n');
-    const built = await this.exec(ssh, `bash -c ${shellQuote(buildScript)}`);
-    if (built.code !== 0) throw new Error(`Agent 构建失败: ${(built.stderr || built.stdout).trim().slice(-600)}`);
-    const prepared = await this.execRoot(ssh, target, `mkdir -p /etc/miobridge-agent /usr/local/bin && install -m 755 ${shellQuote(output)} ${AGENT_REMOTE_PATH} && rm -f ${shellQuote(output)}`);
-    if (prepared.code !== 0) throw new Error(`Agent 安装失败: ${(prepared.stderr || prepared.stdout).trim()}`);
+    const installed = await this.execRoot(ssh, target, `bash -c ${shellQuote(installScript)}`);
+    if (installed.code !== 0) throw new Error(`Agent 安装或校验失败: ${(installed.stderr || installed.stdout).trim().slice(-600)}`);
     await this.writeRemoteFile(ssh, target, AGENT_CONFIG_PATH, this.agentYaml(target, kernels), 0o600);
     await this.writeRemoteFile(ssh, target, AGENT_SERVICE_PATH, this.systemdUnit(), 0o644);
   }

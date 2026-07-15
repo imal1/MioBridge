@@ -25,8 +25,8 @@ SHA-256 后原子安装 `~/.local/bin/miobridge` 与
 镜像、隔离网络或非默认安装目录：
 
 ```bash
-sh install.sh --version 0.1.0 \
-  --base-url https://mirror.example/miobridge/v0.1.0 \
+sh install.sh --version 0.2.0 \
+  --base-url https://mirror.example/miobridge/v0.2.0 \
   --install-dir "$HOME/.local/bin"
 ```
 
@@ -72,6 +72,9 @@ miobridge uninstall
 准确版本、URL 与 SHA-256 在受审查源码
 [`packages/cli/src/setup/catalog.ts`](../packages/cli/src/setup/catalog.ts) 中。
 Setup 错误会隐藏凭据和查询参数中的密钥。
+
+远端 Agent 也遵循同一分层：CLI 选择同版本的 x64/arm64 压缩 Agent 制品，
+校验 `SHA256SUMS` 后安装到子节点，不安装 Bun，也不编译源码。
 
 ## Dashboard provider 与 systemd 用户服务
 

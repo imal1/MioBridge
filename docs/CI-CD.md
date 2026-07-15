@@ -6,15 +6,16 @@ Keep this document short; workflow files are the source of truth.
 
 - `ci.yml`: PR gate. Runs lint; core/frontend typechecks; core, frontend, and
   Agent tests; CLI typechecks/contracts; builds the Vite SPA; cross-compiles and
-  inspects x64/arm64 CLI archives; packages the static dashboard provider; and
-  checks the browser bundle boundary.
+  inspects x64/arm64 CLI archives and Agent binaries; packages the static
+  dashboard provider; and checks the browser bundle boundary.
 - `cli-systemd-e2e.yml`: PR and manual Linux gate. It starts a disposable
   systemd host, enables linger for a disposable user, runs compiled CLI
   dashboard start/stop/status across separate shells, verifies all compatibility
   URLs, provider-failure journal guidance, and headless status after provider
   removal. It never tests or creates a root system service.
-- `release.yml`: tags package both Linux architectures, run CLI contracts, and
-  upload release archives plus `SHA256SUMS` to GitHub Releases.
+- `release.yml`: tags package both Linux architectures, run CLI contracts and a
+  real user-systemd install, then upload CLI archives, Agent binaries, and
+  `SHA256SUMS` to GitHub Releases.
 
 Production deploys are handled by Vercel Git Integration, not GitHub Actions.
 The old SSH/systemd `deploy.yml` and `health-check.yml` workflows were removed.

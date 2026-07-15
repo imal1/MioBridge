@@ -1,44 +1,36 @@
 # MioBridge Diagnostic
 
-Run a comprehensive diagnostic of the MioBridge service, including health status, recent deployments, and logs.
+Run a comprehensive diagnostic of the CLI-owned MioBridge dashboard service.
 
 ## Steps
 
-1. Check service health:
+1. Check CLI and dashboard state:
    ```bash
-   PORT=$(grep 'port:' ~/.config/miobridge/config.yaml 2>/dev/null | awk '{print $2}' | head -1 || echo "3001")
-   echo "=== Service Health ==="
-   curl -fsS "http://localhost:${PORT:-3001}/api/health" 2>&1 || echo "❌ Health check failed"
+   miobridge status --json
+   miobridge dashboard status --json
    ```
 
-2. Get detailed service status:
+2. Check the public health endpoint:
    ```bash
-   echo "=== Service Status ==="
-   curl -fsS "http://localhost:${PORT:-3001}/api/status" 2>&1 | python3 -m json.tool || echo "❌ Status check failed"
+   PORT=$(grep 'port:' ~/.config/miobridge/config.yaml 2>/dev/null | awk '{print $2}' | head -1 || echo "3000")
+   curl -fsS "http://localhost:${PORT:-3000}/health" | python3 -m json.tool
    ```
 
-3. Check recent GitHub Actions deployments:
+3. Check current CI and Linux lifecycle runs:
    ```bash
-   echo "=== Recent Deployments ==="
-   gh run list -w deploy.yml -L5
+   gh run list -w ci.yml -L5
+   gh run list -w cli-systemd-e2e.yml -L5
    ```
 
-4. Check recent health check runs:
+4. Check dashboard logs:
    ```bash
-   echo "=== Recent Health Checks ==="
-   gh run list -w health-check.yml -L3
+   journalctl --user -u miobridge-dashboard.service --since "10 min ago" --no-pager
    ```
 
-5. Check service logs:
+5. Check the installed release identity:
    ```bash
-   echo "=== Recent Service Logs ==="
-   sudo journalctl -u miobridge --since "10 min ago" --no-pager
+   miobridge --version
+   cat ~/.local/bin/.miobridge-cli-version
    ```
 
-6. Check current running version:
-   ```bash
-   echo "=== Current Version ==="
-   readlink ~/.config/miobridge/dist
-   ```
-
-7. Summarize findings in a structured report with ✅/❌ indicators for each check.
+6. Summarize findings with the failing layer: CLI, provider, user-systemd, or network.

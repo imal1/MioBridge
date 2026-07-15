@@ -24,6 +24,7 @@ fi
 need() { command -v "$1" >/dev/null 2>&1 || { echo "required command not found: $1" >&2; exit 1; }; }
 need tar
 need shasum
+need gzip
 
 build_core() {
   # CLI source imports the public compiled core package. Rebuild it here so a
@@ -44,14 +45,20 @@ build_dashboard() {
   DASHBOARD_PROVIDER_DIR="$GENERATED_DASHBOARD_ROOT/provider"
 }
 
-if [[ -z "${MIOBRIDGE_BINARY_X64:-}" || -z "${MIOBRIDGE_BINARY_ARM64:-}" ]]; then
+if [[ -z "${MIOBRIDGE_BINARY_X64:-}" || -z "${MIOBRIDGE_BINARY_ARM64:-}" \
+  || -z "${MIOBRIDGE_AGENT_BINARY_X64:-}" || -z "${MIOBRIDGE_AGENT_BINARY_ARM64:-}" ]]; then
   need "$BUN_CMD"
+fi
+if [[ -z "${MIOBRIDGE_BINARY_X64:-}" || -z "${MIOBRIDGE_BINARY_ARM64:-}" ]]; then
   build_core
 fi
 build_dashboard
 
 mkdir -p "$OUTPUT_DIR"
-rm -f "$OUTPUT_DIR"/miobridge-"$VERSION"-linux-*.tar.gz "$OUTPUT_DIR/SHA256SUMS"
+rm -f \
+  "$OUTPUT_DIR"/miobridge-"$VERSION"-linux-*.tar.gz \
+  "$OUTPUT_DIR"/miobridge-agent-"$VERSION"-linux-*.gz \
+  "$OUTPUT_DIR/SHA256SUMS"
 
 build_one() {
   local arch="$1" target="$2" override="$3"
@@ -85,8 +92,31 @@ build_one() {
 build_one x64 bun-linux-x64 "${MIOBRIDGE_BINARY_X64:-}"
 build_one arm64 bun-linux-arm64 "${MIOBRIDGE_BINARY_ARM64:-}"
 
+build_agent() {
+  local arch="$1" target="$2" override="$3"
+  local binary artifact
+  binary="$(mktemp "${TMPDIR:-/tmp}/miobridge-agent.XXXXXX")"
+  artifact="$OUTPUT_DIR/miobridge-agent-$VERSION-linux-$arch.gz"
+  trap 'rm -f "$binary"' RETURN
+  if [[ -n "$override" ]]; then
+    cp "$override" "$binary"
+  else
+    "$BUN_CMD" build "$ROOT_DIR/agent/src/server.ts" --compile --target="$target" \
+      --define "process.env.MIOBRIDGE_BUILD_VERSION='$VERSION'" --outfile "$binary"
+  fi
+  chmod 0755 "$binary"
+  gzip -n -c "$binary" > "$artifact"
+  rm -f "$binary"
+  trap - RETURN
+}
+
+build_agent x64 bun-linux-x64 "${MIOBRIDGE_AGENT_BINARY_X64:-}"
+build_agent arm64 bun-linux-arm64 "${MIOBRIDGE_AGENT_BINARY_ARM64:-}"
+
 (
   cd "$OUTPUT_DIR"
-  LC_ALL=C shasum -a 256 miobridge-"$VERSION"-linux-*.tar.gz > SHA256SUMS
+  LC_ALL=C shasum -a 256 \
+    miobridge-"$VERSION"-linux-*.tar.gz \
+    miobridge-agent-"$VERSION"-linux-*.gz > SHA256SUMS
 )
 echo "CLI release $VERSION written to $OUTPUT_DIR"

@@ -1,38 +1,27 @@
 # Changelog
 
-本文档记录 MioBridge 的所有重要变更。
+本文档记录 MioBridge 的重要变更。版本号遵循语义化版本规范。
 
-格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，版本号遵循语义化版本规范。
-
-## [1.0.0] — 2026-06-28
+## [0.2.0] — 2026-07-15
 
 ### Added
-- **全栈控制面架构**：Web 仪表盘与订阅转换服务整合部署
-- **Web 仪表盘**：Botanical Garden 主题、客户端状态轮询、暗色模式自适应
-- **零接触多节点部署（Agent）**：Agent 子包（`agent/`），含 HTTP 服务器、配置解析、Linux amd64/arm64 构建脚本
-- **DeployManager 服务**：SSH 远程部署管理，支持节点注册、代理生命周期、内核管理
-- **UpdateChecker 服务**：版本检查与自动更新管理
-- **部署 UI 组件**：AddNodeForm、DeployProgressDialog、NodeDetail Agent 信息区域、BatchActions
-- **部署 CLI**：`deploy`、`deploy:status`、`deploy:rollback` 等命令
-- **部署 API**：`/api/deploy/*`、`/api/agent/*`、`/api/kernel/*`
-- **HMAC 认证中间件**：节点间安全通信，带重放保护
-- **NodeManager 服务**：多节点注册、状态轮询、HMAC 签名
-- **KernelAdapter 体系**：SingBoxAdapter、XrayAdapter、V2rayAdapter 统一接口
-- **协议全支持**：vless (含 reality)、vmess、trojan、hysteria2、tuic、shadowsocks
-- **mihomo 转换内核**：本地命令行调用，替代 subconverter
-- **定时订阅更新**：node-cron，Asia/Shanghai 时区
-- **Winston 结构化日志**
-- **`config.yaml` 配置管理**：YAML 解析与缺失默认值
-- **API 端点**：`/api/health`、`/api/status`、`/api/update`、`/api/convert`、`/api/configs`
-- **文件端点**：`/subscription.txt`、`/clash.yaml`、`/raw.txt`
-- **原子部署**：GitHub Actions → SSH → 软链接切换 → 健康检查 → 失败自动回滚
-- **CI/CD**：PR 门禁（lint/typecheck/build）、自动部署、5 分钟健康监控
-- **部署版本可见性**：仪表盘页脚显示 git commit hash 和构建时间
-- **CLAUDE.md**：完整架构说明、设计系统、决策记录、排查指南
 
-### Fixed
-- **Vitest JSX 解析失败**：添加 `@vitejs/plugin-react` 统一处理 JSX，并排除 Agent 下的 Bun 测试
-- **仪表盘状态轮询丢失**：`api.ts` 未解包 API 响应 `data` 字段
-- **clash.yaml 生成失败**：修正配置序列化输出格式
-- **版本号一致性**：硬编码版本统一为 `package.json` → `version.ts` 单例
-- **User-Agent 硬编码**：`mihomoService` 改用动态 `VERSION` 导入
+- 自包含 Linux CLI，提供 `setup`、`update`、`status`、`dashboard`、`upgrade` 和 `uninstall` 命令。
+- Linux x64/arm64 发布产物、SHA-256 校验、原子安装和原子自升级。
+- CLI 托管的 Vite dashboard 与 `/subscription.txt`、`/clash.yaml`、`/raw.txt`、`/health` 兼容地址。
+- 用户级 systemd dashboard 生命周期，以及独立登录后的服务重连支持。
+- `mihomo` 必需内核的固定版本、固定摘要安装；`sing-box` 保持可选发现。
+- 主节点订阅生成与远程 Agent 节点聚合。
+- 与 CLI 同版本发布的 Linux x64/arm64 Agent 二进制及远端摘要校验安装。
+
+### Changed
+
+- 自托管运行时改为 CLI-first 分层：`miobridge` 负责管理，外部内核作为独立二进制运行。
+- 子节点 Agent 改为下载预编译 Release 制品，不再安装 Bun 或现场编译源码。
+- `scripts/install.sh` 成为唯一 bootstrap Shell；安装后不再依赖管理脚本树或源码目录。
+- 前端统一为 Vite SPA，并由 CLI 的单进程 HTTP 服务托管。
+
+### Removed
+
+- 旧 Subconverter 发布线及其部署约定。
+- `manage.sh` 和安装后的 Shell 生命周期入口。

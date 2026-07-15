@@ -284,7 +284,7 @@ describe('handleHealth', () => {
     const body = await res.json();
     expect(body.uptime).toBeDefined();
     expect(body.memory).toBeDefined();
-    expect(body.version).toBe('1.0.0');
+    expect(body.version).toBe('0.2.0');
   });
 });
 

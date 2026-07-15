@@ -1,6 +1,6 @@
 # MioBridge Release
 
-Create a new versioned release: tag the commit, push the tag, and monitor the deployment.
+Create a checksum-covered CLI and Agent release after all gates pass.
 
 ## Steps
 
@@ -9,7 +9,8 @@ Create a new versioned release: tag the commit, push the tag, and monitor the de
    head -20 CHANGELOG.md | grep -E '^## \[?[0-9]' | head -1
    ```
 
-2. Ask the user to confirm the version number (e.g., `v1.2.0`). If CHANGELOG.md has unreleased changes, suggest the next version based on semver.
+2. Confirm that `main` is clean, pushed, and has successful `ci.yml` and
+   `cli-systemd-e2e.yml` runs for the same commit.
 
 3. Create and push the tag:
    ```bash
@@ -23,6 +24,10 @@ Create a new versioned release: tag the commit, push the tag, and monitor the de
    gh run watch $RUN_ID
    ```
 
-5. After the release build succeeds, verify the artifacts are available on the GitHub Releases page.
+5. After the release build succeeds, verify both CLI archives, both compressed
+   Agent binaries, and `SHA256SUMS` are available on the GitHub Releases page.
 
-6. Report the release result with version, commit, and release status.
+6. Run `scripts/install.sh --version <version> --skip-setup` on a clean Linux
+   host or rely on the successful release workflow installer/systemd gates.
+
+7. Report the release URL, commit, checksums, and gate status.

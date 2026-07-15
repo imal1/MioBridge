@@ -7,11 +7,16 @@ import { handleUrls } from './handlers/urls';
 import { handleLogs } from './handlers/logs';
 import * as path from 'path';
 import * as os from 'os';
+import { AGENT_VERSION } from './version';
 
 const CONFIG_PATH = process.env.MIOBRIDGE_AGENT_CONFIG ||
   path.join(os.homedir(), '.config', 'miobridge-agent', 'agent.yaml');
 
 async function main() {
+  if (process.argv.includes('--version') || process.argv.includes('-v')) {
+    process.stdout.write(`${AGENT_VERSION}\n`);
+    return;
+  }
   console.log('MioBridge Agent starting...');
   const config = await loadConfig(CONFIG_PATH);
   console.log(`Config loaded: node=${config.node.id}, kernels=${config.kernels.map(item => item.type).join(',')}, port=${config.port}`);

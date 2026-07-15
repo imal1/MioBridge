@@ -14,6 +14,8 @@ dashboard, and `packages/core/` owns framework-independent behavior.
   explicit `@miobridge/core` exports and the `MioBridgeCore` facade.
 - `packages/cli` is the Linux composition root and owns setup, subscription,
   status, dashboard lifecycle, upgrade, and uninstall commands.
+- `agent` is distributed as checksum-covered Linux x64/arm64 release binaries;
+  child servers never install Bun or compile Agent source.
 - Server operations after bootstrap must be exposed through the `miobridge`
   binary, not new management shell scripts.
 - Runtime config/data/logs/backups live under `~/.config/miobridge`, independent
@@ -52,7 +54,8 @@ Do not run root `npx tsc --noEmit`; use the frontend, CLI, and core workspace co
 - `scripts/install.sh` is the sole server bootstrap shell and installs a verified
   release CLI to `~/.local/bin/miobridge` plus its static dashboard provider.
 - After bootstrap, lifecycle operations use `miobridge` commands only.
-- Release archives and checksums are produced by `scripts/package-cli-release.sh`.
+- Release archives, Agent binaries, and checksums are produced by
+  `scripts/package-cli-release.sh`.
 
 ## UI
 

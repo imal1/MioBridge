@@ -28,8 +28,8 @@ checkout.
 For a mirror, air-gapped staging server, or non-default binary directory:
 
 ```bash
-sh install.sh --version 0.1.0 \
-  --base-url https://mirror.example/miobridge/v0.1.0 \
+sh install.sh --version 0.2.0 \
+  --base-url https://mirror.example/miobridge/v0.2.0 \
   --install-dir "$HOME/.local/bin"
 ```
 
@@ -76,6 +76,10 @@ filesystem change.
 Exact versions, URLs, and SHA-256 values are reviewed source in
 [`packages/cli/src/setup/catalog.ts`](../packages/cli/src/setup/catalog.ts).
 Setup redacts credentials and query secrets from errors.
+
+Remote Agent deployment follows the same layering: the CLI selects the
+same-version x64/arm64 compressed Agent asset, verifies `SHA256SUMS`, and installs
+the binary on the child without installing Bun or compiling source.
 
 ## Dashboard provider and systemd user service
 

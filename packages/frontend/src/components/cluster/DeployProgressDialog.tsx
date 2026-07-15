@@ -10,7 +10,6 @@ interface DeployProgressDialogProps {
 
 const STEP_LABELS: Record<string, string> = {
   connect: 'SSH 连接',
-  bun: '安装 Bun',
   kernel: '安装内核',
   agent: '部署 Agent',
   start: '启动服务',
@@ -33,7 +32,7 @@ const STATUS_COLORS: Record<string, string> = {
 };
 
 /** All deploy steps in order, for rendering the step list */
-const ALL_STEPS = ['connect', 'bun', 'kernel', 'agent', 'start', 'verify', 'done'];
+const ALL_STEPS = ['connect', 'kernel', 'agent', 'start', 'verify', 'done'];
 
 export function DeployProgressDialog({ isOpen, nodeName, status, onClose }: DeployProgressDialogProps) {
   if (!isOpen) return null;

@@ -16,6 +16,10 @@ metadata:
 - Self-hosted Linux starts with the checksum-verifying `scripts/install.sh` and
   installs the CLI plus dashboard provider; thereafter it uses only `miobridge`
   lifecycle commands, with no source checkout or management script tree.
+- The CLI is the management layer; `mihomo` and the optional `sing-box` runtime
+  remain separately discovered or checksum-verified managed binaries.
+- Child Agent deployment selects a checksum-covered x64/arm64 binary from the
+  matching MioBridge Release; child servers do not install Bun or compile source.
 - Child deployment detects every supported kernel, lets operators choose the
   monitored set, installs selected missing kernels, then deploys one Agent config.
 - New nodes persist as empty-kernel drafts; a successful deployment commits the

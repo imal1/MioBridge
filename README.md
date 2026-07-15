@@ -108,6 +108,9 @@ default configuration path for each kernel. Select at least one kernel;
 selected missing kernels are installed during deployment, while installed but
 unselected kernels remain visible as unmonitored.
 
+The CLI selects a same-version x64/arm64 Agent Release asset for the child,
+verifies it against `SHA256SUMS`, and installs it without Git, Bun, or a source build.
+
 The Agent config uses an ordered `kernels` list, so one child can publish
 structured sources from several runtimes:
 

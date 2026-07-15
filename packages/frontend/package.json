@@ -1,6 +1,6 @@
 {
   "name": "@miobridge/frontend",
-  "version": "1.0.0",
+  "version": "0.2.0",
   "description": "Dashboard for MioBridge \u2014 sing-box to Clash converter powered by mihomo",
   "private": true,
   "packageManager": "bun@1.2.13",
@@ -8,7 +8,7 @@
     "dev": "vite",
     "build": "vite build",
     "lint": "oxlint src/",
-    "test": "vitest run",
+    "test": "vitest run --maxWorkers=1 --no-file-parallelism",
     "test:watch": "vitest"
   },
   "dependencies": {

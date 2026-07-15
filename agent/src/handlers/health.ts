@@ -1,5 +1,6 @@
 import type { AgentConfig } from '../config';
 import { hmacVerify } from '../hmac';
+import { AGENT_VERSION } from '../version';
 
 interface IncomingRequest {
   method?: string;
@@ -28,7 +29,7 @@ export function handleHealth(
       timestamp: new Date().toISOString(),
       uptime: process.uptime(),
       memory: process.memoryUsage(),
-      version: '1.0.0',
+      version: AGENT_VERSION,
     }),
     { status: 200, headers: { 'Content-Type': 'application/json' } },
   );

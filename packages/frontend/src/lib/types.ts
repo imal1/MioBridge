@@ -110,7 +110,7 @@ export interface KernelDeployResult extends KernelDetection {
 }
 
 export interface DeployStep {
-  step: 'connect' | 'bun' | 'kernel' | 'agent' | 'start' | 'verify' | 'done';
+  step: 'connect' | 'kernel' | 'agent' | 'start' | 'verify' | 'done';
   status: 'pending' | 'running' | 'success' | 'error';
   message: string;
   progress: number;
