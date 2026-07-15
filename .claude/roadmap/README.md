@@ -42,6 +42,9 @@ experience over account systems:
 
 v0.1 and v1.0 form the stable baseline:
 
+Release tags use full semantic versions; the shipped v1.0 roadmap milestone
+maps to the `v1.0.0` GitHub Release.
+
 - One compiled `miobridge` binary owns lifecycle commands and the dashboard HTTP server.
 - The dashboard UI is a Vite SPA under `packages/frontend/` and ships with the binary release.
 - Runtime data under `~/.config/miobridge`.

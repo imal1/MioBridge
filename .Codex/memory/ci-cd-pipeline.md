@@ -69,3 +69,9 @@ The same release also publishes checksum-covered Agent binaries for Linux x64
 and arm64 so remote nodes never build Agent source. Frontend tests use one
 Vitest worker so resource contention cannot turn module imports into
 nondeterministic five-second timeouts.
+
+## 2026-07-15 — Product releases follow roadmap milestones
+
+The shipped distributed-control-plane milestone is roadmap v1.0, so its first
+semantic GitHub Release is `v1.0.0`. Workspace package versions, compiled CLI
+and Agent fallbacks, docs, tags, and Release assets must use that same version.

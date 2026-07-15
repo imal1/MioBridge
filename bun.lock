@@ -10,7 +10,7 @@
     },
     "agent": {
       "name": "miobridge-agent",
-      "version": "0.2.0",
+      "version": "1.0.0",
       "devDependencies": {
         "@types/bun": "latest",
         "@types/node": "^24.0.8",
@@ -19,7 +19,7 @@
     },
     "packages/cli": {
       "name": "@miobridge/cli",
-      "version": "0.2.0",
+      "version": "1.0.0",
       "bin": {
         "miobridge": "./dist/main.js",
       },
@@ -36,7 +36,7 @@
     },
     "packages/core": {
       "name": "@miobridge/core",
-      "version": "0.2.0",
+      "version": "1.0.0",
       "dependencies": {
         "yaml": "^2.8.1",
       },
@@ -48,7 +48,7 @@
     },
     "packages/frontend": {
       "name": "@miobridge/frontend",
-      "version": "0.2.0",
+      "version": "1.0.0",
       "dependencies": {
         "@iconify/react": "^6.0.0",
         "@monaco-editor/react": "^4.7.0",

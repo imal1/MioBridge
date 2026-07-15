@@ -28,7 +28,7 @@ curl -fsS http://127.0.0.1:3000/health
 Use the same verified release path as upgrade:
 
 ```bash
-MIOBRIDGE_VERSION=0.2.0 miobridge upgrade
+MIOBRIDGE_VERSION=1.0.0 miobridge upgrade
 ```
 
 The command verifies `SHA256SUMS` before replacing the CLI and dashboard.

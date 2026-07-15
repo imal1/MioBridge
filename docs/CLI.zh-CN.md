@@ -25,8 +25,8 @@ SHA-256 后原子安装 `~/.local/bin/miobridge` 与
 镜像、隔离网络或非默认安装目录：
 
 ```bash
-sh install.sh --version 0.2.0 \
-  --base-url https://mirror.example/miobridge/v0.2.0 \
+sh install.sh --version 1.0.0 \
+  --base-url https://mirror.example/miobridge/v1.0.0 \
   --install-dir "$HOME/.local/bin"
 ```
 

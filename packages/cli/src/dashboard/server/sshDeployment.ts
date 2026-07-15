@@ -409,7 +409,7 @@ export class SshDeploymentService {
       ? 'x64'
       : /^(aarch64|arm64)$/.test(machine) ? 'arm64' : null;
     if (!architecture) throw new Error(`不支持的 Agent 架构: ${machine}`);
-    const version = process.env.MIOBRIDGE_BUILD_VERSION ?? '0.2.0';
+    const version = process.env.MIOBRIDGE_BUILD_VERSION ?? '1.0.0';
     const release = agentRelease(version, architecture);
     const installScript = [
       'set -e',

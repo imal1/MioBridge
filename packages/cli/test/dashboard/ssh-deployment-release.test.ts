@@ -3,13 +3,13 @@ import { agentRelease } from '../../src/dashboard/server/sshDeployment.js';
 
 describe('Agent release distribution', () => {
   it('maps remote architectures to versioned release artifacts', () => {
-    expect(agentRelease('0.2.0', 'x64', {})).toEqual({
-      artifact: 'miobridge-agent-0.2.0-linux-x64.gz',
-      baseUrl: 'https://github.com/imal1/MioBridge/releases/download/v0.2.0',
+    expect(agentRelease('1.0.0', 'x64', {})).toEqual({
+      artifact: 'miobridge-agent-1.0.0-linux-x64.gz',
+      baseUrl: 'https://github.com/imal1/MioBridge/releases/download/v1.0.0',
     });
-    expect(agentRelease('0.2.0', 'arm64', {})).toEqual({
-      artifact: 'miobridge-agent-0.2.0-linux-arm64.gz',
-      baseUrl: 'https://github.com/imal1/MioBridge/releases/download/v0.2.0',
+    expect(agentRelease('1.0.0', 'arm64', {})).toEqual({
+      artifact: 'miobridge-agent-1.0.0-linux-arm64.gz',
+      baseUrl: 'https://github.com/imal1/MioBridge/releases/download/v1.0.0',
     });
   });
 

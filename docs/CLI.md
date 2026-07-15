@@ -28,8 +28,8 @@ checkout.
 For a mirror, air-gapped staging server, or non-default binary directory:
 
 ```bash
-sh install.sh --version 0.2.0 \
-  --base-url https://mirror.example/miobridge/v0.2.0 \
+sh install.sh --version 1.0.0 \
+  --base-url https://mirror.example/miobridge/v1.0.0 \
   --install-dir "$HOME/.local/bin"
 ```
 

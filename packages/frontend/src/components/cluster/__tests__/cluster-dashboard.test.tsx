@@ -27,7 +27,7 @@ const mockStatusData = {
   mihomoAvailable: true,
   nodesCount: 12,
   uptime: 120,
-  version: '0.2.0',
+  version: '1.0.0',
   mihomoVersion: '1.19.0',
 };
 
@@ -45,15 +45,15 @@ const mockClusterData = {
       online: true, latency: 45, nodesCount: 12,
       subscriptionExists: true, clashExists: true,
       mihomoAvailable: true,
-      version: '0.2.0', uptime: 3600,
-      agent: { deployed: true, version: '0.2.0', status: 'running' as const, lastDeploy: '' },
+      version: '1.0.0', uptime: 3600,
+      agent: { deployed: true, version: '1.0.0', status: 'running' as const, lastDeploy: '' },
     },
     {
       nodeId: 'node-jp', name: '东京', location: '东京',
       configuredKernels: [{ type: 'xray' as const }, { type: 'v2ray' as const }],
       kernels: [],
       online: false, error: '连接超时',
-      agent: { deployed: true, version: '0.2.0', status: 'running' as const, lastDeploy: '' },
+      agent: { deployed: true, version: '1.0.0', status: 'running' as const, lastDeploy: '' },
     },
   ],
   lastUpdated: new Date().toISOString(),

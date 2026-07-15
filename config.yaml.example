@@ -9,7 +9,7 @@
 # ---------------------------------------------
 app:
   name: miobridge               # 应用名称
-  version: 0.2.0                  # 应用版本
+  version: 1.0.0                  # 应用版本
   port: 3000                      # 仪表盘与 API 端口
   environment: production         # 运行环境: development/production
 
