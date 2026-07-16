@@ -14,6 +14,9 @@ metadata:
   the CLI owns the platform policy.
 - Binary lookup order is configured path, `~/.config/miobridge/bin/`, repo
   `bin/`, then PATH.
+- Protocol kernels use 233boy management wrappers at `/usr/local/bin/<kernel>`;
+  their core, aggregate config, and profiles live under `/etc/<kernel>/bin`,
+  `/etc/<kernel>/config.json`, and `/etc/<kernel>/conf` respectively.
 - Core parses and updates `config.yaml` directly; production does not require an
   external YAML executable.
 - `app.port` defaults the dashboard port. The user unit passes

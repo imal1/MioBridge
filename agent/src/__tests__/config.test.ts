@@ -48,7 +48,7 @@ describe('Agent Config', () => {
       expect(cfg.node.id).toBe('node-sg');
       expect(cfg.kernels).toEqual([
         { type: 'sing-box', configPath: '/etc/sing-box/config.json' },
-        { type: 'xray', configPath: '/usr/local/etc/xray/config.json' },
+        { type: 'xray', configPath: '/etc/xray/config.json' },
       ]);
     });
 
@@ -87,7 +87,7 @@ kernels:
 `);
       expect(cfg.kernels).toEqual([
         { type: 'sing-box', configPath: '/etc/sing-box/config.json' },
-        { type: 'xray', configPath: '/usr/local/etc/xray/config.json' },
+        { type: 'xray', configPath: '/etc/xray/config.json' },
         { type: 'v2ray', configPath: '/etc/v2ray/config.json' },
       ]);
     });

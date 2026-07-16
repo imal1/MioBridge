@@ -419,7 +419,7 @@ sudo sh install-agent.sh \
   --node-name <name> \
   --secret-file <file> \
   [--kernel sing-box:/etc/sing-box/config.json] \
-  [--kernel xray:/usr/local/etc/xray/config.json] \
+  [--kernel xray:/etc/xray/config.json] \
   [--kernel v2ray:/etc/v2ray/config.json] \
   [--port 3001]
 ```

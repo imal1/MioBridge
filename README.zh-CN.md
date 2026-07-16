@@ -104,6 +104,11 @@ CLI 通信。CLI 二进制统一负责 API 与静态文件服务。
 选择对话框会分别显示各内核的已安装版本与默认配置路径。至少选择一个内核；
 已选择但缺失的内核会在部署阶段安装，已安装但未选择的内核仍会显示为"未监听"。
 
+协议内核的安装、升级、修复、重装和卸载统一委托给上游 233boy 管理脚本
+（`233boy/sing-box`、`233boy/Xray`、`233boy/v2ray`）。MioBridge 检测
+`/usr/local/bin/<内核>` 管理入口并读取 `/etc/<内核>` 下的配置；只有官方裸内核、
+但没有 `url [name]` 命令时，不会被误判为可用的节点来源。
+
 CLI 会为子节点选择同版本的 x64/arm64 Agent Release 制品，使用
 `SHA256SUMS` 校验后安装；子节点不需要 Git、Bun 或源码构建。
 
@@ -113,7 +118,7 @@ Agent 配置使用有序的 `kernels` 列表，因此同一个子节点可以发
 ```yaml
 kernels:
   - type: xray
-    configPath: /usr/local/etc/xray/config.json
+    configPath: /etc/xray/config.json
   - type: v2ray
     configPath: /etc/v2ray/config.json
 ```

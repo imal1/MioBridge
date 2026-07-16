@@ -29,6 +29,7 @@ class FakeProcess implements ProcessRunner {
   async run(command: string, args: readonly string[], options: ProcessOptions) {
     this.calls.push({ command, args, options });
     if (args[0] === '-v') return { stdout: 'Mihomo v1.19.3', stderr: '' };
+    if (args[0] === 'help') return { stdout: 'url [name] URL information', stderr: '' };
     if (args[0] === 'url') return { stdout: `${args[1]}://node\n`, stderr: '' };
     return { stdout: 'ok', stderr: '' };
   }
@@ -60,7 +61,7 @@ describe('kernel adapters', () => {
     const process = new FakeProcess();
     const adapter = new SingBoxAdapter({ process, logger, configs: ['a', 'b'], requestTimeout: 1234 });
     expect(await adapter.extractNodeUrls()).toEqual(['a://node', 'b://node']);
-    expect(process.calls.map(call => call.args)).toEqual([['version'], ['url', 'a'], ['url', 'b']]);
+    expect(process.calls.map(call => call.args)).toEqual([['help'], ['url', 'a'], ['url', 'b']]);
   });
 
   it('uses RuntimePaths precedence when resolving sing-box', async () => {
@@ -69,6 +70,25 @@ describe('kernel adapters', () => {
     const adapter = new SingBoxAdapter({ process, logger, paths, configs: [], requestTimeout: 1234 });
     expect(await adapter.isAvailable()).toBe(true);
     expect(process.calls[0]?.command).toBe('/state/bin/sing-box');
+  });
+
+  it('skips an official sing-box core that does not provide the 233boy url command', async () => {
+    const paths = createRuntimePaths({ env: { MIOBRIDGE_CONFIG_DIR: '/state', PATH: '/usr/local/bin' } });
+    const calls: string[] = [];
+    const process: ProcessRunner = {
+      async run(command, args) {
+        calls.push(`${command} ${args.join(' ')}`);
+        if (command === '/state/bin/sing-box') return { stdout: 'Usage: sing-box [command]', stderr: '' };
+        return { stdout: 'url [name] URL information', stderr: '' };
+      },
+      async which() { return null; },
+    };
+    const adapter = new SingBoxAdapter({ process, logger, paths, configs: [], requestTimeout: 1234 });
+    expect(await adapter.isAvailable()).toBe(true);
+    expect(calls).toEqual([
+      '/state/bin/sing-box help',
+      '/usr/local/bin/sing-box help',
+    ]);
   });
 
   it.each(['/repo', '/tmp/unrelated'])('uses managed, explicit repository, then PATH candidates independent of cwd (%s)', async () => {

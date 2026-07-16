@@ -15,18 +15,23 @@ export interface SingBoxAdapterOptions {
 export class SingBoxAdapter implements KernelAdapter {
   readonly type = 'sing-box' as const;
   private executable: string | undefined;
-  constructor(private readonly options: SingBoxAdapterOptions) { this.executable = options.executable; }
+  constructor(private readonly options: SingBoxAdapterOptions) {}
   private candidates(): string[] {
     return [...new Set([this.options.executable, this.options.configuredPath, ...(this.options.paths?.binaryCandidates('sing-box') ?? []), 'sing-box'].filter((value): value is string => Boolean(value)))];
   }
   private async resolveExecutable(): Promise<string | undefined> {
     if (this.executable) return this.executable;
     for (const candidate of this.candidates()) {
-      try { await this.options.process.run(candidate, ['version'], { timeout: 5000 }); this.executable = candidate; return candidate; } catch { /* next candidate */ }
+      try {
+        const help = await this.options.process.run(candidate, ['help'], { timeout: 5000 });
+        if (!`${help.stdout}\n${help.stderr}`.includes('url [name]')) continue;
+        this.executable = candidate;
+        return candidate;
+      } catch { /* next candidate */ }
     }
     return undefined;
   }
-  async getConfigPaths(): Promise<string[]> { return ['/usr/local/etc/sing-box/config.json']; }
+  async getConfigPaths(): Promise<string[]> { return ['/etc/sing-box/config.json']; }
   async isAvailable(): Promise<boolean> {
     return Boolean(await this.resolveExecutable());
   }

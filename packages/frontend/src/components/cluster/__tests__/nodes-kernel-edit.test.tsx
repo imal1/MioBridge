@@ -21,7 +21,7 @@ const node = {
 const cluster = { totalNodes: 1, onlineNodes: 1, totalProxies: 4, nodes: [node], lastUpdated: '' }
 const detections = [
   { type: 'sing-box' as const, installed: true, version: '1.11.0', defaultConfigPath: '/etc/sing-box/config.json' },
-  { type: 'xray' as const, installed: true, version: '1.8.0', defaultConfigPath: '/usr/local/etc/xray/config.json' },
+  { type: 'xray' as const, installed: true, version: '1.8.0', defaultConfigPath: '/etc/xray/config.json' },
   { type: 'v2ray' as const, installed: false, defaultConfigPath: '/etc/v2ray/config.json' },
 ]
 
@@ -43,7 +43,7 @@ describe('Runtime monitoring management', () => {
     fireEvent.click(screen.getByRole('button', { name: '保存并验证监控配置' }))
     await waitFor(() => expect(api.updateNodeKernels).toHaveBeenCalledWith('node-edit', [
       { type: 'sing-box', configPath: '/etc/sing-box/config.json' },
-      { type: 'xray', configPath: '/usr/local/etc/xray/config.json' },
+      { type: 'xray', configPath: '/etc/xray/config.json' },
     ]))
   })
 

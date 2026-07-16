@@ -6,6 +6,7 @@ import {
 } from '../config';
 import * as fs from 'fs';
 import * as path from 'path';
+import { execFileSync } from 'child_process';
 import { hmacVerify } from '../hmac';
 
 interface IncomingRequest {
@@ -68,7 +69,13 @@ function isKernelBinaryDetected(type: KernelType): boolean {
       const candidate = path.join(dir, type);
       if (!fs.statSync(candidate).isFile()) continue;
       fs.accessSync(candidate, fs.constants.X_OK);
-      return true;
+      const help = execFileSync(candidate, ['help'], {
+        encoding: 'utf8',
+        timeout: 5_000,
+        maxBuffer: 1024 * 1024,
+        stdio: ['ignore', 'pipe', 'pipe'],
+      });
+      if (help.includes('url [name]')) return true;
     } catch {
       // Continue searching the remaining PATH entries.
     }

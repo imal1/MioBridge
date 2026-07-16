@@ -10,7 +10,7 @@ kernels:
   - type: "sing-box"
     configPath: "/etc/sing-box/config.json"
   - type: "xray"
-    configPath: "/usr/local/etc/xray/config.json"
+    configPath: "/etc/xray/config.json"
 
 mihomo:
   path: "/usr/local/bin/mihomo"

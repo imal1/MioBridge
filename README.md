@@ -109,6 +109,13 @@ default configuration path for each kernel. Select at least one kernel;
 selected missing kernels are installed during deployment, while installed but
 unselected kernels remain visible as unmonitored.
 
+Protocol-kernel lifecycle operations delegate to the upstream 233boy
+management scripts (`233boy/sing-box`, `233boy/Xray`, and `233boy/v2ray`).
+MioBridge detects the management wrapper at `/usr/local/bin/<kernel>` and uses
+the script-managed configuration under `/etc/<kernel>`; a bare upstream core
+binary is not treated as a compatible source provider because it has no
+`url [name]` command.
+
 The CLI selects a same-version x64/arm64 Agent Release asset for the child,
 verifies it against `SHA256SUMS`, and installs it without Git, Bun, or a source build.
 
@@ -118,7 +125,7 @@ structured sources from several runtimes:
 ```yaml
 kernels:
   - type: xray
-    configPath: /usr/local/etc/xray/config.json
+    configPath: /etc/xray/config.json
   - type: v2ray
     configPath: /etc/v2ray/config.json
 ```

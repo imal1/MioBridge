@@ -7,6 +7,11 @@ metadata:
 
 # Bug Fixes
 
+- 2026-07-15: Protocol-kernel deployment delegates installation and lifecycle
+  actions to the 233boy sing-box/Xray/V2Ray scripts. Detection requires their
+  `/usr/local/bin/<kernel>` wrapper and `url [name]` command, so bare official
+  cores are no longer mistaken for node-source providers. Reinstall preserves
+  both aggregate and profile configs and restores them if installation fails.
 - 2026-07-16: Dashboard daemon start waits for `/health`, resets a failed user
   unit before restart, and CLI uninstall removes/reloads the managed unit.
 - 2026-07-16: Dashboard shutdown destroys open SSE responses and sockets so

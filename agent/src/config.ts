@@ -27,7 +27,7 @@ export interface AgentConfig {
 
 const DEFAULT_CONFIG_PATHS: Record<KernelType, string> = {
   'sing-box': '/etc/sing-box/config.json',
-  'xray': '/usr/local/etc/xray/config.json',
+  'xray': '/etc/xray/config.json',
   'v2ray': '/etc/v2ray/config.json',
 };
 

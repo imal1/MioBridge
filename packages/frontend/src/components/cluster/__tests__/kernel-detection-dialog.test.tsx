@@ -6,8 +6,8 @@ import type { KernelDetection } from '@/lib/types';
 
 const detections: KernelDetection[] = [
   { type: 'sing-box', installed: true, version: '1.11.0', defaultConfigPath: '/etc/sing-box/config.json' },
-  { type: 'xray', installed: false, defaultConfigPath: '/usr/local/etc/xray/config.json' },
-  { type: 'v2ray', installed: false, error: '未找到可执行文件', defaultConfigPath: '/usr/local/etc/v2ray/config.json' },
+  { type: 'xray', installed: false, defaultConfigPath: '/etc/xray/config.json' },
+  { type: 'v2ray', installed: false, error: '未找到可执行文件', defaultConfigPath: '/etc/v2ray/config.json' },
 ];
 
 describe('KernelDetectionDialog', () => {
@@ -43,8 +43,8 @@ describe('KernelDetectionDialog', () => {
     fireEvent.click(screen.getByRole('button', { name: '确认并部署' }));
     expect(onConfirm).toHaveBeenCalledWith([
       { type: 'sing-box', configPath: '/etc/sing-box/config.json' },
-      { type: 'xray', configPath: '/usr/local/etc/xray/config.json' },
-      { type: 'v2ray', configPath: '/usr/local/etc/v2ray/config.json' },
+      { type: 'xray', configPath: '/etc/xray/config.json' },
+      { type: 'v2ray', configPath: '/etc/v2ray/config.json' },
     ]);
   });
 
@@ -93,6 +93,6 @@ describe('KernelDetectionDialog', () => {
     fireEvent.click(singBox);
     expect(singBox.checked).toBe(false);
     fireEvent.click(screen.getByRole('button', { name: '重试部署' }));
-    expect(onConfirm).toHaveBeenCalledWith([{ type: 'xray', configPath: '/usr/local/etc/xray/config.json' }]);
+    expect(onConfirm).toHaveBeenCalledWith([{ type: 'xray', configPath: '/etc/xray/config.json' }]);
   });
 });

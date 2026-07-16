@@ -52,7 +52,7 @@ abstract class JsonOutboundAdapter implements KernelAdapter {
 
 export class XrayAdapter extends JsonOutboundAdapter {
   readonly type = 'xray' as const;
-  constructor(fs: KernelFileSystem, logger: KernelLogger, configPath = '/usr/local/etc/xray/config.json') { super(fs, logger, configPath); }
+  constructor(fs: KernelFileSystem, logger: KernelLogger, configPath = '/etc/xray/config.json') { super(fs, logger, configPath); }
 }
 export class V2rayAdapter extends JsonOutboundAdapter {
   readonly type = 'v2ray' as const;

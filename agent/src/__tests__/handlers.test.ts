@@ -177,7 +177,7 @@ describe('handleStatus', () => {
   it('detects an executable unmonitored kernel without discovering its config', async () => {
     const binDir = isolatedBinDir();
     const xrayBin = path.join(binDir, 'xray');
-    fs.writeFileSync(xrayBin, '#!/bin/sh\nexit 0\n');
+    fs.writeFileSync(xrayBin, '#!/bin/sh\necho "url [name] URL information"\n');
     fs.chmodSync(xrayBin, 0o755);
     const config: AgentConfig = {
       ...MOCK_CONFIG,
@@ -194,6 +194,26 @@ describe('handleStatus', () => {
       accessible: false,
       nodesCount: 0,
       configPaths: [],
+    });
+  });
+
+  it('does not mistake a bare official core for a compatible 233boy wrapper', async () => {
+    const binDir = isolatedBinDir();
+    const xrayBin = path.join(binDir, 'xray');
+    fs.writeFileSync(xrayBin, '#!/bin/sh\necho "Usage: xray [command]"\n');
+    fs.chmodSync(xrayBin, 0o755);
+    const config: AgentConfig = {
+      ...MOCK_CONFIG,
+      node: { ...MOCK_CONFIG.node, secret: '' },
+      kernels: [{ type: 'sing-box', configPath: singBoxFixture() }],
+    };
+
+    const res = await handleStatus(mockReq({ headers: { host: 'agent.example' } }), config);
+    const body = await res.json();
+
+    expect(body.data.kernels.find((item: any) => item.type === 'xray')).toMatchObject({
+      detected: false,
+      monitored: false,
     });
   });
 

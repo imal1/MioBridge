@@ -13,6 +13,15 @@ import {
 import { Client, type ClientChannel, type ConnectConfig } from 'ssh2';
 import type { NodeCoreComposition } from '../../composition.js';
 import { PINNED_ARTIFACTS } from '../../setup/catalog.js';
+import {
+  KERNEL_SCRIPTS,
+  installCommand,
+  repairCommand,
+  reinstallCommand,
+  uninstallCommand,
+  upgradeCommand,
+  wrapperCommand,
+} from './kernelScripts.js';
 
 const AGENT_REMOTE_PATH = '/usr/local/bin/miobridge-agent';
 const AGENT_CONFIG_PATH = '/etc/miobridge-agent/agent.yaml';
@@ -20,21 +29,9 @@ const AGENT_SERVICE_PATH = '/etc/systemd/system/miobridge-agent.service';
 const PROGRESS_TTL_MS = 10 * 60 * 1000;
 const TASK_HISTORY_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 
-const KERNEL_INSTALL_COMMANDS: Record<KernelType, string> = {
-  'sing-box': 'wget -qO- https://github.com/233boy/sing-box/raw/main/install.sh | bash',
-  xray: 'wget -qO- https://github.com/233boy/Xray/raw/main/install.sh | bash',
-  v2ray: 'wget -qO- https://github.com/233boy/v2ray/raw/master/install.sh | bash',
-};
-
-const KERNEL_REMOVE_COMMANDS: Record<KernelType, string> = {
-  'sing-box': 'command -v sb >/dev/null 2>&1 && sb uninstall || systemctl disable --now sing-box 2>/dev/null || true',
-  xray: 'command -v xray >/dev/null 2>&1 && xray uninstall || systemctl disable --now xray 2>/dev/null || true',
-  v2ray: 'command -v v2ray >/dev/null 2>&1 && v2ray uninstall || systemctl disable --now v2ray 2>/dev/null || true',
-};
-
 const DEFAULT_CONFIG_PATHS: Record<KernelType, string> = {
   'sing-box': '/etc/sing-box/config.json',
-  xray: '/usr/local/etc/xray/config.json',
+  xray: '/etc/xray/config.json',
   v2ray: '/etc/v2ray/config.json',
 };
 
@@ -423,11 +420,7 @@ export class SshDeploymentService {
     const target = await this.targetForNode(nodeId);
     const ssh = await this.connect(target);
     try {
-      const configPath = DEFAULT_CONFIG_PATHS[type];
-      const preserve = options.preserveConfig
-        ? `backup=$(mktemp); had=0; if [ -f ${shellQuote(configPath)} ]; then cp ${shellQuote(configPath)} "$backup"; had=1; fi; ${KERNEL_REMOVE_COMMANDS[type]}; if [ "$had" = 1 ]; then mkdir -p ${shellQuote(posix.dirname(configPath))}; cp "$backup" ${shellQuote(configPath)}; fi; rm -f "$backup"`
-        : KERNEL_REMOVE_COMMANDS[type];
-      const executed = await this.execRoot(ssh, target, preserve);
+      const executed = await this.execRoot(ssh, target, uninstallCommand(type, options.preserveConfig));
       if (executed.code !== 0) throw new Error((executed.stderr || executed.stdout).trim() || `${type} 卸载失败`);
       return await this.detectKernel(ssh, type);
     } finally {
@@ -442,7 +435,7 @@ export class SshDeploymentService {
     const target = await this.targetForNode(nodeId);
     const ssh = await this.connect(target);
     try {
-      const executed = await this.execRoot(ssh, target, `systemctl ${action} ${shellQuote(type)}`);
+      const executed = await this.execRoot(ssh, target, wrapperCommand(type, action));
       if (executed.code !== 0) throw new Error((executed.stderr || executed.stdout).trim() || `${type} ${action} 失败`);
       return { nodeId, kernelType: type, status: action === 'stop' ? 'stopped' : 'running' };
     } finally { ssh.end(); }
@@ -539,12 +532,15 @@ export class SshDeploymentService {
           await this.configureKernels(nodeId, node.kernels.filter(item => item.type !== component));
         }
       } else {
-        if (operation === 'reinstall' || operation === 'upgrade') {
-          await emit('installing', 'running', `清理现有 ${component}`, 30);
-          await this.uninstallKernel(nodeId, component, options);
-        }
-        await emit('installing', 'running', operation === 'repair' ? `修复 ${component} 二进制、权限、systemd 与配置` : `安装 ${component}`, 55);
-        const detected = operation === 'repair' ? await this.repairKernel(nodeId, component) : await this.installKernel(nodeId, component);
+        await emit('installing', 'running', operation === 'repair'
+          ? `使用 233boy 脚本修复 ${component}`
+          : operation === 'upgrade' ? `使用 233boy 脚本升级 ${component}`
+            : operation === 'reinstall' ? `使用 233boy 脚本重装 ${component}` : `安装 ${component}`, 55);
+        const detected = operation === 'repair'
+          ? await this.repairKernel(nodeId, component)
+          : operation === 'upgrade' ? await this.upgradeKernel(nodeId, component)
+            : operation === 'reinstall' ? await this.reinstallKernel(nodeId, component, options)
+              : await this.installKernel(nodeId, component);
         const node = await this.findNode(nodeId);
         if (node.agent?.deployed && !node.kernels.some(item => item.type === component)) {
           await emit('configuring', 'running', `将 ${component} 加入 Agent 监控`, 78);
@@ -578,17 +574,29 @@ export class SshDeploymentService {
     const ssh = await this.connect(target);
     try {
       await this.ensureKernel(ssh, target, { type });
-      const configPath = DEFAULT_CONFIG_PATHS[type];
-      const repaired = await this.execRoot(ssh, target, [
-        `binary=$(command -v ${shellQuote(type)})`,
-        'test -n "$binary"',
-        'chmod 755 "$binary"',
-        `test -r ${shellQuote(configPath)}`,
-        'systemctl daemon-reload',
-        `systemctl restart ${shellQuote(type)}`,
-        `systemctl is-active --quiet ${shellQuote(type)}`,
-      ].join(' && '));
+      const repaired = await this.execRoot(ssh, target, repairCommand(type));
       if (repaired.code !== 0) throw new Error((repaired.stderr || repaired.stdout).trim() || `${type} 修复检查失败`);
+      return await this.detectKernel(ssh, type);
+    } finally { ssh.end(); }
+  }
+
+  private async upgradeKernel(nodeId: string, type: KernelType): Promise<KernelDetection> {
+    const target = await this.targetForNode(nodeId);
+    const ssh = await this.connect(target);
+    try {
+      await this.ensureKernel(ssh, target, { type });
+      const upgraded = await this.execRoot(ssh, target, upgradeCommand(type));
+      if (upgraded.code !== 0) throw new Error((upgraded.stderr || upgraded.stdout).trim() || `${type} 升级失败`);
+      return await this.detectKernel(ssh, type);
+    } finally { ssh.end(); }
+  }
+
+  private async reinstallKernel(nodeId: string, type: KernelType, options: DeployOptions): Promise<KernelDetection> {
+    const target = await this.targetForNode(nodeId);
+    const ssh = await this.connect(target);
+    try {
+      const reinstalled = await this.execRoot(ssh, target, reinstallCommand(type, options.preserveConfig));
+      if (reinstalled.code !== 0) throw new Error((reinstalled.stderr || reinstalled.stdout).trim() || `${type} 重装失败`);
       return await this.detectKernel(ssh, type);
     } finally { ssh.end(); }
   }
@@ -835,12 +843,21 @@ export class SshDeploymentService {
 
   private async detectKernel(ssh: Client, type: KernelType): Promise<KernelDetection> {
     try {
-      const result = await this.exec(ssh, `${type} version 2>&1`);
-      const output = (result.stdout || result.stderr).trim();
-      const version = output.split(/\r?\n/, 1)[0];
+      const definition = KERNEL_SCRIPTS[type];
+      const probe = [
+        `test -x ${shellQuote(definition.wrapperPath)}`,
+        `${wrapperCommand(type, 'help')} 2>&1 | grep -F 'url [name]' >/dev/null`,
+        `${wrapperCommand(type, 'version')} 2>&1`,
+      ].join(' && ');
+      const result = await this.exec(ssh, probe);
+      const output = (result.stdout || result.stderr).replace(/\u001b\[[0-9;]*m/g, '').trim();
+      const version = output.split(/\r?\n/).find(line => line.trim())?.trim();
       return result.code === 0
         ? { type, installed: true, ...(version ? { version } : {}), defaultConfigPath: DEFAULT_CONFIG_PATHS[type] }
-        : { type, installed: false, defaultConfigPath: DEFAULT_CONFIG_PATHS[type], ...(output ? { error: output } : {}) };
+        : {
+            type, installed: false, defaultConfigPath: DEFAULT_CONFIG_PATHS[type],
+            error: output || `未找到兼容的 233boy ${type} 管理脚本: ${definition.wrapperPath}`,
+          };
     } catch (error) {
       return { type, installed: false, defaultConfigPath: DEFAULT_CONFIG_PATHS[type], error: error instanceof Error ? error.message : '检测失败' };
     }
@@ -860,7 +877,7 @@ export class SshDeploymentService {
 
   private async ensureKernel(ssh: Client, target: SshTarget, kernel: NodeKernelConfig): Promise<void> {
     if ((await this.detectKernel(ssh, kernel.type)).installed) return;
-    const installed = await this.execRoot(ssh, target, KERNEL_INSTALL_COMMANDS[kernel.type]);
+    const installed = await this.execRoot(ssh, target, installCommand(kernel.type));
     if (installed.code !== 0 && !/installed|success|生成配置文件|链接 \(URL\)|使用协议/.test(installed.stdout)) {
       throw new Error(`${kernel.type} 安装失败: ${(installed.stderr || installed.stdout).trim()}`);
     }
