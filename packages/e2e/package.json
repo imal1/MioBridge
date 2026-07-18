@@ -1,0 +1,23 @@
+{
+  "name": "@miobridge/e2e",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "browser:install": "playwright install chromium",
+    "browser:install:deps": "playwright install --with-deps chromium",
+    "browser:install:ci": "bun run browser:install:deps",
+    "server": "bun scripts/start-dashboard.ts",
+    "test": "playwright test",
+    "test:sop": "playwright test tests/dashboard/full-sop-journey.spec.ts --project=desktop-chromium --grep=\"E20 · 完整串行 SOP\"",
+    "test:headed": "playwright test --headed",
+    "test:ui": "playwright test --ui",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "report": "playwright show-report .artifacts/html"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.61.1",
+    "@types/node": "^24.0.8",
+    "typescript": "^6.0.3"
+  }
+}

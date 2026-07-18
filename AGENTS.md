@@ -42,6 +42,8 @@ bun run core:typecheck      # core package TypeScript check
 bun run core:test           # compiled Bun/Node headless and unit tests
 bun run cli:typecheck
 bun run cli:test
+bun run e2e:typecheck
+bun run e2e                # isolated Playwright Dashboard suite
 bun run --cwd packages/frontend test
 bun run --cwd agent typecheck
 bun run --cwd agent test

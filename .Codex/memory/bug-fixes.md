@@ -7,6 +7,8 @@ metadata:
 
 # Bug Fixes
 
+- 2026-07-16: Anchor the runtime `logs/` ignore rule and restore the Core log
+  service it had hidden, including stable tail/filter and abortable follow.
 - 2026-07-15: Protocol-kernel deployment delegates installation and lifecycle
   actions to the 233boy sing-box/Xray/V2Ray scripts. Detection requires their
   `/usr/local/bin/<kernel>` wrapper and `url [name]` command, so bare official

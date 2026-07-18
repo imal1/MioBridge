@@ -65,12 +65,20 @@ describe('dashboard foreground lifecycle', () => {
       local: { isAvailable: async () => false, extractNodeUrls: async () => [] },
       remote: { collectRemoteNodeSources: async () => ({ sources: [], errors: [] }) },
     });
+    const observed: Array<{ path: string; query: unknown; body: unknown }> = [];
     const running = runNodeDashboardServer({
       host: '127.0.0.1', port, root,
       reservedPaths: ['/api', '/health', '/subscription.txt', '/clash.yaml', '/raw.txt'],
       fallbackToIndex: true,
       signal: controller.signal,
       dependencies: createNodeDashboardDependencies(composition),
+      onRequest(request) { observed.push({ path: request.path, query: request.query, body: request.body }); },
+      extendRoutes(routes) {
+        routes.register({
+          method: 'POST', path: '/__test__/control',
+          handler(request, response) { response.json({ body: request.body, query: request.query }); },
+        });
+      },
     });
 
     for (let attempt = 0; attempt < 50; attempt += 1) {
@@ -81,6 +89,10 @@ describe('dashboard foreground lifecycle', () => {
     expect((await fetch(`http://127.0.0.1:${port}/api/yaml/frontend`)).status).toBe(200);
     expect(await (await fetch(`http://127.0.0.1:${port}/subscription.txt`)).text()).toBe('subscription');
     expect(await (await fetch(`http://127.0.0.1:${port}/nodes`)).text()).toContain('MioBridge');
+    expect(await (await fetch(`http://127.0.0.1:${port}/__test__/control?scenario=e2e`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ reset: true }),
+    })).json()).toEqual({ body: { reset: true }, query: { scenario: 'e2e' } });
+    expect(observed).toContainEqual({ path: '/__test__/control', query: { scenario: 'e2e' }, body: { reset: true } });
     controller.abort();
     await expect(running).resolves.toBe(0);
   });

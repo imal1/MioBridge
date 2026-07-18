@@ -1,7 +1,7 @@
 # Dependencies
 node_modules/
 
-# Lockfiles are intentionally not committed
+# bun.lock is the committed workspace lockfile.
 
 # Other package managers (not used in this project)
 package-lock.json
@@ -37,7 +37,7 @@ dist/
 config.yaml
 
 # Logs
-logs
+/logs/
 *.log
 
 # Runtime data
@@ -68,6 +68,10 @@ temp/
 # Build output
 build/
 out/
+
+# Isolated browser-test runtime and generated reports
+packages/e2e/.runtime/
+packages/e2e/.artifacts/
 
 # Agent binary (built from source)
 agent/miobridge-agent

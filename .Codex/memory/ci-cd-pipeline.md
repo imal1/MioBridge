@@ -35,7 +35,13 @@ bun run --cwd packages/frontend test
 bun run --cwd agent typecheck
 bun run --cwd agent test
 bun run build
+bun run e2e:typecheck
+bun run e2e
 ```
+
+The Playwright gate installs its pinned Chromium build, runs the loopback-only
+Dashboard fixture with one worker, and uploads HTML, JSON, JUnit, screenshots,
+videos, and traces even when a test fails.
 
 The build gate builds the Vite SPA, packages its static provider, and rejects
 Node/core markers in client chunks. CLI systemd E2E owns live compatibility URL
