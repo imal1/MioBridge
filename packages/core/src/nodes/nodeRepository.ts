@@ -4,6 +4,7 @@ import type { NodeConfig, NodeKernelConfig } from './types.js';
 import { KERNEL_TYPES, type KernelType } from '../kernels/types.js';
 
 const NODES_KEY = 'nodes.yaml';
+export const LOCAL_NODE_ID = 'local';
 
 export function validateNodeKernels(value: unknown, allowEmpty = true): NodeKernelConfig[] {
   if (!Array.isArray(value) || (!allowEmpty && value.length === 0)) throw new Error('至少选择一个内核');
@@ -35,6 +36,35 @@ export class NodeRepository {
 
   async save(nodes: NodeConfig[]): Promise<void> {
     await this.store.set(this.key, stringify({ nodes: nodes.map(node => this.normalize(node)) }, { lineWidth: 0 }));
+  }
+
+  /** 本机节点只是一个默认档案：除了安装时可以自动创建，其余行为与普通子节点一致。 */
+  async configureLocalNode(enabled: boolean): Promise<NodeConfig | null> {
+    return this.store.withLock(this.key, async () => {
+      const nodes = await this.list({ enabledOnly: false });
+      const existing = nodes.find(node => node.id === LOCAL_NODE_ID);
+      const others = nodes.filter(node => node.id !== LOCAL_NODE_ID);
+      if (!enabled) {
+        await this.save(others);
+        return null;
+      }
+      const local = this.normalize({
+        ...existing,
+        id: LOCAL_NODE_ID,
+        name: existing?.name ?? '本机节点',
+        host: existing?.host ?? '127.0.0.1',
+        secret: existing?.secret ?? '',
+        kernels: existing?.kernels.length ? existing.kernels : [{ type: 'sing-box' }],
+        location: existing?.location ?? '本机',
+        enabled: true,
+      });
+      await this.save([local, ...others]);
+      return local;
+    });
+  }
+
+  async isLocalNodeConfigured(): Promise<boolean> {
+    return (await this.list()).some(node => node.id === LOCAL_NODE_ID);
   }
 
   async update(nodeId: string, update: (node: NodeConfig) => NodeConfig | void): Promise<NodeConfig> {

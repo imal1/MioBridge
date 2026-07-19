@@ -7,6 +7,7 @@ import { DashboardForegroundService, createNodeForegroundAdapters } from './dash
 import { DashboardSystemdService, createNodeSystemdAdapters } from './dashboard/systemd.js';
 import { SelfMaintenanceService } from './self/service.js';
 import { createNodeSelfMaintenanceAdapters } from './self/nodeAdapters.js';
+import { LocalNodeConfigurationService } from './nodes/localConfiguration.js';
 import { readFile } from 'node:fs/promises';
 
 const output = {
@@ -16,6 +17,8 @@ const output = {
 
 const composition = createNodeCore({ metadata: { version: CLI_VERSION } });
 const dashboardConfig = composition.core.config.getFullConfig().app;
+const setupAdapters = createNodeSetupAdapters();
+const localNode = new LocalNodeConfigurationService(composition.repository, setupAdapters);
 const dashboardDaemon = new DashboardSystemdService(composition.paths, createNodeSystemdAdapters());
 const maintenance = new SelfMaintenanceService({
   currentVersion: CLI_VERSION,
@@ -33,11 +36,12 @@ process.once('SIGINT', abortCommand);
 process.once('SIGTERM', abortCommand);
 const exitCode = await runCli(process.argv.slice(2), {
   createCore: () => composition.core,
-  setup: new DependencySetupService({ paths: composition.paths, adapters: createNodeSetupAdapters(), configured: {
+  setup: new DependencySetupService({ paths: composition.paths, adapters: setupAdapters, configured: {
     ...composition.configuredBinaries,
     ...(process.env.MIOBRIDGE_MIHOMO_PATH ? { mihomo: process.env.MIOBRIDGE_MIHOMO_PATH } : {}),
     ...(process.env.MIOBRIDGE_SING_BOX_PATH ? { 'sing-box': process.env.MIOBRIDGE_SING_BOX_PATH } : {}),
   } }),
+  localNode,
   maintenance: {
     upgrade: () => maintenance.upgrade(),
     async uninstall(purge) {

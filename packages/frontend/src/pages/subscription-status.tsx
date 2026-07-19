@@ -11,7 +11,6 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import SignalPage from '@/components/shared/SignalPage'
-import WorkflowRail from '@/components/shared/WorkflowRail'
 
 const DEFAULT_POLICY: SubscriptionPolicy = { enabled: false, cron: '0 */6 * * *', freshnessHours: 24, nodeDropPercent: 30, retryDelaysMinutes: [1, 5, 15], backupRetention: 30 }
 
@@ -134,7 +133,6 @@ export default function SubscriptionStatusPage() {
 
   return (
     <SignalPage crumb="Subscription health" title="订阅状态" description="维护正式产物的新鲜度、格式、公共 URL、上次任务与定时生成策略。" status={healthy ? '订阅健康' : `${checks.filter(item => !item.ok).length} 个问题待处理`} maxWidth="narrow" actions={<Button variant="outline" onClick={refresh}><Icon icon="ph:heartbeat-light" />立即检查</Button>}>
-      <WorkflowRail current="maintain-subscription" />
       {error ? <Alert variant="destructive"><AlertTitle>状态检查失败</AlertTitle><AlertDescription>{error}</AlertDescription></Alert> : null}
       {!healthy ? <Alert variant="destructive"><AlertTitle>订阅闭环未完成</AlertTitle><AlertDescription>本页只诊断和维护策略；需要生成、运行时维护或产物操作时跳转到唯一负责页面。</AlertDescription></Alert> : <Alert variant="success"><AlertTitle>所有检查通过</AlertTitle><AlertDescription>正式订阅及兼容 URL 当前可用。</AlertDescription></Alert>}
       <div className="mt-5 grid gap-4 md:grid-cols-2">{checks.map(item => <Card key={item.label}><CardContent className="flex items-center justify-between gap-4 p-5"><div><p className="font-medium">{item.label}</p><p className="mt-1 text-sm text-muted-foreground">{item.detail}</p></div><Badge variant={item.ok ? 'secondary' : 'destructive'}>{item.ok ? '通过' : '异常'}</Badge></CardContent></Card>)}</div>

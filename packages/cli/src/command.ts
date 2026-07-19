@@ -4,10 +4,11 @@ import type {
 } from '@miobridge/core';
 import { parse as parseYaml, stringify as stringifyYaml } from 'yaml';
 import { formatSetupStatus, type DependencySetupService } from './setup/service.js';
+import { formatLocalNodeConfiguration, type LocalNodeConfigurationService } from './nodes/localConfiguration.js';
 import { formatDashboardDaemonStatus, type DashboardDaemonAction } from './dashboard/commands.js';
 import type { DashboardDaemonStatus } from './dashboard/systemd.js';
 
-export const CLI_VERSION = process.env.MIOBRIDGE_BUILD_VERSION ?? '1.2.0';
+export const CLI_VERSION = process.env.MIOBRIDGE_BUILD_VERSION ?? '1.2.1';
 
 export interface CliCore {
   updateSubscription(): Promise<UpdateResult>;
@@ -34,6 +35,7 @@ export interface CliDependencies {
   readonly readTextFile?: (path: string) => Promise<string>;
   readonly signal?: AbortSignal;
   readonly setup?: Pick<DependencySetupService, 'run'>;
+  readonly localNode?: Pick<LocalNodeConfigurationService, 'configure'>;
   readonly maintenance?: {
     upgrade(): Promise<string>;
     uninstall(purge: boolean): Promise<string>;
@@ -48,7 +50,8 @@ type ParsedCommand =
   | { readonly kind: 'help' }
   | { readonly kind: 'version' }
   | { readonly kind: 'update'; readonly json: boolean }
-  | { readonly kind: 'setup'; readonly assumeYes: boolean }
+  | { readonly kind: 'setup'; readonly assumeYes: boolean; readonly localNode?: boolean }
+  | { readonly kind: 'nodes-configure'; readonly localNode?: boolean }
   | { readonly kind: 'upgrade' }
   | { readonly kind: 'uninstall'; readonly purge: boolean }
   | { readonly kind: 'dashboard-foreground' }
@@ -67,7 +70,10 @@ export const helpText = `MioBridge ${CLI_VERSION}
 Usage: miobridge <command> [options]
 
 Commands:
-  setup [--yes]   Discover and install managed dependencies
+  setup [--yes] [--local-node|--no-local-node]
+                  Install dependencies and choose whether this server is a local node
+  nodes configure [--local-node|--no-local-node]
+                  Configure this server's local-node role
   upgrade         Upgrade this CLI to the latest verified release
   uninstall [--purge]
                   Remove this CLI; --purge also removes configuration and data
@@ -112,9 +118,26 @@ export function parseCommand(args: readonly string[]): ParsedCommand {
     throw new Error(`Unexpected argument: ${args[1]}`);
   }
   if (args[0] === 'setup') {
-    if (args.length === 1) return { kind: 'setup', assumeYes: false };
-    if (args.length === 2 && (args[1] === '--yes' || args[1] === '-y')) return { kind: 'setup', assumeYes: true };
-    throw new Error(`Unexpected argument: ${args[1]}`);
+    let assumeYes = false;
+    let localNode: boolean | undefined;
+    for (const argument of args.slice(1)) {
+      if (argument === '--yes' || argument === '-y') assumeYes = true;
+      else if (argument === '--local-node' || argument === '--no-local-node') {
+        const next = argument === '--local-node';
+        if (localNode !== undefined && localNode !== next) throw new Error('Choose only one of --local-node or --no-local-node');
+        localNode = next;
+      } else throw new Error(`Unexpected argument: ${argument}`);
+    }
+    return { kind: 'setup', assumeYes, ...(localNode === undefined ? {} : { localNode }) };
+  }
+  if (args[0] === 'nodes' && args[1] === 'configure') {
+    if (args.length === 2) return { kind: 'nodes-configure' };
+    if (args.length === 3 && args[2] === '--local-node') return { kind: 'nodes-configure', localNode: true };
+    if (args.length === 3 && args[2] === '--no-local-node') return { kind: 'nodes-configure', localNode: false };
+    throw new Error(`Unexpected argument: ${args[2]}`);
+  }
+  if (args[0] === 'nodes') {
+    throw new Error(args.length === 1 ? 'Missing nodes action' : `Unknown nodes action: ${args[1]}`);
   }
   if (args[0] === 'upgrade') {
     if (args.length > 1) throw new Error(`Unexpected argument: ${args[1]}`);
@@ -257,7 +280,20 @@ export async function runCli(args: readonly string[], dependencies: CliDependenc
   try {
     if (command.kind === 'setup') {
       if (!dependencies.setup) throw new Error('Setup adapters are unavailable');
-      dependencies.output.stdout(formatSetupStatus(await dependencies.setup.run({ assumeYes: command.assumeYes })));
+      const dependenciesStatus = formatSetupStatus(await dependencies.setup.run({ assumeYes: command.assumeYes }));
+      if (!dependencies.localNode) throw new Error('Local node configuration adapters are unavailable');
+      const localStatus = await dependencies.localNode.configure({
+        assumeYes: command.assumeYes,
+        ...(command.localNode === undefined ? {} : { enabled: command.localNode }),
+      });
+      dependencies.output.stdout(`${dependenciesStatus}\n${formatLocalNodeConfiguration(localStatus)}`);
+      return 0;
+    }
+    if (command.kind === 'nodes-configure') {
+      if (!dependencies.localNode) throw new Error('Local node configuration adapters are unavailable');
+      dependencies.output.stdout(formatLocalNodeConfiguration(await dependencies.localNode.configure(
+        command.localNode === undefined ? {} : { enabled: command.localNode },
+      )));
       return 0;
     }
     if (command.kind === 'upgrade') {

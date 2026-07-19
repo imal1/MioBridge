@@ -14,7 +14,6 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Select } from '@/components/ui/select'
 import SignalPage from '@/components/shared/SignalPage'
-import WorkflowRail from '@/components/shared/WorkflowRail'
 
 type Filter = 'all' | 'enabled' | 'disabled' | 'undeployed'
 
@@ -39,7 +38,6 @@ export default function NodesPage() {
   useEffect(() => { refresh().catch(caught => setError(caught instanceof Error ? caught.message : '节点加载失败')) }, [refresh])
 
   const nodes = useMemo(() => (cluster?.nodes || []).filter(node => {
-    if (node.nodeId === 'local') return false
     if (filter === 'enabled' && node.enabled === false) return false
     if (filter === 'disabled' && node.enabled !== false) return false
     if (filter === 'undeployed' && node.agent?.deployed) return false
@@ -112,7 +110,6 @@ export default function NodesPage() {
   }
 
   return <SignalPage crumb="Node inventory" title="节点" description="管理节点档案、SSH 连接和纳管状态；软件安装与运行维护由后续页面负责。" status={`${cluster?.totalNodes || 0} 个节点档案`} maxWidth="narrow" actions={<><Button variant="outline" onClick={refresh}><Icon icon="ph:arrow-clockwise-light" />刷新</Button><Button onClick={() => setAddOpen(true)}><Icon icon="ph:plus-light" />添加节点</Button></>}>
-    <WorkflowRail current={addOpen ? 'add-node' : 'manage-node'} />
     {error ? <Alert variant="destructive"><AlertTitle>节点操作失败</AlertTitle><AlertDescription>{error}</AlertDescription></Alert> : null}
     <Card className="mb-5"><CardContent className="grid gap-3 p-4 md:grid-cols-[1fr_220px]"><Input aria-label="搜索节点" value={query} onChange={event => setQuery(event.target.value)} placeholder="搜索名称、主机、地域或节点 ID…" /><Select aria-label="筛选节点" value={filter} onChange={event => setFilter(event.target.value as Filter)}><option value="all">全部节点</option><option value="enabled">已启用</option><option value="disabled">已暂停</option><option value="undeployed">Agent 未安装</option></Select></CardContent></Card>
     <div className="grid gap-5 lg:grid-cols-2">

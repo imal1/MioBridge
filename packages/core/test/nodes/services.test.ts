@@ -28,6 +28,23 @@ describe('node core services', () => {
     expect((await repository.list({ enabledOnly: false })).map(n => n.id)).toEqual(['node-a', 'off']);
   });
 
+  it('configures the default local node as a plain node profile', async () => {
+    const store = memoryStore(`nodes:\n  - id: node-a\n    name: A\n    host: example\n    secret: secret\n    kernels:\n      - type: xray\n    location: HK\n    enabled: true\n`);
+    const repository = new NodeRepository(store);
+    await repository.configureLocalNode(true);
+    expect(await repository.isLocalNodeConfigured()).toBe(true);
+    expect(await repository.list()).toMatchObject([
+      { id: 'local', name: '本机节点', host: '127.0.0.1', kernels: [{ type: 'sing-box' }], location: '本机', enabled: true },
+      { id: 'node-a' },
+    ]);
+    // 重复启用是幂等的，且不会覆盖用户对档案的后续修改。
+    await repository.update('local', current => ({ ...current, name: '主控机', location: 'CN' }));
+    await repository.configureLocalNode(true);
+    expect((await repository.list())[0]).toMatchObject({ id: 'local', name: '主控机', location: 'CN' });
+    await repository.configureLocalNode(false);
+    expect((await repository.list()).map(item => item.id)).toEqual(['node-a']);
+  });
+
   it('aggregates valid sources and keeps partial failures redacted to node identity', async () => {
     const repository = new NodeRepository(memoryStore(`nodes:\n  - id: node-a\n    name: A\n    host: agent.example\n    port: 3001\n    secret: secret\n    kernels:\n      - type: xray\n    location: HK\n    enabled: true\n  - id: bad\n    name: Bad\n    host: bad.example\n    secret: dont-print-me\n    kernels:\n      - type: xray\n    location: US\n    enabled: true\n`));
     const client = new AgentClient({ fetch: (async (url: string | URL | Request) => {

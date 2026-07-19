@@ -13,6 +13,10 @@ app:
   port: 3000                      # 仪表盘与 API 端口
   environment: production         # 运行环境: development/production
 
+# 本机节点是安装时默认创建的普通节点档案，保存在 nodes.yaml：
+# miobridge nodes configure --local-node
+# miobridge nodes configure --no-local-node
+
 # 协议配置管理
 # ---------------------------------------------
 protocols:

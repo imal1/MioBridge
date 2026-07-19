@@ -10,7 +10,6 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import SignalPage from '@/components/shared/SignalPage'
-import WorkflowRail from '@/components/shared/WorkflowRail'
 
 const META: Record<ArtifactState['name'], { label: string; description: string; contentType: string }> = {
   'raw.txt': { label: '原始链接', description: '聚合、清洗并去重后的节点 URL', contentType: 'text/plain' },
@@ -58,7 +57,6 @@ export default function OutputsPage() {
 
   return (
     <SignalPage crumb="Derived artifacts" title="衍生输出" description="负责正式产物的状态、预览、验证、URL、打开和下载；临时转换不会覆盖正式文件。" status={`${artifacts.filter(item => item.valid).length}/3 个产物有效`} maxWidth="narrow" actions={<><Button variant="outline" onClick={validate} disabled={checking}><Icon icon={checking ? 'ph:spinner-bold' : 'ph:shield-check-light'} className={checking ? 'animate-spin' : ''} />验证全部</Button><Button variant="outline" onClick={openConvertModal}><Icon icon="ph:arrows-left-right-light" />临时转换</Button></>}>
-      <WorkflowRail current="derive-output" />
       <div className="grid gap-5 xl:grid-cols-3">
         {artifacts.map(item => {
           const meta = META[item.name]
