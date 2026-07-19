@@ -1,4 +1,5 @@
 import { execFile } from 'node:child_process';
+import { CLI_VERSION } from './command.js';
 import { access, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { constants } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -103,7 +104,7 @@ export function createNodeCore(options: NodeCoreOptions = {}): NodeCoreCompositi
   const state = createStateStore({ paths, env, logger });
   const repository = new NodeRepository(state);
   const yaml = new YamlService({ paths, logger });
-  const configService = new ConfigService(yaml, paths, options.metadata?.version ?? '1.0.0');
+  const configService = new ConfigService(yaml, paths, options.metadata?.version ?? CLI_VERSION);
   const fullConfig = configService.getFullConfig();
   const config = configService.getConfig();
   const local = options.local ?? new SingBoxAdapter({
@@ -122,7 +123,7 @@ export function createNodeCore(options: NodeCoreOptions = {}): NodeCoreCompositi
     ...(env.MIOBRIDGE_MIHOMO_PATH ? { envPath: env.MIOBRIDGE_MIHOMO_PATH } : {}),
   });
   const core = new MioBridgeCore({
-    paths, state, logger, metadata: options.metadata ?? { version: '1.0.0' }, yaml,
+    paths, state, logger, metadata: options.metadata ?? { version: CLI_VERSION }, yaml,
     local, remote, mihomo,
     clusterMetrics: {
       async snapshot() {
