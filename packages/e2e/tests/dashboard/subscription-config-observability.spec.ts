@@ -199,7 +199,6 @@ test.describe('E10 · 订阅预检与正式生成', () => {
   });
 
   test('SSE 连接中断必须进入可恢复的明确错误态', async ({ page, control }) => {
-    test.fail(true, '当前 EventSource.onerror 只关闭连接，没有中断提示或重连入口');
     await control({ subscriptionJobStatus: 'running' });
     await page.route(/\/api\/subscription-jobs\/[^/]+\/events$/, route => route.abort('connectionfailed'));
     await page.goto('/subscription');
@@ -244,7 +243,6 @@ test.describe('E11 · 订阅历史、恢复与重试', () => {
   });
 
   test('重试请求失败应保留原任务并显示可操作错误', async ({ page, control, snapshot }) => {
-    test.fail(true, '当前 retry 回调未捕获 HTTP 失败，异常会逃逸且不显示“任务重试失败”');
     await control({ subscriptionJobStatus: 'failed', subscriptionRetryFailure: true });
     const before = (await snapshot()).subscriptionJobs?.length ?? 0;
     await page.goto('/subscription');
@@ -259,7 +257,6 @@ test.describe('E11 · 订阅历史、恢复与重试', () => {
   });
 
   test('部分成功任务也应提供按原输入重试', async ({ page, control }) => {
-    test.fail(true, '当前 UI 仅为 failed 任务渲染重试按钮，partial 恢复入口缺失');
     await control({ subscriptionJobStatus: 'partial' });
     await page.goto('/subscription');
     await expect(page.getByText('部分成功', { exact: true })).toBeVisible();
@@ -557,7 +554,6 @@ test.describe('E14 · 订阅健康与策略', () => {
   });
 
   test('状态检查必须真实读取三个公共兼容 URL', async ({ page, snapshot }) => {
-    test.fail(true, '当前 subscription-status 只根据产物元数据推断公共 URL 可用性，没有真实请求三个 URL');
     await page.goto('/subscription-status');
     await expect(page.getByText('公共兼容 URL', { exact: true })).toBeVisible();
     await expect.poll(async () => {
@@ -568,7 +564,6 @@ test.describe('E14 · 订阅健康与策略', () => {
   });
 
   test('节点突降检查必须由任务历史计算而非硬编码通过', async ({ page }) => {
-    test.fail(true, '当前 subscription-status 将节点突降检查硬编码为 ok: true');
     const current = new Date('2026-07-16T12:00:00.000Z');
     const previous = new Date('2026-07-16T06:00:00.000Z');
     await page.route(url => new URL(url).pathname === '/api/subscription-jobs', route => route.fulfill({
@@ -591,7 +586,6 @@ test.describe('E14 · 订阅健康与策略', () => {
   });
 
   test('失败重试间隔与备份保留数量必须可编辑并随策略原子保存', async ({ page, snapshot }) => {
-    test.fail(true, '当前 subscription-status 仅以静态文本展示 retryDelaysMinutes 与 backupRetention');
     await page.goto('/subscription-status');
     // 先断言控件存在再填写：直接 fill 会一直等到整个用例超时，
     // 而超时不会被 test.fail() 记为「预期内失败」，反而成为非预期失败。
@@ -748,7 +742,6 @@ test.describe('E15 · 四来源日志', () => {
   });
 
   test('订阅任务的日志链接应保留 subscription 来源上下文', async ({ page, control }) => {
-    test.fail(true, '当前 /logs?task= 会被解释为 deployment，订阅任务来源上下文丢失');
     await control({ subscriptionJobStatus: 'failed' });
     await page.goto('/subscription');
     await page.getByRole('link', { name: '任务日志' }).click();
@@ -901,7 +894,6 @@ test.describe('E19 · 动态 OpenAPI', () => {
   });
 
   test('写接口契约应呈现请求体、参数和响应说明', async ({ page }) => {
-    test.fail(true, '当前动态 OpenAPI 只生成 tag/summary/responses，缺少 parameters 与 requestBody schema');
     await page.goto('/api-docs');
     const trigger = page.getByRole('button')
       .filter({ has: page.getByText('/api/deployments', { exact: true }) })
@@ -1029,7 +1021,6 @@ test.describe('E20 · 安全、兼容 URL 与 API contract', () => {
   });
 
   test('HTTP adapter 拒绝超大 body 与非法 JSON 时返回规范错误 envelope', async ({ request }) => {
-    test.fail(true, '当前 readBody 的 400 响应缺少规范 error 对象、requestId、role、timestamp，且超大 body 未使用 413');
     const cases = [
       {
         name: 'payload-too-large',

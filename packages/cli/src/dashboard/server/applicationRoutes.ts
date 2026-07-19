@@ -539,10 +539,179 @@ function openApiDocument(req: DashboardRequest): Record<string, unknown> {
     openapi: '3.1.0', info: { title: 'MioBridge API', version: '1.0.0' },
     servers: [{ url: `http://${header(req, 'host') ?? 'localhost'}` }],
     paths: paths.reduce<Record<string, Record<string, unknown>>>((document, [tag, method, path, summary]) => {
-      document[path] = { ...(document[path] ?? {}), [method.toLowerCase()]: { tags: [tag], summary, responses: { [method === 'POST' && (path === '/api/deployments' || path === '/api/subscription-jobs') ? 202 : 200]: { description: '成功' } } } };
+      const accepted = method === 'POST' && (path === '/api/deployments' || path === '/api/subscription-jobs');
+      const body = requestBodyFor(method, path);
+      document[path] = {
+        ...(document[path] ?? {}),
+        [method.toLowerCase()]: {
+          tags: [tag], summary,
+          parameters: parametersFor(method, path),
+          ...(body ? { requestBody: body } : {}),
+          responses: {
+            [accepted ? 202 : 200]: { description: accepted ? '任务已接受并进入队列' : '成功' },
+            400: { description: '请求字段无效' },
+            500: { description: '服务端处理失败' },
+          },
+        },
+      };
       return document;
     }, {}),
   };
+}
+
+type OpenApiParameter = {
+  name: string; in: 'path' | 'query' | 'header'; required: boolean;
+  description: string; schema: Record<string, unknown>;
+};
+
+const STRING_SCHEMA = { type: 'string' } as const;
+
+/** 每个端点都接受的关联头，写在契约里调用方才知道可以自带请求 ID。 */
+const COMMON_PARAMETERS: OpenApiParameter[] = [
+  { name: 'X-Request-ID', in: 'header', required: false, description: '调用方提供的请求关联 ID，会原样回传', schema: STRING_SCHEMA },
+];
+
+const QUERY_PARAMETERS: Record<string, OpenApiParameter[]> = {
+  'GET /api/cluster/components': [
+    { name: 'nodes', in: 'query', required: false, description: '逗号分隔的节点 ID，缺省表示全部节点', schema: STRING_SCHEMA },
+  ],
+  'GET /api/deployments': [
+    { name: 'nodes', in: 'query', required: false, description: '逗号分隔的节点 ID 过滤', schema: STRING_SCHEMA },
+  ],
+  'GET /api/deployments/{id}/events': [
+    { name: 'after', in: 'query', required: false, description: '只返回该 eventId 之后的事件', schema: STRING_SCHEMA },
+    { name: 'Last-Event-ID', in: 'header', required: false, description: 'SSE 续传位点，等价于 after', schema: STRING_SCHEMA },
+  ],
+  'GET /api/subscription-jobs/{id}/events': [
+    { name: 'after', in: 'query', required: false, description: '只返回该 eventId 之后的事件', schema: STRING_SCHEMA },
+    { name: 'Last-Event-ID', in: 'header', required: false, description: 'SSE 续传位点，等价于 after', schema: STRING_SCHEMA },
+  ],
+  'GET /api/deployments/agent/manual-config': [
+    { name: 'nodeId', in: 'query', required: true, description: '目标节点 ID', schema: STRING_SCHEMA },
+  ],
+  'GET /api/logs': [
+    { name: 'source', in: 'query', required: false, description: '日志来源', schema: { type: 'string', enum: ['control', 'agent', 'deployment', 'subscription'] } },
+    { name: 'node', in: 'query', required: false, description: 'Agent 日志的目标节点 ID', schema: STRING_SCHEMA },
+    { name: 'task', in: 'query', required: false, description: '部署或订阅任务 ID', schema: STRING_SCHEMA },
+    { name: 'component', in: 'query', required: false, description: '按组件过滤', schema: STRING_SCHEMA },
+    { name: 'file', in: 'query', required: false, description: '按日志文件过滤', schema: STRING_SCHEMA },
+    { name: 'level', in: 'query', required: false, description: '按级别过滤', schema: STRING_SCHEMA },
+    { name: 'from', in: 'query', required: false, description: '起始时间（ISO 8601）', schema: { type: 'string', format: 'date-time' } },
+    { name: 'to', in: 'query', required: false, description: '结束时间（ISO 8601）', schema: { type: 'string', format: 'date-time' } },
+    { name: 'q', in: 'query', required: false, description: '全文关键字', schema: STRING_SCHEMA },
+  ],
+  'GET /raw.txt': [{ name: 'download', in: 'query', required: false, description: '为真时以附件下载而非内联展示', schema: STRING_SCHEMA }],
+  'GET /subscription.txt': [{ name: 'download', in: 'query', required: false, description: '为真时以附件下载而非内联展示', schema: STRING_SCHEMA }],
+  'GET /clash.yaml': [{ name: 'download', in: 'query', required: false, description: '为真时以附件下载而非内联展示', schema: STRING_SCHEMA }],
+};
+
+const HEADER_PARAMETERS: Record<string, OpenApiParameter[]> = {
+  'POST /api/deployments': [
+    { name: 'Idempotency-Key', in: 'header', required: true, description: '幂等键；重放同一个键只会返回原任务', schema: STRING_SCHEMA },
+  ],
+  'POST /api/subscription-jobs': [
+    { name: 'Idempotency-Key', in: 'header', required: false, description: '幂等键；重放同一个键只会返回原任务', schema: STRING_SCHEMA },
+  ],
+};
+
+const PATH_PARAMETER_DESCRIPTIONS: Record<string, string> = {
+  id: '资源 ID',
+  name: '产物文件名',
+  component: '组件名：agent、mihomo、sing-box、xray 或 v2ray',
+  action: '维护动作：start、stop 或 restart',
+};
+
+function parametersFor(method: string, path: string): OpenApiParameter[] {
+  const key = `${method} ${path}`;
+  const pathParameters: OpenApiParameter[] = [...path.matchAll(/\{([^}]+)\}/g)].map(match => ({
+    name: match[1]!, in: 'path', required: true,
+    description: PATH_PARAMETER_DESCRIPTIONS[match[1]!] ?? `路径参数 ${match[1]}`,
+    schema: STRING_SCHEMA,
+  }));
+  return [...pathParameters, ...(QUERY_PARAMETERS[key] ?? []), ...(HEADER_PARAMETERS[key] ?? []), ...COMMON_PARAMETERS];
+}
+
+function jsonBody(description: string, required: boolean, schema: Record<string, unknown>): Record<string, unknown> {
+  return { required, description, content: { 'application/json': { schema } } };
+}
+
+function objectSchema(properties: Record<string, unknown>, required?: string[]): Record<string, unknown> {
+  return { type: 'object', properties, ...(required?.length ? { required } : {}) };
+}
+
+const SSH_PROPERTIES = {
+  sshUser: { type: 'string', description: 'SSH 登录用户' },
+  sshPort: { type: 'integer', minimum: 1, maximum: 65535, description: 'SSH 端口' },
+  sshAuthMethod: { type: 'string', enum: ['password', 'privateKey'], description: '认证方式' },
+  sshPassword: { type: 'string', description: '写入用凭据；响应中永不回传' },
+  sshPrivateKey: { type: 'string', description: '写入用凭据；响应中永不回传' },
+} as const;
+
+const KERNELS_SCHEMA = {
+  type: 'array',
+  description: '受监控的协议核心及其配置路径',
+  items: objectSchema({
+    type: { type: 'string', enum: ['sing-box', 'xray', 'v2ray'] },
+    configPath: { type: 'string', description: '绝对路径；缺省时使用检测到的默认路径' },
+  }, ['type']),
+} as const;
+
+const CHANGES_SCHEMA = {
+  type: 'array',
+  description: '一次原子提交的字段变更集合',
+  items: objectSchema({ path: { type: 'string' }, value: {} }, ['path', 'value']),
+} as const;
+
+const REQUEST_BODIES: Record<string, Record<string, unknown>> = {
+  'POST /api/cluster/nodes': jsonBody('新建节点档案', true, objectSchema({
+    name: STRING_SCHEMA, host: STRING_SCHEMA, location: STRING_SCHEMA,
+    tags: { type: 'array', items: STRING_SCHEMA }, kernels: KERNELS_SCHEMA, ...SSH_PROPERTIES,
+  }, ['name', 'host'])),
+  'PATCH /api/cluster/nodes/{id}': jsonBody('更新节点档案；只提交需要变更的字段', true, objectSchema({
+    nodeId: STRING_SCHEMA, name: STRING_SCHEMA, host: STRING_SCHEMA, location: STRING_SCHEMA,
+    enabled: { type: 'boolean', description: '是否纳管该节点' },
+    tags: { type: 'array', items: STRING_SCHEMA }, ...SSH_PROPERTIES,
+  })),
+  'POST /api/cluster/nodes/{id}/preflight': jsonBody('可选的临时 SSH 覆盖参数', false, objectSchema({
+    ssh: objectSchema(SSH_PROPERTIES),
+  })),
+  'POST /api/cluster/components/detect': jsonBody('检测目标节点上的协议核心', true, objectSchema({ nodeId: STRING_SCHEMA }, ['nodeId'])),
+  'POST /api/cluster/components/{component}/{action}': jsonBody('对指定组件执行运行维护动作', true, objectSchema({ nodeId: STRING_SCHEMA }, ['nodeId'])),
+  'PUT /api/cluster/components/{component}/monitoring': jsonBody('事务更新 Agent 监控范围与配置路径', true, objectSchema({
+    nodeId: STRING_SCHEMA, kernels: KERNELS_SCHEMA,
+  }, ['nodeId', 'kernels'])),
+  'POST /api/deployments/preflight': jsonBody('部署前的 SSH 与目标状态预检', true, objectSchema({
+    nodeId: STRING_SCHEMA,
+    component: { type: 'string', enum: ['agent', 'mihomo', 'sing-box', 'xray', 'v2ray'] },
+    operation: { type: 'string', enum: ['install', 'reinstall', 'upgrade', 'repair', 'uninstall'] },
+  }, ['nodeId'])),
+  'POST /api/deployments': jsonBody('创建单节点单组件部署任务', true, objectSchema({
+    nodeId: STRING_SCHEMA,
+    component: { type: 'string', enum: ['agent', 'mihomo', 'sing-box', 'xray', 'v2ray'] },
+    operation: { type: 'string', enum: ['install', 'reinstall', 'upgrade', 'repair', 'uninstall'] },
+    options: objectSchema({
+      preserveConfig: { type: 'boolean', description: '卸载时保留配置，默认 true' },
+      preserveData: { type: 'boolean', description: '卸载时保留数据与日志，默认 true' },
+    }),
+  }, ['nodeId', 'component', 'operation'])),
+  'POST /api/artifacts/validate': jsonBody('验证正式产物', false, objectSchema({ name: STRING_SCHEMA })),
+  'PUT /api/subscription-policy': jsonBody('保存定时生成与状态阈值策略', true, objectSchema({
+    enabled: { type: 'boolean' },
+    cron: { type: 'string', description: '五段式 cron 表达式' },
+    freshnessHours: { type: 'integer', minimum: 1 },
+    nodeDropPercent: { type: 'integer', minimum: 0, maximum: 100 },
+    retryDelaysMinutes: { type: 'array', items: { type: 'integer', minimum: 1 } },
+    backupRetention: { type: 'integer', minimum: 1 },
+  }, ['enabled', 'cron', 'freshnessHours', 'nodeDropPercent', 'retryDelaysMinutes', 'backupRetention'])),
+  'POST /api/config/validate': jsonBody('校验配置草稿', true, objectSchema({ changes: CHANGES_SCHEMA }, ['changes'])),
+  'PATCH /api/config': jsonBody('原子提交配置变更', true, objectSchema({ changes: CHANGES_SCHEMA }, ['changes'])),
+  'POST /api/config/import/preview': jsonBody('预览导入内容与当前生效值的差异', true, objectSchema({
+    content: { type: 'string', description: '导入的 YAML 或 JSON 文本' },
+  }, ['content'])),
+};
+
+function requestBodyFor(method: string, path: string): Record<string, unknown> | undefined {
+  return REQUEST_BODIES[`${method} ${path}`];
 }
 
 class RequestFieldError extends Error { constructor(readonly field: string, message: string) { super(message); } }

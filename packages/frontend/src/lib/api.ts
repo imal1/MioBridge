@@ -17,7 +17,17 @@ export type DetectKernelsPayload =
     };
 
 export const API_RETRY_METHODS = ['get'] as const;
-const KERNEL_DETECTION_FIELDS = new Set(['type', 'installed', 'version', 'defaultConfigPath', 'error']);
+/**
+ * 凭据形状的字段名。这个校验器原本用「未知字段一律拒绝」来兼任泄露探测器，
+ * 副作用是服务端任何一次向后兼容的字段扩展都会让整块功能静默退化——新增
+ * binaryPath 时就导致三个内核全部显示「未检测到」，且看起来像检测失败而非报错。
+ * 现在改为：良性未知字段忽略（重建结果时自然剥掉），凭据形状的字段仍然硬拒。
+ */
+const SENSITIVE_KEY = /password|passphrase|secret|token|credential|privatekey|apikey|authorization/i;
+
+function hasSensitiveKey(candidate: Record<string, unknown>): boolean {
+  return Object.keys(candidate).some(key => SENSITIVE_KEY.test(key));
+}
 
 export function validateKernelDetections(value: unknown): KernelDetection[] {
   if (!Array.isArray(value) || value.length !== KERNEL_TYPES.length) {
@@ -28,11 +38,12 @@ export function validateKernelDetections(value: unknown): KernelDetection[] {
     if (typeof item !== 'object' || item === null || Array.isArray(item)) throw new Error('内核检测响应无效');
     const candidate = item as Record<string, unknown>;
     const type = candidate.type;
-    if (Object.keys(candidate).some(key => !KERNEL_DETECTION_FIELDS.has(key)) ||
+    if (hasSensitiveKey(candidate) ||
         typeof type !== 'string' || !KERNEL_TYPES.includes(type as KernelType) || byType.has(type as KernelType) ||
         typeof candidate.installed !== 'boolean' || typeof candidate.defaultConfigPath !== 'string' ||
         !candidate.defaultConfigPath.startsWith('/') ||
         (candidate.version !== undefined && typeof candidate.version !== 'string') ||
+        (candidate.binaryPath !== undefined && (typeof candidate.binaryPath !== 'string' || !candidate.binaryPath.startsWith('/'))) ||
         (candidate.error !== undefined && typeof candidate.error !== 'string')) {
       throw new Error('内核检测响应无效');
     }
@@ -41,6 +52,7 @@ export function validateKernelDetections(value: unknown): KernelDetection[] {
       installed: candidate.installed,
       defaultConfigPath: candidate.defaultConfigPath,
       ...(candidate.version !== undefined ? { version: candidate.version as string } : {}),
+      ...(candidate.binaryPath !== undefined ? { binaryPath: candidate.binaryPath as string } : {}),
       ...(candidate.error !== undefined ? { error: candidate.error as string } : {}),
     });
   }

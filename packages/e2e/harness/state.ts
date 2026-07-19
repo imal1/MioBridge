@@ -16,11 +16,12 @@ export interface FixtureNode {
   sshUser: string;
   sshPort: number;
   sshHostKey: string;
+  sshAuthMethod: 'password' | 'privateKey';
   ssh?: { user: string; port: number; authMethod: 'password' | 'privateKey'; hostKey: string };
   configuredKernels: FixtureKernelConfig[];
   kernels: Array<{
     type: 'sing-box' | 'xray' | 'v2ray'; detected: boolean; monitored: boolean; accessible: boolean;
-    nodesCount: number; version?: string; configPaths: string[]; error?: string;
+    nodesCount: number; version?: string; configPaths: string[]; error?: string; binaryPath?: string;
   }>;
   online: boolean;
   latency?: number;
@@ -168,9 +169,11 @@ function baselineNodes(): FixtureNode[] {
     {
       id: 'node-ready', nodeId: 'node-ready', name: '上海边缘节点', host: 'ready-node.e2e.invalid',
       location: 'CN-SHA', enabled: true, tags: ['edge', 'ready'], sshUser: 'root', sshPort: 22,
-      sshHostKey: 'SHA256:e2e-ready-host-key', ssh: { user: 'root', port: 22, authMethod: 'password', hostKey: 'SHA256:e2e-ready-host-key' },
+      sshHostKey: 'SHA256:e2e-ready-host-key', sshAuthMethod: 'password', ssh: { user: 'root', port: 22, authMethod: 'password', hostKey: 'SHA256:e2e-ready-host-key' },
       configuredKernels: [{ type: 'sing-box', configPath: '/opt/e2e/sing-box.json' }],
       kernels: [
+        // 真实 Agent 不上报 binaryPath，这里刻意也不报：二进制路径由控制面的
+        // SSH 检测（detectionFor）给出，与生产链路保持同形。
         { type: 'sing-box', detected: true, monitored: true, accessible: true, nodesCount: 3, version: '1.12.0-e2e', configPaths: ['/opt/e2e/sing-box.json'] },
         { type: 'xray', detected: true, monitored: false, accessible: false, nodesCount: 0, version: '25.1-e2e', configPaths: ['/etc/xray/config.json'] },
         { type: 'v2ray', detected: false, monitored: false, accessible: false, nodesCount: 0, configPaths: [] },
@@ -183,7 +186,7 @@ function baselineNodes(): FixtureNode[] {
     {
       id: 'node-empty', nodeId: 'node-empty', name: '待部署节点', host: 'empty-node.e2e.invalid',
       location: 'E2E-LAB', enabled: true, tags: ['empty'], sshUser: 'root', sshPort: 22,
-      sshHostKey: 'SHA256:e2e-empty-host-key', ssh: { user: 'root', port: 22, authMethod: 'password', hostKey: 'SHA256:e2e-empty-host-key' },
+      sshHostKey: 'SHA256:e2e-empty-host-key', sshAuthMethod: 'password', ssh: { user: 'root', port: 22, authMethod: 'password', hostKey: 'SHA256:e2e-empty-host-key' },
       configuredKernels: [], kernels: [
         { type: 'sing-box', detected: false, monitored: false, accessible: false, nodesCount: 0, configPaths: [] },
         { type: 'xray', detected: false, monitored: false, accessible: false, nodesCount: 0, configPaths: [] },

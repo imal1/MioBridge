@@ -20,6 +20,8 @@ export interface KernelRuntimeStatus {
   version?: string;
   configPaths: string[];
   error?: string;
+  /** Agent 实际解析到的可执行文件路径；旧版 Agent 不上报时留空。 */
+  binaryPath?: string;
 }
 
 export type SshAuthMethod = 'password' | 'privateKey';
@@ -68,11 +70,15 @@ export interface NodeStatus {
   sshUser?: string;
   sshPort?: number;
   sshHostKey?: string;
+  /** 认证方式本身不是凭据，必须暴露：否则编辑界面无从得知现状，只能猜。 */
+  sshAuthMethod?: SshAuthMethod;
   configuredKernels: NodeKernelConfig[];
   kernels: KernelRuntimeStatus[];
   location: string;
   online: boolean;
   error?: string;
+  /** 最近一次观察到的失败原因，节点恢复在线后依然保留，用于进入排障链路。 */
+  lastError?: string;
   latency?: number;
   nodesCount?: number;
   subscriptionExists?: boolean;
@@ -220,6 +226,8 @@ export interface KernelDetection {
   installed: boolean;
   defaultConfigPath: string;
   version?: string;
+  /** SSH 检测时以 test -x 实际验证过可执行的路径；未安装时不返回。 */
+  binaryPath?: string;
   error?: string;
 }
 

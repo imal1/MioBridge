@@ -5,6 +5,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const api = vi.hoisted(() => ({
   getClusterStatus: vi.fn(), detectKernels: vi.fn(), updateNodeKernels: vi.fn(), kernelAction: vi.fn(),
+  getComponentStates: vi.fn(),
 }))
 vi.mock('@/lib/api', () => ({ apiService: api }))
 
@@ -31,6 +32,16 @@ describe('Runtime monitoring management', () => {
     api.detectKernels.mockResolvedValue(detections)
     api.updateNodeKernels.mockResolvedValue({ success: true, data: {}, timestamp: '' })
     api.kernelAction.mockResolvedValue({ success: true, timestamp: '' })
+    api.getComponentStates.mockResolvedValue({
+      success: true,
+      data: {
+        states: [
+          { nodeId: 'node-edit', component: 'xray', installState: 'installed', runtimeState: 'running', monitorState: 'monitored', path: '/opt/bin/xray', configPath: '/custom/xray.json' },
+        ],
+        updatedAt: '',
+      },
+      timestamp: '',
+    })
   })
 
   it('detects cores and saves monitoring through the dedicated runtime page', async () => {
@@ -41,10 +52,18 @@ describe('Runtime monitoring management', () => {
     expect((screen.getByRole('checkbox', { name: /Xray/ }) as HTMLInputElement).checked).toBe(true)
     fireEvent.click(screen.getByRole('checkbox', { name: /Sing-Box/ }))
     fireEvent.click(screen.getByRole('button', { name: '保存并验证监控配置' }))
+    // 新加入的 sing-box 取检测到的默认路径；已监控的 xray 必须保留用户的自定义路径。
     await waitFor(() => expect(api.updateNodeKernels).toHaveBeenCalledWith('node-edit', [
       { type: 'sing-box', configPath: '/etc/sing-box/config.json' },
-      { type: 'xray', configPath: '/etc/xray/config.json' },
+      { type: 'xray', configPath: '/custom/xray.json' },
     ]))
+  })
+
+  it('renders the runtime state and real binary path from the component state API', async () => {
+    const { default: RuntimesPage } = await import('@/pages/runtimes')
+    render(<MemoryRouter initialEntries={['/runtimes?node=node-edit']}><RuntimesPage /></MemoryRouter>)
+    expect(await screen.findByText('/opt/bin/xray')).toBeDefined()
+    expect(screen.getByText('running')).toBeDefined()
   })
 
   it('keeps install-state changes as links to the deployment center', async () => {

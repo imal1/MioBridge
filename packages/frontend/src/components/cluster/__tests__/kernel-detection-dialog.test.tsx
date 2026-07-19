@@ -13,7 +13,7 @@ const detections: KernelDetection[] = [
 describe('KernelDetectionDialog', () => {
   it('renders all detections with the action required for their installed state', async () => {
     const { KernelDetectionDialog } = await import('@/components/cluster/KernelDetectionDialog');
-    render(<KernelDetectionDialog open detections={detections} monitoredTypes={[]} onCancel={() => {}} onConfirm={() => {}} />);
+    render(<KernelDetectionDialog open detections={detections} monitored={[]} onCancel={() => {}} onConfirm={() => {}} />);
 
     expect(screen.getAllByRole('checkbox')).toHaveLength(3);
     expect(screen.getByText('Sing-Box')).toBeDefined();
@@ -29,7 +29,7 @@ describe('KernelDetectionDialog', () => {
   it('preselects only currently monitored kernels and emits configs in supported order', async () => {
     const { KernelDetectionDialog } = await import('@/components/cluster/KernelDetectionDialog');
     const onConfirm = vi.fn();
-    render(<KernelDetectionDialog open detections={detections} monitoredTypes={['v2ray']} onCancel={() => {}} onConfirm={onConfirm} />);
+    render(<KernelDetectionDialog open detections={detections} monitored={[{ type: 'v2ray' }]} onCancel={() => {}} onConfirm={onConfirm} />);
 
     const singBox = screen.getByRole('checkbox', { name: /Sing-Box/ }) as HTMLInputElement;
     const xray = screen.getByRole('checkbox', { name: /Xray/ }) as HTMLInputElement;
@@ -48,11 +48,32 @@ describe('KernelDetectionDialog', () => {
     ]);
   });
 
+  it('keeps the existing custom config path of an already monitored kernel', async () => {
+    const { KernelDetectionDialog } = await import('@/components/cluster/KernelDetectionDialog');
+    const onConfirm = vi.fn();
+    render(
+      <KernelDetectionDialog
+        open
+        detections={detections}
+        monitored={[{ type: 'sing-box', configPath: '/opt/custom/sing-box.json' }]}
+        onCancel={() => {}}
+        onConfirm={onConfirm}
+      />
+    );
+
+    fireEvent.click(screen.getByRole('checkbox', { name: /Xray/ }));
+    fireEvent.click(screen.getByRole('button', { name: '确认并部署' }));
+    expect(onConfirm).toHaveBeenCalledWith([
+      { type: 'sing-box', configPath: '/opt/custom/sing-box.json' },
+      { type: 'xray', configPath: '/etc/xray/config.json' },
+    ]);
+  });
+
   it('disables confirmation with no selection and cancellation submits nothing', async () => {
     const { KernelDetectionDialog } = await import('@/components/cluster/KernelDetectionDialog');
     const onCancel = vi.fn();
     const onConfirm = vi.fn();
-    render(<KernelDetectionDialog open detections={detections} monitoredTypes={[]} onCancel={onCancel} onConfirm={onConfirm} />);
+    render(<KernelDetectionDialog open detections={detections} monitored={[]} onCancel={onCancel} onConfirm={onConfirm} />);
 
     expect((screen.getByRole('button', { name: '确认并部署' }) as HTMLButtonElement).disabled).toBe(true);
     fireEvent.click(screen.getByRole('button', { name: '取消' }));
@@ -63,11 +84,11 @@ describe('KernelDetectionDialog', () => {
   it('resets selection when a new keyed detection result is rendered', async () => {
     const { KernelDetectionDialog } = await import('@/components/cluster/KernelDetectionDialog');
     const { rerender } = render(
-      <KernelDetectionDialog key="first" open detections={detections} monitoredTypes={['sing-box']} onCancel={() => {}} onConfirm={() => {}} />
+      <KernelDetectionDialog key="first" open detections={detections} monitored={[{ type: 'sing-box' }]} onCancel={() => {}} onConfirm={() => {}} />
     );
     expect((screen.getByRole('checkbox', { name: /Sing-Box/ }) as HTMLInputElement).checked).toBe(true);
 
-    rerender(<KernelDetectionDialog key="second" open detections={[...detections].reverse()} monitoredTypes={['xray']} onCancel={() => {}} onConfirm={() => {}} />);
+    rerender(<KernelDetectionDialog key="second" open detections={[...detections].reverse()} monitored={[{ type: 'xray' }]} onCancel={() => {}} onConfirm={() => {}} />);
     expect((screen.getByRole('checkbox', { name: /Sing-Box/ }) as HTMLInputElement).checked).toBe(false);
     expect((screen.getByRole('checkbox', { name: /Xray/ }) as HTMLInputElement).checked).toBe(true);
   });
@@ -75,7 +96,7 @@ describe('KernelDetectionDialog', () => {
   it('ignores close controls while submitting', async () => {
     const { KernelDetectionDialog } = await import('@/components/cluster/KernelDetectionDialog');
     const onCancel = vi.fn();
-    render(<KernelDetectionDialog open detections={detections} monitoredTypes={['sing-box']} submitting onCancel={onCancel} onConfirm={() => {}} />);
+    render(<KernelDetectionDialog open detections={detections} monitored={[{ type: 'sing-box' }]} submitting onCancel={onCancel} onConfirm={() => {}} />);
     fireEvent.click(screen.getByRole('button', { name: 'Close' }));
     fireEvent.keyDown(document, { key: 'Escape' });
     expect(onCancel).not.toHaveBeenCalled();
@@ -85,7 +106,7 @@ describe('KernelDetectionDialog', () => {
   it('locks all selections after persistence while leaving deploy retry available', async () => {
     const { KernelDetectionDialog } = await import('@/components/cluster/KernelDetectionDialog');
     const onConfirm = vi.fn();
-    render(<KernelDetectionDialog open detections={detections} monitoredTypes={['xray']} selectionLocked confirmLabel="重试部署" onCancel={() => {}} onConfirm={onConfirm} />);
+    render(<KernelDetectionDialog open detections={detections} monitored={[{ type: 'xray' }]} selectionLocked confirmLabel="重试部署" onCancel={() => {}} onConfirm={onConfirm} />);
     const xray = screen.getByRole('checkbox', { name: /Xray/ }) as HTMLInputElement;
     const singBox = screen.getByRole('checkbox', { name: /Sing-Box/ }) as HTMLInputElement;
     expect(xray.disabled).toBe(true);

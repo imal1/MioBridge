@@ -4,6 +4,17 @@ import type { KernelRuntimeStatus, LogsResult, NodeConfig } from './types.js';
 
 export interface AgentClientOptions { fetch?: typeof globalThis.fetch; timeoutMs?: number; now?: () => number }
 
+/**
+ * 凭据形状的字段名。这些校验器原本用「未知字段一律拒绝」来兼任泄露探测器，
+ * 副作用是服务端任何一次向后兼容的字段扩展都会让整块功能静默退化。
+ * 现在改为：良性未知字段忽略（并在重建时剥掉），凭据形状的字段仍然硬拒。
+ */
+const SENSITIVE_KEY = /password|passphrase|secret|token|credential|privatekey|apikey|authorization/i;
+
+export function hasSensitiveKey(candidate: Record<string, unknown>): boolean {
+  return Object.keys(candidate).some(key => SENSITIVE_KEY.test(key));
+}
+
 /** Compatibility client for the public HTTP + HMAC Agent wire protocol. */
 export class AgentClient {
   private readonly fetcher: typeof globalThis.fetch;
@@ -37,16 +48,28 @@ export class AgentClient {
 
   validateKernelStatuses(value: unknown): KernelRuntimeStatus[] {
     if (!Array.isArray(value) || value.length !== KERNEL_TYPES.length) throw new Error('Agent 返回了无效的内核状态');
-    const seen = new Set<string>();
+    const seen = new Map<string, KernelRuntimeStatus>();
     for (const item of value) {
       if (!item || typeof item !== 'object' || Array.isArray(item)) throw new Error('Agent 返回了无效的内核状态');
       const s = item as Record<string, unknown>;
-      const keys = new Set(['type','detected','monitored','accessible','nodesCount','version','configPaths','error']);
-      if (Object.keys(s).some(k => !keys.has(k)) || typeof s.type !== 'string' || !KERNEL_TYPES.includes(s.type as never) || seen.has(s.type) || typeof s.detected !== 'boolean' || typeof s.monitored !== 'boolean' || typeof s.accessible !== 'boolean' || !Number.isInteger(s.nodesCount) || (s.nodesCount as number) < 0 || !Array.isArray(s.configPaths) || !s.configPaths.every(p => typeof p === 'string')) throw new Error('Agent 返回了无效的内核状态');
-      seen.add(s.type);
+      if (hasSensitiveKey(s) || typeof s.type !== 'string' || !KERNEL_TYPES.includes(s.type as never) || seen.has(s.type) || typeof s.detected !== 'boolean' || typeof s.monitored !== 'boolean' || typeof s.accessible !== 'boolean' || !Number.isInteger(s.nodesCount) || (s.nodesCount as number) < 0 || !Array.isArray(s.configPaths) || !s.configPaths.every(p => typeof p === 'string') || (s.version !== undefined && typeof s.version !== 'string') || (s.error !== undefined && typeof s.error !== 'string') || (s.binaryPath !== undefined && typeof s.binaryPath !== 'string')) throw new Error('Agent 返回了无效的内核状态');
+      // 重建而不是原样透传：未知字段不再导致整体拒绝，因此必须在这里剥掉，
+      // 否则它们会顺着 NodeStatus.kernels 直接出现在 /api/cluster/status 响应里。
+      seen.set(s.type, {
+        type: s.type as KernelRuntimeStatus['type'],
+        detected: s.detected, monitored: s.monitored, accessible: s.accessible,
+        nodesCount: s.nodesCount as number,
+        configPaths: [...s.configPaths as string[]],
+        ...(s.version !== undefined ? { version: s.version as string } : {}),
+        ...(s.binaryPath !== undefined ? { binaryPath: s.binaryPath as string } : {}),
+        ...(s.error !== undefined ? { error: s.error as string } : {}),
+      });
     }
-    if (KERNEL_TYPES.some(type => !seen.has(type))) throw new Error('Agent 返回了无效的内核状态');
-    return value as KernelRuntimeStatus[];
+    return KERNEL_TYPES.map(type => {
+      const status = seen.get(type);
+      if (!status) throw new Error('Agent 返回了无效的内核状态');
+      return status;
+    });
   }
 
   async logs(node: NodeConfig, options: { file?: string; level?: string; query?: string } = {}): Promise<LogsResult> {

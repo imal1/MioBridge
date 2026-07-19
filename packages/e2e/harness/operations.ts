@@ -79,6 +79,13 @@ function preflightChecks(failure?: string) {
   }));
 }
 
+/** 对应真实实现 KERNEL_SCRIPTS[type].wrapperPath，检测时以 test -x 验证。 */
+const KERNEL_WRAPPER_PATHS: Record<KernelType, string> = {
+  'sing-box': '/opt/e2e/bin/sing-box',
+  xray: '/opt/e2e/bin/xray',
+  v2ray: '/opt/e2e/bin/v2ray',
+};
+
 function detectionFor(node: FixtureNode, type: KernelType) {
   const runtime = node.kernels.find(candidate => candidate.type === type);
   const defaultConfigPath = `/etc/${type}/config.json`;
@@ -87,6 +94,8 @@ function detectionFor(node: FixtureNode, type: KernelType) {
     installed: runtime?.detected === true,
     ...(runtime?.version ? { version: runtime.version } : {}),
     defaultConfigPath,
+    // 真实服务端在 SSH 检测里 test -x 验证通过后回传管理脚本路径，这里同步镜像。
+    ...(runtime?.detected ? { binaryPath: KERNEL_WRAPPER_PATHS[type] } : {}),
     ...(runtime?.error ? { error: runtime.error } : {}),
   };
 }
@@ -390,7 +399,7 @@ export function createOperations(state: HarnessState): DashboardOperationsPort {
       const hostKey = typeof input.sshHostKey === 'string' ? input.sshHostKey : '';
       const node: FixtureNode = {
         id, nodeId: id, name, host, location, enabled: true, tags,
-        sshUser, sshPort, sshHostKey: hostKey,
+        sshUser, sshPort, sshHostKey: hostKey, sshAuthMethod: authMethod,
         ssh: { user: sshUser, port: sshPort, authMethod, hostKey },
         configuredKernels: validateKernelConfigs(input.kernels ?? []),
         kernels: KERNEL_TYPES.map(type => ({ type, detected: false, monitored: false, accessible: false, nodesCount: 0, configPaths: [] })),
@@ -446,6 +455,12 @@ export function createOperations(state: HarnessState): DashboardOperationsPort {
         if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error('SSH 端口无效');
         node.sshPort = port;
         if (node.ssh) node.ssh.port = port;
+      }
+      // 与真实服务端一致：只要带了该字段就整体覆盖认证方式。
+      if (input.sshAuthMethod !== undefined) {
+        const authMethod = input.sshAuthMethod === 'privateKey' ? 'privateKey' : 'password';
+        node.sshAuthMethod = authMethod;
+        if (node.ssh) node.ssh.authMethod = authMethod;
       }
       return ok(publicNode(node));
     },
@@ -687,6 +702,7 @@ export function createOperations(state: HarnessState): DashboardOperationsPort {
             runtimeState: !runtime.detected ? 'not_applicable' : runtime.accessible ? 'running' : 'stopped',
             monitorState: runtime.monitored ? 'monitored' : 'unmonitored',
             ...(runtime.version ? { version: runtime.version } : {}),
+            ...(runtime.binaryPath ? { path: runtime.binaryPath } : {}),
             ...(monitored?.configPath ? { configPath: monitored.configPath } : {}),
             sources: runtime.nodesCount,
             ...(latest ? { lastTaskId: latest.taskId } : {}),

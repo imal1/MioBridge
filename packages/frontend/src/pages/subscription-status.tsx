@@ -15,12 +15,43 @@ import WorkflowRail from '@/components/shared/WorkflowRail'
 
 const DEFAULT_POLICY: SubscriptionPolicy = { enabled: false, cron: '0 */6 * * *', freshnessHours: 24, nodeDropPercent: 30, retryDelaysMinutes: [1, 5, 15], backupRetention: 30 }
 
+/** 对外兼容 URL：状态检查必须真的取一次，不能只看产物元数据。 */
+const PUBLIC_URLS = ['/raw.txt', '/subscription.txt', '/clash.yaml'] as const
+
+// 重试间隔以整数分钟计（标签与 OpenAPI schema 都声明 integer），
+// 小数既无实际意义也会让界面与契约不一致，这里直接滤掉。
+function parseMinutes(value: string): number[] {
+  return value.split(',').map(item => Number(item.trim())).filter(item => Number.isInteger(item) && item > 0)
+}
+
+/**
+ * 用最近两次产出节点的正式任务比较节点数量跌幅。
+ * 只有一条历史时无从比较，此时不谎报异常，也不谎报通过——按「无法判定」处理为通过。
+ */
+function nodeDropCheck(jobs: SubscriptionJob[], threshold: number): { ok: boolean; detail: string } {
+  const history = jobs
+    .filter(job => ['succeeded', 'partial'].includes(job.status))
+    .sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt))
+  const [current, previous] = history
+  if (!current || !previous || previous.nodesGenerated <= 0) {
+    return { ok: true, detail: `历史不足，无法比较；下降 ${threshold}% 时预警` }
+  }
+  const dropPercent = ((previous.nodesGenerated - current.nodesGenerated) / previous.nodesGenerated) * 100
+  if (dropPercent < threshold) {
+    return { ok: true, detail: `较上次 ${previous.nodesGenerated} 个节点变化 ${dropPercent.toFixed(1)}%，低于 ${threshold}% 阈值` }
+  }
+  return { ok: false, detail: `节点数由 ${previous.nodesGenerated} 降至 ${current.nodesGenerated}（下降 ${dropPercent.toFixed(1)}%），已超过 ${threshold}% 阈值` }
+}
+
 export default function SubscriptionStatusPage() {
   const [status, setStatus] = useState<ApiStatus | null>(null)
   const [artifacts, setArtifacts] = useState<ArtifactState[]>([])
   const [jobs, setJobs] = useState<SubscriptionJob[]>([])
   const [policy, setPolicy] = useState<SubscriptionPolicy>(DEFAULT_POLICY)
   const [draft, setDraft] = useState<SubscriptionPolicy>(DEFAULT_POLICY)
+  // 重试间隔是自由文本，必须独立保存，否则用户敲到 "2," 时会被立刻改写。
+  const [retryText, setRetryText] = useState(DEFAULT_POLICY.retryDelaysMinutes.join(', '))
+  const [publicUrls, setPublicUrls] = useState<Array<{ path: string; ok: boolean }>>([])
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   // 草稿是否已被用户编辑，只能相对「草稿派生自的那份生效值」判断，
@@ -30,14 +61,36 @@ export default function SubscriptionStatusPage() {
     policyRef.current = next
     setPolicy(next)
   }, [])
+  // 草稿同样需要一份即时副本：异步刷新要判断「用户是否已经改过」才能决定是否跟随。
+  const draftRef = useRef(DEFAULT_POLICY)
+  const resetDraft = useCallback((next: SubscriptionPolicy) => {
+    draftRef.current = next
+    setDraft(next)
+    setRetryText(next.retryDelaysMinutes.join(', '))
+  }, [])
+  const updateDraft = useCallback((patch: Partial<SubscriptionPolicy>) => {
+    setDraft(previous => {
+      const next = { ...previous, ...patch }
+      draftRef.current = next
+      return next
+    })
+  }, [])
 
   const refresh = useCallback(async () => {
     setError(null)
     try {
-      const [nextStatus, artifactResponse, jobResponse, policyResponse] = await Promise.all([
+      const [nextStatus, artifactResponse, jobResponse, policyResponse, probes] = await Promise.all([
         apiService.getStatus(), apiService.getArtifacts(), apiService.getSubscriptionJobs(), apiService.getSubscriptionPolicy(),
+        // 真实拉取每个公共 URL：产物元数据说“存在”不等于对外真的能取到。
+        Promise.all(PUBLIC_URLS.map(async path => {
+          try {
+            const response = await fetch(path, { cache: 'no-store' })
+            return { path, ok: response.ok }
+          } catch { return { path, ok: false } }
+        })),
       ])
       setStatus(nextStatus)
+      setPublicUrls(probes)
       if (artifactResponse.success && artifactResponse.data) setArtifacts(artifactResponse.data.artifacts)
       if (jobResponse.success && jobResponse.data) setJobs(jobResponse.data.jobs)
       if (policyResponse.success && policyResponse.data) {
@@ -46,20 +99,26 @@ export default function SubscriptionStatusPage() {
         applyPolicy(next)
         // 只有草稿仍与旧生效值一致（用户没有未保存的编辑）时才跟随刷新；
         // 否则迟到的响应会静默吞掉用户已经输入的内容。要放弃编辑请用「放弃草稿」。
-        setDraft(previous => JSON.stringify(previous) === JSON.stringify(baseline) ? next : previous)
+        if (JSON.stringify(draftRef.current) === JSON.stringify(baseline)) resetDraft(next)
       }
     } catch (caught) { setError(caught instanceof Error ? caught.message : '状态检查失败') }
-  }, [applyPolicy])
+  }, [applyPolicy, resetDraft])
   useEffect(() => { refresh().catch(() => {}) }, [refresh])
 
   const latestJob = jobs[0]
   const checks = useMemo(() => [
     ...artifacts.map(item => ({ label: item.name, ok: item.exists && item.valid, detail: item.exists ? `${item.size} bytes · ${item.freshness === 'fresh' ? '新鲜' : item.freshness === 'expiring' ? '即将过期' : item.freshness === 'stale' ? '已过期' : item.validationError || '无效'}` : '文件缺失' })),
     { label: 'mihomo 转换器', ok: Boolean(status?.mihomoAvailable), detail: status?.mihomoVersion || '不可用' },
-    { label: '公共兼容 URL', ok: artifacts.every(item => item.exists), detail: '/raw.txt · /subscription.txt · /clash.yaml' },
+    {
+      label: '公共兼容 URL',
+      ok: publicUrls.length === PUBLIC_URLS.length && publicUrls.every(item => item.ok),
+      detail: publicUrls.length
+        ? publicUrls.map(item => `${item.path} ${item.ok ? '可用' : '不可用'}`).join(' · ')
+        : '正在检查 /raw.txt · /subscription.txt · /clash.yaml',
+    },
     { label: '上次正式任务', ok: Boolean(latestJob && ['succeeded', 'partial'].includes(latestJob.status)), detail: latestJob ? `${latestJob.status} · ${latestJob.nodesGenerated} 个节点 · ${new Date(latestJob.createdAt).toLocaleString('zh-CN')}` : '尚无任务记录' },
-    { label: '节点突降阈值', ok: true, detail: `相较上次成功输入下降 ${draft.nodeDropPercent}% 时预警` },
-  ], [artifacts, draft.nodeDropPercent, latestJob, status?.mihomoAvailable, status?.mihomoVersion])
+    { label: '节点突降阈值', ...nodeDropCheck(jobs, draft.nodeDropPercent) },
+  ], [artifacts, draft.nodeDropPercent, jobs, latestJob, publicUrls, status?.mihomoAvailable, status?.mihomoVersion])
   const healthy = checks.every(item => item.ok)
   const dirty = JSON.stringify(policy) !== JSON.stringify(draft)
 
@@ -68,7 +127,7 @@ export default function SubscriptionStatusPage() {
     try {
       const response = await apiService.updateSubscriptionPolicy(draft)
       if (!response.success || !response.data) throw new Error('定时策略保存失败')
-      applyPolicy(response.data); setDraft(response.data); toast.success('订阅策略已保存')
+      applyPolicy(response.data); resetDraft(response.data); toast.success('订阅策略已保存')
     } catch (caught) { setError(caught instanceof Error ? caught.message : '定时策略保存失败') }
     finally { setSaving(false) }
   }
@@ -80,7 +139,16 @@ export default function SubscriptionStatusPage() {
       {!healthy ? <Alert variant="destructive"><AlertTitle>订阅闭环未完成</AlertTitle><AlertDescription>本页只诊断和维护策略；需要生成、运行时维护或产物操作时跳转到唯一负责页面。</AlertDescription></Alert> : <Alert variant="success"><AlertTitle>所有检查通过</AlertTitle><AlertDescription>正式订阅及兼容 URL 当前可用。</AlertDescription></Alert>}
       <div className="mt-5 grid gap-4 md:grid-cols-2">{checks.map(item => <Card key={item.label}><CardContent className="flex items-center justify-between gap-4 p-5"><div><p className="font-medium">{item.label}</p><p className="mt-1 text-sm text-muted-foreground">{item.detail}</p></div><Badge variant={item.ok ? 'secondary' : 'destructive'}>{item.ok ? '通过' : '异常'}</Badge></CardContent></Card>)}</div>
 
-      <Card className="mt-5"><CardHeader><CardTitle>定时生成与状态阈值</CardTitle><CardDescription>默认关闭；开启后默认每 6 小时执行，新鲜度达到目标的 80% 时进入预警区间。</CardDescription></CardHeader><CardContent className="space-y-5"><label className="flex items-center gap-3 rounded-2xl bg-[var(--surface-container)] p-4"><input type="checkbox" checked={draft.enabled} onChange={event => setDraft(previous => ({ ...previous, enabled: event.target.checked }))} /><span><span className="block font-medium">启用定时生成</span><span className="block text-xs text-muted-foreground">关闭时仍可在订阅生成页手动创建任务</span></span></label><div className="grid gap-4 md:grid-cols-3"><div className="grid gap-2"><Label htmlFor="policy-cron">Cron</Label><Input id="policy-cron" value={draft.cron} onChange={event => setDraft(previous => ({ ...previous, cron: event.target.value }))} /></div><div className="grid gap-2"><Label htmlFor="freshness-hours">新鲜度目标（小时）</Label><Input id="freshness-hours" type="number" min={1} value={draft.freshnessHours} onChange={event => setDraft(previous => ({ ...previous, freshnessHours: Number(event.target.value) }))} /></div><div className="grid gap-2"><Label htmlFor="node-drop">节点突降阈值（%）</Label><Input id="node-drop" type="number" min={0} max={100} value={draft.nodeDropPercent} onChange={event => setDraft(previous => ({ ...previous, nodeDropPercent: Number(event.target.value) }))} /></div></div><div className="rounded-2xl bg-[var(--surface-container)] p-4 text-sm"><p>失败重试：{draft.retryDelaysMinutes.join(' / ')} 分钟</p><p className="mt-1 text-muted-foreground">备份保留：最近 {draft.backupRetention} 份 · 预警阈值：{Math.round(draft.freshnessHours * 0.8)} 小时</p></div><div className="flex gap-2"><Button onClick={savePolicy} disabled={!dirty || saving}><Icon icon={saving ? 'ph:spinner-bold' : 'ph:floppy-disk-light'} className={saving ? 'animate-spin' : ''} />保存策略</Button><Button variant="outline" disabled={!dirty} onClick={() => setDraft(policy)}>放弃草稿</Button></div></CardContent></Card>
+      <Card className="mt-5"><CardHeader><CardTitle>定时生成与状态阈值</CardTitle><CardDescription>默认关闭；开启后默认每 6 小时执行，新鲜度达到目标的 80% 时进入预警区间。</CardDescription></CardHeader><CardContent className="space-y-5"><label className="flex items-center gap-3 rounded-2xl bg-[var(--surface-container)] p-4"><input type="checkbox" checked={draft.enabled} onChange={event => updateDraft({ enabled: event.target.checked })} /><span><span className="block font-medium">启用定时生成</span><span className="block text-xs text-muted-foreground">关闭时仍可在订阅生成页手动创建任务</span></span></label><div className="grid gap-4 md:grid-cols-3"><div className="grid gap-2"><Label htmlFor="policy-cron">Cron</Label><Input id="policy-cron" value={draft.cron} onChange={event => updateDraft({ cron: event.target.value })} /></div><div className="grid gap-2"><Label htmlFor="freshness-hours">新鲜度目标（小时）</Label><Input id="freshness-hours" type="number" min={1} value={draft.freshnessHours} onChange={event => updateDraft({ freshnessHours: Number(event.target.value) })} /></div><div className="grid gap-2"><Label htmlFor="node-drop">节点突降阈值（%）</Label><Input id="node-drop" type="number" min={0} max={100} value={draft.nodeDropPercent} onChange={event => updateDraft({ nodeDropPercent: Number(event.target.value) })} /></div></div><div className="grid gap-4 md:grid-cols-2">
+        <div className="grid gap-2">
+          <Label htmlFor="retry-delays">失败重试间隔（分钟，逗号分隔）</Label>
+          <Input id="retry-delays" value={retryText} onChange={event => { setRetryText(event.target.value); updateDraft({ retryDelaysMinutes: parseMinutes(event.target.value) }) }} placeholder="1, 5, 15" />
+        </div>
+        <div className="grid gap-2">
+          <Label htmlFor="backup-retention">备份保留数量（份）</Label>
+          <Input id="backup-retention" type="number" min={1} value={draft.backupRetention} onChange={event => updateDraft({ backupRetention: Number(event.target.value) })} />
+        </div>
+      </div><p className="text-sm text-muted-foreground">当前重试计划：{draft.retryDelaysMinutes.join(' / ') || '无'} 分钟 · 预警阈值：{Math.round(draft.freshnessHours * 0.8)} 小时</p><div className="flex gap-2"><Button onClick={savePolicy} disabled={!dirty || saving}><Icon icon={saving ? 'ph:spinner-bold' : 'ph:floppy-disk-light'} className={saving ? 'animate-spin' : ''} />保存策略</Button><Button variant="outline" disabled={!dirty} onClick={() => resetDraft(policy)}>放弃草稿</Button></div></CardContent></Card>
 
       <Card className="mt-5"><CardHeader><CardTitle>恢复路径</CardTitle><CardDescription>各动作只在其所属页面执行，避免重复功能。</CardDescription></CardHeader><CardContent className="flex flex-wrap gap-2"><Button asChild><Link to="/subscription">生成或重试订阅</Link></Button><Button asChild variant="outline"><Link to="/runtimes">维护来源与转换器</Link></Button><Button asChild variant="outline"><Link to="/outputs">预览与验证产物</Link></Button><Button asChild variant="outline"><Link to="/logs">查看任务日志</Link></Button></CardContent></Card>
     </SignalPage>

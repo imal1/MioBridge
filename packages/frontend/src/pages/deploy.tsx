@@ -1,8 +1,9 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Icon } from '@iconify/react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { toast } from 'sonner'
 import { apiService } from '@/lib/api'
+import { streamServerEvents } from '@/lib/sse'
 import type { ClusterStatus, ComponentDeployStatus, ComponentState, DeployComponent, DeployOperation, NodeStatus } from '@/lib/types'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
@@ -52,6 +53,31 @@ function taskBadge(task: ComponentDeployStatus) {
   return <Badge>{task.status === 'pending' ? '排队中' : '执行中'}</Badge>
 }
 
+interface DeploymentEvent {
+  eventId: string
+  taskId: string
+  step: string
+  status: string
+  message: string
+  progress: number
+  timestamp: string
+}
+
+// 事件时间线随会话保留：刷新后既要还原已经看到的事件，也要拿到续传用的 Last-Event-ID。
+const TIMELINE_STORAGE_KEY = 'miobridge:deployment-events'
+
+function readStoredTimeline(): Record<string, DeploymentEvent[]> {
+  try {
+    const raw = window.sessionStorage.getItem(TIMELINE_STORAGE_KEY)
+    const parsed = raw ? JSON.parse(raw) : null
+    return parsed && typeof parsed === 'object' ? parsed as Record<string, DeploymentEvent[]> : {}
+  } catch { return {} }
+}
+
+function writeStoredTimeline(timeline: Record<string, DeploymentEvent[]>) {
+  try { window.sessionStorage.setItem(TIMELINE_STORAGE_KEY, JSON.stringify(timeline)) } catch { /* 存储不可用时仅丢失续传能力 */ }
+}
+
 function installed(node: NodeStatus, component: DeployComponent) {
   if (component === 'agent') return Boolean(node.agent?.deployed)
   if (component === 'mihomo') return Boolean(node.mihomoAvailable)
@@ -73,7 +99,22 @@ export default function DeployPage() {
   const [manualOpen, setManualOpen] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const [preflighting, setPreflighting] = useState(false)
+  const [blockedNodes, setBlockedNodes] = useState<Record<string, string[]>>({})
+  const [timeline, setTimeline] = useState<Record<string, DeploymentEvent[]>>(readStoredTimeline)
   const [error, setError] = useState<string | null>(null)
+
+  // 订阅副作用必须读到最新的时间线来计算 Last-Event-ID，但不能因为收到事件就重连。
+  const timelineRef = useRef(timeline)
+  const appendEvent = useCallback((taskId: string, event: DeploymentEvent) => {
+    setTimeline(previous => {
+      const known = previous[taskId] ?? []
+      if (known.some(item => item.eventId === event.eventId)) return previous
+      const next = { ...previous, [taskId]: [...known, event] }
+      timelineRef.current = next
+      writeStoredTimeline(next)
+      return next
+    })
+  }, [])
 
   const refresh = useCallback(async () => {
     const [clusterResult, taskResult, stateResult] = await Promise.all([
@@ -94,6 +135,7 @@ export default function DeployPage() {
   const taskList = useMemo(() => Object.values(tasks).sort((a, b) => b.startedAt - a.startedAt), [tasks])
   const activeTasks = useMemo(() => taskList.filter(task => task.status === 'running' || task.status === 'pending'), [taskList])
   const currentState = states.find(item => item.nodeId === selectedNode && item.component === component)
+  const latestEvents = taskList[0] ? timeline[taskList[0].taskId] ?? [] : []
   const node = nodes.find(item => item.nodeId === selectedNode)
 
   useEffect(() => {
@@ -101,16 +143,23 @@ export default function DeployPage() {
   }, [nodes, selectedNode])
 
   useEffect(() => {
-    const streams = activeTasks.map(task => {
-      const stream = new EventSource(`/api/deployments/${encodeURIComponent(task.taskId)}/events`)
-      const onEvent = () => refresh().catch(() => {})
-      stream.addEventListener('progress', onEvent)
-      stream.addEventListener('complete', onEvent)
-      stream.onerror = () => stream.close()
-      return stream
+    const controllers = activeTasks.map(task => {
+      const controller = new AbortController()
+      // 刷新后从已记录的最后一条事件继续订阅，避免重放整段历史。
+      const lastEventId = timelineRef.current[task.taskId]?.at(-1)?.eventId
+      streamServerEvents(`/api/deployments/${encodeURIComponent(task.taskId)}/events`, {
+        ...(lastEventId ? { lastEventId } : {}),
+        signal: controller.signal,
+        onMessage: message => {
+          if (message.event !== 'progress') return
+          try { appendEvent(task.taskId, JSON.parse(message.data) as DeploymentEvent) } catch { /* 忽略无法解析的帧 */ }
+          refresh().catch(() => {})
+        },
+      }).catch(() => {})
+      return controller
     })
-    return () => streams.forEach(stream => stream.close())
-  }, [activeTasks.map(task => task.taskId).join(','), refresh])
+    return () => controllers.forEach(controller => controller.abort())
+  }, [activeTasks.map(task => task.taskId).join(','), appendEvent, refresh])
 
   const preflight = useCallback(async () => {
     if (!selectedNode) return
@@ -120,6 +169,8 @@ export default function DeployPage() {
       const response = await apiService.preflightDeployment(selectedNode)
       if (!response.success) throw new Error(errorMessage(response.error, 'SSH 预检失败'))
       const failed = response.data?.checks.filter(check => !check.ok) ?? []
+      // 预检结论必须成为创建任务的 gate：明知 SSH 不通还允许下发，只会制造注定失败的任务。
+      setBlockedNodes(previous => ({ ...previous, [selectedNode]: failed.map(item => item.label) }))
       if (failed.length) toast.warning('预检完成，存在阻断项', { description: failed.map(item => item.label).join('、') })
       else toast.success('SSH 预检通过', { description: `${response.data?.architecture || '未知架构'} · systemd 可用` })
     } catch (caught) {
@@ -128,8 +179,12 @@ export default function DeployPage() {
     } finally { setPreflighting(false) }
   }, [selectedNode])
 
+  const blocking = blockedNodes[selectedNode] ?? []
+
   const submit = useCallback(async () => {
     if (!selectedNode) return setError('请选择一个目标节点')
+    const blocked = blockedNodes[selectedNode] ?? []
+    if (blocked.length) return setError(`SSH 预检存在阻断项，请先修复后再创建任务：${blocked.join('、')}`)
     setSubmitting(true)
     setError(null)
     try {
@@ -142,21 +197,44 @@ export default function DeployPage() {
       setError(message)
       toast.error('部署任务创建失败', { description: message })
     } finally { setSubmitting(false) }
-  }, [component, node?.name, operation, preserveConfig, preserveData, refresh, selectedNode])
+  }, [blockedNodes, component, node?.name, operation, preserveConfig, preserveData, refresh, selectedNode])
 
+  // apiService 在 HTTP 失败时抛出 ApiError；不捕获的话异常逃逸，用户得不到任何反馈。
   const retry = useCallback(async (task: ComponentDeployStatus) => {
-    const response = await apiService.retryComponentDeployment(task.taskId)
-    if (!response.success) return toast.error('重试失败', { description: errorMessage(response.error, '无法重试该任务') })
-    toast.success('已按原始输入创建重试任务')
-    await refresh()
+    try {
+      const response = await apiService.retryComponentDeployment(task.taskId)
+      if (!response.success) throw new Error(errorMessage(response.error, '无法重试该任务'))
+      toast.success('已按原始输入创建重试任务')
+      await refresh()
+    } catch (caught) {
+      const message = caught instanceof Error ? caught.message : '无法重试该任务'
+      setError(message)
+      toast.error('重试失败', { description: message })
+    }
   }, [refresh])
 
   const cancel = useCallback(async (task: ComponentDeployStatus) => {
-    const response = await apiService.cancelComponentDeployment(task.taskId)
-    if (!response.success) return toast.error('取消失败', { description: errorMessage(response.error, '任务已进入不可取消阶段') })
-    toast.success('任务已取消')
-    await refresh()
+    try {
+      const response = await apiService.cancelComponentDeployment(task.taskId)
+      if (!response.success) throw new Error(errorMessage(response.error, '任务已进入不可取消阶段'))
+      toast.success('任务已取消')
+      await refresh()
+    } catch (caught) {
+      const message = caught instanceof Error ? caught.message : '任务已进入不可取消阶段'
+      setError(message)
+      toast.error('取消失败', { description: message })
+    }
   }, [refresh])
+
+  // 「检查健康」必须真的探测目标节点：只刷新聚合状态无法证明刚装好的 Agent 已经起来了。
+  const completeManual = useCallback(async () => {
+    if (selectedNode) {
+      const response = await apiService.clusterHealthCheck(selectedNode)
+      if (!response.success) toast.error('节点健康检查失败', { description: errorMessage(response.error, '目标节点尚未响应健康检查') })
+      else toast.success('已完成目标节点健康检查', { description: node?.name || selectedNode })
+    }
+    await refresh()
+  }, [node?.name, refresh, selectedNode])
 
   const installer = `curl -fsSL https://github.com/imal1/miobridge/releases/latest/download/install-agent.sh -o /tmp/install-agent.sh\nsudo sh /tmp/install-agent.sh --config /tmp/miobridge-agent.yaml`
 
@@ -190,7 +268,8 @@ export default function DeployPage() {
             <div className="grid gap-2"><label htmlFor="deploy-operation" className="text-sm font-medium">部署操作</label><Select id="deploy-operation" value={operation} onChange={event => setOperation(event.target.value as DeployOperation)}>{OPERATIONS.map(item => <option key={item.value} value={item.value}>{item.label} — {item.description}</option>)}</Select></div>
             {operation === 'uninstall' ? <div className="rounded-2xl border border-[var(--border)] p-4"><p className="font-medium">卸载保留策略</p><label className="mt-3 flex items-center gap-2 text-sm"><input type="checkbox" checked={preserveConfig} onChange={event => setPreserveConfig(event.target.checked)} />保留配置（默认）</label><label className="mt-2 flex items-center gap-2 text-sm"><input type="checkbox" checked={preserveData} onChange={event => setPreserveData(event.target.checked)} />保留数据与日志（默认）</label></div> : null}
             <Alert><AlertTitle>任务边界</AlertTitle><AlertDescription>{node?.name || '未选择节点'} · {component} · {OPERATIONS.find(item => item.value === operation)?.label}。同节点同组件互斥；Agent 卸载还会阻止该节点其他部署任务。</AlertDescription></Alert>
-            <div className="grid gap-2 sm:grid-cols-2"><Button onClick={submit} disabled={submitting || !selectedNode}><Icon icon={submitting ? 'ph:spinner-bold' : operation === 'uninstall' ? 'ph:trash-light' : 'ph:rocket-launch-light'} className={submitting ? 'animate-spin' : ''} />{submitting ? '创建任务中' : '创建部署任务'}</Button>{component === 'agent' ? <Button variant="outline" onClick={() => setManualOpen(true)} disabled={!selectedNode}><Icon icon="ph:terminal-window-light" />手动 Shell 部署</Button> : null}</div>
+            {blocking.length ? <Alert variant="destructive"><AlertTitle>SSH 预检存在阻断项</AlertTitle><AlertDescription>{blocking.join('、')}。修复后重新执行预检即可创建任务。</AlertDescription></Alert> : null}
+            <div className="grid gap-2 sm:grid-cols-2"><Button onClick={submit} disabled={submitting || !selectedNode || blocking.length > 0}><Icon icon={submitting ? 'ph:spinner-bold' : operation === 'uninstall' ? 'ph:trash-light' : 'ph:rocket-launch-light'} className={submitting ? 'animate-spin' : ''} />{submitting ? '创建任务中' : '创建部署任务'}</Button>{component === 'agent' ? <Button variant="outline" onClick={() => setManualOpen(true)} disabled={!selectedNode}><Icon icon="ph:terminal-window-light" />手动 Shell 部署</Button> : null}</div>
           </CardContent>
         </Card>
       </div>
@@ -204,11 +283,28 @@ export default function DeployPage() {
             return <article key={task.taskId} className="rounded-[20px] border border-[var(--border)] bg-[var(--surface-container)] p-4"><div className="flex flex-wrap items-start justify-between gap-3"><div><p className="font-medium">{taskNode?.name || task.nodeId} · {task.component}</p><p className="text-xs text-muted-foreground">{task.operation} · {STEP_LABELS[task.step] || task.step} · {new Date(task.startedAt).toLocaleString('zh-CN')}</p>{task.beforeVersion || task.afterVersion ? <p className="mt-1 text-xs text-muted-foreground">版本 {task.beforeVersion || '未知'} → {task.afterVersion || '待确认'}</p> : null}</div>{taskBadge(task)}</div><Progress className="mt-4" value={task.progress} /><div className="mt-2 flex flex-wrap items-center justify-between gap-3 text-sm"><span className={task.status === 'error' ? 'text-destructive' : 'text-muted-foreground'}>{task.message}</span><div className="flex flex-wrap gap-2">{cancellable ? <Button size="sm" variant="outline" onClick={() => cancel(task)}>取消任务</Button> : null}{task.status === 'error' || task.status === 'cancelled' ? <Button size="sm" variant="outline" onClick={() => retry(task)}>按原输入重试</Button> : null}<Button asChild size="sm" variant="outline"><Link to={`/logs?node=${encodeURIComponent(task.nodeId)}&task=${encodeURIComponent(task.taskId)}`}>查看日志</Link></Button></div></div></article>
           })}
           {taskList.length === 0 ? <div className="rounded-[20px] bg-[var(--surface-container)] p-8 text-center text-muted-foreground">暂无部署任务。任务创建后会持久化，并在刷新或服务重启后恢复显示。</div> : null}
+
+          {latestEvents.length ? (
+            <section aria-label="部署任务事件" className="rounded-[20px] border border-[var(--border)] bg-[var(--surface-container-low)] p-4">
+              <p className="mb-3 text-sm font-medium">最新任务事件时间线</p>
+              <ol className="space-y-2">
+                {latestEvents.map(event => (
+                  <li key={event.eventId} className="flex flex-wrap items-baseline gap-x-3 gap-y-1 text-sm">
+                    <time dateTime={event.timestamp} className="font-mono text-xs text-muted-foreground">
+                      {new Date(event.timestamp).toLocaleTimeString('zh-CN')}
+                    </time>
+                    <span className="text-xs text-muted-foreground">{STEP_LABELS[event.step] || event.step}</span>
+                    <span>{event.message}</span>
+                  </li>
+                ))}
+              </ol>
+            </section>
+          ) : null}
         </CardContent>
       </Card>
 
       <Dialog open={manualOpen} onOpenChange={setManualOpen}>
-        <DialogContent className="max-w-2xl"><DialogHeader><DialogTitle>手动 Shell 部署 Agent</DialogTitle><DialogDescription>适用于无法由控制面直连 SSH 的子节点。它只安装 Agent，不安装 CLI、Dashboard、Bun、mihomo 或协议核心。</DialogDescription></DialogHeader><div className="space-y-4 py-2"><div className="grid gap-2 sm:grid-cols-3"><div className="rounded-2xl bg-[var(--surface-container)] p-3"><p className="text-xs text-muted-foreground">节点 ID</p><p className="break-all font-medium">{selectedNode}</p></div><div className="rounded-2xl bg-[var(--surface-container)] p-3"><p className="text-xs text-muted-foreground">节点名称</p><p className="font-medium">{node?.name || '—'}</p></div><div className="rounded-2xl bg-[var(--surface-container)] p-3"><p className="text-xs text-muted-foreground">Agent 端口</p><p className="font-medium">{node?.agent?.port || 3001}</p></div></div><ol className="list-decimal space-y-2 pl-5 text-sm"><li>下载下方 Agent 配置，并传到子节点的 <code>/tmp/miobridge-agent.yaml</code>。</li><li>在子节点下载校验过的安装器并执行。</li><li>返回本页刷新状态，立即检查 Agent 健康和心跳。</li></ol><pre className="overflow-x-auto rounded-2xl bg-[var(--surface-container-high)] p-4 text-xs leading-6">scp agent.yaml root@child:/tmp/miobridge-agent.yaml{`\n\n`}{installer}</pre></div><DialogFooter><Button asChild variant="outline"><a href={apiService.manualAgentConfigUrl(selectedNode)}><Icon icon="ph:download-simple-light" />下载 Agent 配置</a></Button><Button variant="outline" onClick={async () => { await navigator.clipboard.writeText(installer); toast.success('已复制安装命令') }}><Icon icon="ph:copy-light" />复制安装命令</Button><Button onClick={() => { setManualOpen(false); refresh().catch(() => {}) }}>完成并检查健康</Button></DialogFooter></DialogContent>
+        <DialogContent className="max-w-2xl"><DialogHeader><DialogTitle>手动 Shell 部署 Agent</DialogTitle><DialogDescription>适用于无法由控制面直连 SSH 的子节点。它只安装 Agent，不安装 CLI、Dashboard、Bun、mihomo 或协议核心。</DialogDescription></DialogHeader><div className="space-y-4 py-2"><div className="grid gap-2 sm:grid-cols-3"><div className="rounded-2xl bg-[var(--surface-container)] p-3"><p className="text-xs text-muted-foreground">节点 ID</p><p className="break-all font-medium">{selectedNode}</p></div><div className="rounded-2xl bg-[var(--surface-container)] p-3"><p className="text-xs text-muted-foreground">节点名称</p><p className="font-medium">{node?.name || '—'}</p></div><div className="rounded-2xl bg-[var(--surface-container)] p-3"><p className="text-xs text-muted-foreground">Agent 端口</p><p className="font-medium">{node?.agent?.port || 3001}</p></div></div><ol className="list-decimal space-y-2 pl-5 text-sm"><li>下载下方 Agent 配置，并传到子节点的 <code>/tmp/miobridge-agent.yaml</code>。</li><li>在子节点下载校验过的安装器并执行。</li><li>返回本页刷新状态，立即检查 Agent 健康和心跳。</li></ol><pre className="overflow-x-auto rounded-2xl bg-[var(--surface-container-high)] p-4 text-xs leading-6">scp agent.yaml root@child:/tmp/miobridge-agent.yaml{`\n\n`}{installer}</pre></div><DialogFooter><Button asChild variant="outline"><a href={apiService.manualAgentConfigUrl(selectedNode)}><Icon icon="ph:download-simple-light" />下载 Agent 配置</a></Button><Button variant="outline" onClick={async () => { await navigator.clipboard.writeText(installer); toast.success('已复制安装命令') }}><Icon icon="ph:copy-light" />复制安装命令</Button><Button onClick={() => { setManualOpen(false); completeManual().catch(() => {}) }}>完成并检查健康</Button></DialogFooter></DialogContent>
       </Dialog>
     </SignalPage>
   )

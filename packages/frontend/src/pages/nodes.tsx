@@ -3,7 +3,7 @@ import { Icon } from '@iconify/react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { toast } from 'sonner'
 import { apiService } from '@/lib/api'
-import type { ClusterStatus, NodeStatus } from '@/lib/types'
+import type { ClusterStatus, NodeStatus, SshAuthMethod } from '@/lib/types'
 import { AddNodeForm } from '@/components/cluster/AddNodeForm'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
@@ -23,7 +23,10 @@ export default function NodesPage() {
   const [cluster, setCluster] = useState<ClusterStatus | null>(null)
   const [addOpen, setAddOpen] = useState(params.get('intent') === 'add')
   const [editing, setEditing] = useState<NodeStatus | null>(null)
-  const [draft, setDraft] = useState({ name: '', host: '', location: '', tags: '' })
+  const [draft, setDraft] = useState({
+    name: '', host: '', location: '', tags: '',
+    sshUser: 'root', sshPort: '22', sshAuthMethod: 'password' as SshAuthMethod, sshCredential: '',
+  })
   const [filter, setFilter] = useState<Filter>('all')
   const [query, setQuery] = useState('')
   const [busy, setBusy] = useState<string | null>(null)
@@ -52,12 +55,34 @@ export default function NodesPage() {
     if (nodeId) setParams({ node: nodeId })
   }, [params, refresh, setParams])
 
-  const openEdit = (node: NodeStatus) => { setEditing(node); setDraft({ name: node.name, host: node.host || '', location: node.location, tags: (node.tags || []).join(', ') }) }
+  const openEdit = (node: NodeStatus) => {
+    setEditing(node)
+    setDraft({
+      name: node.name, host: node.host || '', location: node.location, tags: (node.tags || []).join(', '),
+      sshUser: node.sshUser || 'root', sshPort: String(node.sshPort ?? 22),
+      // 认证方式必须取节点现状：写死 'password' 会让私钥节点一打开编辑框就显示错误状态。
+      sshAuthMethod: node.sshAuthMethod ?? 'password',
+      // 凭据只写不读：编辑框始终从空开始，留空表示保留现有凭据。
+      sshCredential: '',
+    })
+  }
   const saveEdit = async () => {
     if (!editing) return
     setBusy(editing.nodeId); setError(null)
     try {
-      const response = await apiService.updateNode(editing.nodeId, { ...draft, tags: draft.tags.split(',').map(value => value.trim()).filter(Boolean) })
+      const { tags, sshPort, sshAuthMethod, sshCredential, ...rest } = draft
+      const response = await apiService.updateNode(editing.nodeId, {
+        ...rest,
+        tags: tags.split(',').map(value => value.trim()).filter(Boolean),
+        sshPort: Number(sshPort) || 22,
+        // 认证方式只随新凭据一起提交：服务端收到该字段就会覆盖，单独发送会把
+        // 私钥节点静默翻成无凭据的密码认证，之后所有 SSH 操作都会失败。
+        ...(sshCredential
+          ? sshAuthMethod === 'password'
+            ? { sshAuthMethod, sshPassword: sshCredential }
+            : { sshAuthMethod, sshPrivateKey: sshCredential }
+          : {}),
+      })
       if (!response.success) throw new Error(response.error || '节点更新失败')
       setEditing(null); await refresh(); toast.success('节点档案已更新')
     } catch (caught) { setError(caught instanceof Error ? caught.message : '节点更新失败') }
@@ -65,9 +90,11 @@ export default function NodesPage() {
   }
 
   const toggleEnabled = async (node: NodeStatus) => {
-    setBusy(node.nodeId)
+    setBusy(node.nodeId); setError(null)
     try {
-      await apiService.updateNode(node.nodeId, { enabled: node.enabled === false })
+      // HTTP 200 也可能携带 success:false；忽略它会让界面谎报“已暂停/已启用”。
+      const response = await apiService.updateNode(node.nodeId, { enabled: node.enabled === false })
+      if (!response.success) throw new Error(response.error || '节点状态更新失败')
       await refresh(); toast.success(node.enabled === false ? '节点已启用纳管' : '节点已暂停纳管')
     } catch (caught) { setError(caught instanceof Error ? caught.message : '节点状态更新失败') }
     finally { setBusy(null) }
@@ -93,7 +120,26 @@ export default function NodesPage() {
       {nodes.length === 0 ? <Card><CardContent className="p-10 text-center"><p className="text-muted-foreground">没有匹配的节点。</p><Button className="mt-4" onClick={() => setAddOpen(true)}>添加第一个节点</Button></CardContent></Card> : null}
     </div>
 
-    <Dialog open={Boolean(editing)} onOpenChange={open => { if (!open) setEditing(null) }}><DialogContent><DialogHeader><DialogTitle>编辑节点档案</DialogTitle><DialogDescription>修改主机会清除已确认的 host key，下次部署前需要重新预检。</DialogDescription></DialogHeader><div className="grid gap-4 py-4"><div className="grid gap-2"><Label htmlFor="edit-name">名称</Label><Input id="edit-name" value={draft.name} onChange={event => setDraft(previous => ({ ...previous, name: event.target.value }))} /></div><div className="grid gap-2"><Label htmlFor="edit-host">主机</Label><Input id="edit-host" value={draft.host} onChange={event => setDraft(previous => ({ ...previous, host: event.target.value }))} /></div><div className="grid gap-2"><Label htmlFor="edit-location">地域</Label><Input id="edit-location" value={draft.location} onChange={event => setDraft(previous => ({ ...previous, location: event.target.value }))} /></div><div className="grid gap-2"><Label htmlFor="edit-tags">标签</Label><Input id="edit-tags" value={draft.tags} onChange={event => setDraft(previous => ({ ...previous, tags: event.target.value }))} placeholder="production, asia" /></div></div><DialogFooter><Button variant="outline" onClick={() => setEditing(null)}>取消</Button><Button onClick={saveEdit} disabled={Boolean(busy)}>保存档案</Button></DialogFooter></DialogContent></Dialog>
+    <Dialog open={Boolean(editing)} onOpenChange={open => { if (!open) setEditing(null) }}><DialogContent><DialogHeader><DialogTitle>编辑节点档案</DialogTitle><DialogDescription>修改主机会清除已确认的 host key，下次部署前需要重新预检。</DialogDescription></DialogHeader><div className="grid gap-4 py-4"><div className="grid gap-2"><Label htmlFor="edit-name">名称</Label><Input id="edit-name" value={draft.name} onChange={event => setDraft(previous => ({ ...previous, name: event.target.value }))} /></div><div className="grid gap-2"><Label htmlFor="edit-host">主机</Label><Input id="edit-host" value={draft.host} onChange={event => setDraft(previous => ({ ...previous, host: event.target.value }))} /></div><div className="grid gap-2"><Label htmlFor="edit-location">地域</Label><Input id="edit-location" value={draft.location} onChange={event => setDraft(previous => ({ ...previous, location: event.target.value }))} /></div><div className="grid gap-2"><Label htmlFor="edit-tags">标签</Label><Input id="edit-tags" value={draft.tags} onChange={event => setDraft(previous => ({ ...previous, tags: event.target.value }))} placeholder="production, asia" /></div>
+      <div className="grid gap-2 sm:grid-cols-2">
+        <div className="grid gap-2"><Label htmlFor="edit-ssh-user">SSH 用户</Label><Input id="edit-ssh-user" value={draft.sshUser} onChange={event => setDraft(previous => ({ ...previous, sshUser: event.target.value }))} /></div>
+        <div className="grid gap-2"><Label htmlFor="edit-ssh-port">SSH 端口</Label><Input id="edit-ssh-port" inputMode="numeric" value={draft.sshPort} onChange={event => setDraft(previous => ({ ...previous, sshPort: event.target.value }))} /></div>
+      </div>
+      <div className="grid gap-2">
+        <span className="text-sm font-medium">认证方式</span>
+        <div className="flex gap-2">
+          {(['password', 'privateKey'] as const).map(method => (
+            <Button key={method} type="button" size="sm" variant={draft.sshAuthMethod === method ? 'default' : 'outline'} aria-pressed={draft.sshAuthMethod === method} onClick={() => setDraft(previous => ({ ...previous, sshAuthMethod: method, sshCredential: '' }))}>
+              {method === 'password' ? '密码' : '私钥'}
+            </Button>
+          ))}
+        </div>
+      </div>
+      <div className="grid gap-2">
+        <Label htmlFor="edit-ssh-credential">{draft.sshAuthMethod === 'password' ? 'SSH 密码' : 'SSH 私钥'}</Label>
+        <Input id="edit-ssh-credential" type="password" autoComplete="new-password" value={draft.sshCredential} onChange={event => setDraft(previous => ({ ...previous, sshCredential: event.target.value }))} placeholder="留空表示保留现有凭据" />
+        <span className="text-xs text-muted-foreground">凭据只写不读；填写后会整体替换该节点已保存的凭据。</span>
+      </div></div><DialogFooter><Button variant="outline" onClick={() => setEditing(null)}>取消</Button><Button onClick={saveEdit} disabled={Boolean(busy)}>保存档案</Button></DialogFooter></DialogContent></Dialog>
     <AddNodeForm isOpen={addOpen} onClose={() => setAddOpen(false)} onComplete={completeAdd} />
   </SignalPage>
 }

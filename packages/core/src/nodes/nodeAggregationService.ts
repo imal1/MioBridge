@@ -2,14 +2,40 @@ import { dedupeProxySources, type CollectedProxySource } from '../artifacts/sour
 import { KERNEL_TYPES } from '../kernels/types.js';
 import { AgentClient } from './agentClient.js';
 import { NodeRepository } from './nodeRepository.js';
+import type { StateStore } from '../state/stateStore.js';
 import type { ClusterStatus, KernelRuntimeStatus, NodeConfig, NodeStatus } from './types.js';
 
 export interface RemoteSourceCollection { sources: CollectedProxySource[]; errors: string[] }
 
+const LAST_ERROR_PREFIX = 'node-last-error/';
+
 export class NodeAggregationService {
   private readonly cache = new Map<string, NodeStatus>();
-  constructor(private readonly repository: NodeRepository, private readonly agent: AgentClient) {}
+  /** 已经从持久化存储回填过 lastError 的节点，避免每次轮询都读一次。 */
+  private readonly hydrated = new Set<string>();
+  constructor(
+    private readonly repository: NodeRepository,
+    private readonly agent: AgentClient,
+    /** 可选：提供后「最近错误」可以跨进程重启保留。 */
+    private readonly state?: StateStore,
+  ) {}
   getNodeCache(): ReadonlyMap<string, NodeStatus> { return this.cache; }
+
+  private async loadLastError(nodeId: string): Promise<string | undefined> {
+    const cached = this.cache.get(nodeId)?.lastError;
+    if (cached !== undefined) return cached;
+    if (!this.state || this.hydrated.has(nodeId)) return undefined;
+    this.hydrated.add(nodeId);
+    try { return (await this.state.get(`${LAST_ERROR_PREFIX}${nodeId}`)) ?? undefined; }
+    catch { return undefined; }
+  }
+
+  private async persistLastError(nodeId: string, message: string): Promise<void> {
+    this.hydrated.add(nodeId);
+    if (!this.state) return;
+    try { await this.state.set(`${LAST_ERROR_PREFIX}${nodeId}`, message); }
+    catch { /* 「最近错误」是诊断信息，写不进去也不能影响状态聚合本身。 */ }
+  }
 
   async collectRemoteNodeSources(): Promise<RemoteSourceCollection> {
     const nodes = await this.repository.list();
@@ -56,15 +82,26 @@ export class NodeAggregationService {
       kernels: unavailable(node.kernels), location: node.location, enabled: node.enabled,
       ...(node.tags?.length ? { tags: node.tags } : {}),
       online: false, ...(node.agent ? { agent: node.agent } : {}),
-      ...(node.ssh ? { sshUser: node.ssh.user, sshPort: node.ssh.port ?? 22, sshHostKey: node.ssh.hostKey } : {}),
+      ...(node.ssh ? { sshUser: node.ssh.user, sshPort: node.ssh.port ?? 22, sshHostKey: node.ssh.hostKey, sshAuthMethod: node.ssh.authMethod } : {}),
     };
+    // 「最近错误」必须跨越恢复继续可见：节点重新在线后 error 会消失，
+    // 但用户仍需要看到上一次失败的原因才能判断要不要进排障链路。
+    const previousError = await this.loadLastError(node.id);
     try {
       const json = await this.agent.get(node, '/api/status') as Record<string, unknown>;
       const data = (json.data ?? json) as Record<string, unknown>;
       const kernels = this.agent.validateKernelStatuses(data.kernels);
-      const status: NodeStatus = { ...base, online: true, kernels, nodesCount: kernels.reduce((sum,k) => sum+k.nodesCount, 0), ...(node.agent ? { agent: node.agent } : {}), ...(typeof data.version === 'string' ? { version: data.version } : {}), ...(typeof data.uptime === 'number' ? { uptime: data.uptime } : {}), ...(typeof data.mihomoAvailable === 'boolean' ? { mihomoAvailable: data.mihomoAvailable } : {}), ...(typeof data.mihomoVersion === 'string' ? { mihomoVersion: data.mihomoVersion } : {}) };
+      const kernelError = kernels.find(kernel => kernel.error)?.error;
+      if (kernelError && kernelError !== previousError) await this.persistLastError(node.id, kernelError);
+      const lastError = kernelError ?? previousError;
+      const status: NodeStatus = { ...base, online: true, kernels, nodesCount: kernels.reduce((sum,k) => sum+k.nodesCount, 0), ...(lastError ? { lastError } : {}), ...(node.agent ? { agent: node.agent } : {}), ...(typeof data.version === 'string' ? { version: data.version } : {}), ...(typeof data.uptime === 'number' ? { uptime: data.uptime } : {}), ...(typeof data.mihomoAvailable === 'boolean' ? { mihomoAvailable: data.mihomoAvailable } : {}), ...(typeof data.mihomoVersion === 'string' ? { mihomoVersion: data.mihomoVersion } : {}) };
       this.cache.set(node.id, status); return status;
-    } catch (error) { const status = { ...base, error: error instanceof Error && error.name === 'AbortError' ? '请求超时' : `连接失败: ${error instanceof Error ? error.message : String(error)}` }; this.cache.set(node.id, status); return status; }
+    } catch (error) {
+      const message = error instanceof Error && error.name === 'AbortError' ? '请求超时' : `连接失败: ${error instanceof Error ? error.message : String(error)}`;
+      await this.persistLastError(node.id, message);
+      const status = { ...base, error: message, lastError: message };
+      this.cache.set(node.id, status); return status;
+    }
   }
   private error(node: NodeConfig, message: string): string { return `节点 ${node.name} (${node.id}): ${message}`; }
 }
