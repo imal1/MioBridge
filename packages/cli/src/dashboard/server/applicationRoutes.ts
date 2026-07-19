@@ -1,4 +1,5 @@
 import { KERNEL_TYPES, type NodeKernelConfig } from '@miobridge/core';
+import { CLI_VERSION } from '../../command.js';
 import { parse as parseYaml, stringify as stringifyYaml } from 'yaml';
 import type { DashboardServerDependencies, OperationsResult } from './composition.js';
 import type { DashboardRequest, DashboardResponse, DashboardRouteRegistrar } from './http.js';
@@ -536,7 +537,7 @@ function openApiDocument(req: DashboardRequest): Record<string, unknown> {
     ['Compatibility', 'GET', '/api/update', '兼容订阅生成端点'],
   ] as const;
   return {
-    openapi: '3.1.0', info: { title: 'MioBridge API', version: '1.0.0' },
+    openapi: '3.1.0', info: { title: 'MioBridge API', version: CLI_VERSION },
     servers: [{ url: `http://${header(req, 'host') ?? 'localhost'}` }],
     paths: paths.reduce<Record<string, Record<string, unknown>>>((document, [tag, method, path, summary]) => {
       const accepted = method === 'POST' && (path === '/api/deployments' || path === '/api/subscription-jobs');

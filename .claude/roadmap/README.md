@@ -18,13 +18,13 @@ rules in `AGENTS.md`, `README.md`, `CHANGELOG.md`, and `.Codex/memory/`.
 | v0.2 | AI memory and contributor docs | ✅ | Moved durable memory to `.Codex/memory/`; docs were intentionally shortened |
 | v1.0 | Distributed node control plane | ✅ | Main node, Agent, HMAC, NodeManager, remote deployment, adapters |
 | v1.1 | Auth and API keys | ⏸ | Deferred while the product is single-user; revisit before public/multi-user use |
-| v1.2 | Online config management | 🟡 | Config view exists; safe edit, validation, backup, rollback still needed |
-| v1.3 | Subscription source management | 🔲 | Remote URLs, manual input, file upload, source health, dedupe |
+| v1.2 | Online config management | ✅ | Schema drafts, validation, atomic save, restart hints, import/export with redaction, restore last-good (`/api/config/restore`); released as `v1.2.0` |
+| v1.3 | Subscription source management | 🔲 | Only kernel-collected sources with dedupe today; remote URLs, manual input, file upload, source health still needed |
 | v1.4 | Output customization and rules | 🔲 | Clash templates, proxy groups, DNS, rule editing, export variants |
-| v1.5 | Monitoring and alerts | 🟡 | Logs UI exists; metrics, history, alert rules, webhook notifications pending |
-| v1.6 | API docs and API consistency | 🟡 | API page exists; OpenAPI spec, zod validation, standard errors pending |
-| v1.7 | Performance and cache | 🔲 | Artifact caching, update locks, progress cleanup jobs |
-| v1.8 | Production quality | 🟡 | Unit tests exist; coverage gates, E2E, CI test job, reports still pending |
+| v1.5 | Monitoring and alerts | 🟡 | `/api/metrics` with 24h/7d/30d windows, history and summaries; four-source logs UI; webhook notifications with delivery history. Alert rules still pending |
+| v1.6 | API docs and API consistency | ✅ | Dynamic OpenAPI 3.1 (`/api/openapi.json`), standard success/error envelopes, request validation, `X-Request-ID` propagation, idempotency keys |
+| v1.7 | Performance and cache | 🔲 | Idempotency keys shipped with v1.6; artifact caching, update locks, progress cleanup jobs remain |
+| v1.8 | Production quality | 🟡 | Unit suites (core/CLI/frontend) plus 145-test Playwright E2E gate PRs in CI; coverage thresholds and reports still pending |
 
 ## Current Direction
 

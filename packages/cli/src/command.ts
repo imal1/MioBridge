@@ -7,7 +7,7 @@ import { formatSetupStatus, type DependencySetupService } from './setup/service.
 import { formatDashboardDaemonStatus, type DashboardDaemonAction } from './dashboard/commands.js';
 import type { DashboardDaemonStatus } from './dashboard/systemd.js';
 
-export const CLI_VERSION = process.env.MIOBRIDGE_BUILD_VERSION ?? '1.0.0';
+export const CLI_VERSION = process.env.MIOBRIDGE_BUILD_VERSION ?? '1.2.0';
 
 export interface CliCore {
   updateSubscription(): Promise<UpdateResult>;
