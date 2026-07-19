@@ -445,7 +445,6 @@ test.describe('E03 — 节点档案管理', () => {
   })
 
   test('节点编辑覆盖 SSH user、port、认证方式与替换凭据', async ({ page, snapshot }) => {
-    test.fail(true, '当前节点编辑对话框未暴露 SSH user、port、auth 与 credential')
     const state = fixtureSnapshot(await snapshot())
     const target = remoteNode(state)
 
@@ -464,7 +463,6 @@ test.describe('E03 — 节点档案管理', () => {
   })
 
   test('enabled 更新返回 success:false 时保留原状态且不得 toast 成功', async ({ page, snapshot }) => {
-    test.fail(true, '当前 enabled toggle 忽略 HTTP 200 响应中的 success:false，并错误提示操作成功')
     const before = fixtureSnapshot(await snapshot())
     const target = remoteNode(before, node => node.enabled !== false)
     await page.route(url => url.pathname === '/api/cluster/nodes', async route => {
@@ -643,7 +641,6 @@ test.describe('E04 — 五组件 × 五操作部署 API contract', () => {
   })
 
   test('SSH 部署预检存在阻断项时不得创建任务', async ({ page, control, snapshot }) => {
-    test.fail(true, '当前部署页没有把 SSH 预检结果作为创建任务的 gate')
     await control({ nodePreflightFailure: 'ssh', deploymentHoldAt: 'queued' })
     const before = fixtureSnapshot(await snapshot())
     const target = remoteNode(before, node => node.agent?.deployed !== true)
@@ -866,7 +863,6 @@ test.describe('E05 — 部署 UI、取消与重试', () => {
   })
 
   test('部署任务渲染带时间戳的完整事件时间线', async ({ page, control, snapshot }) => {
-    test.fail(true, '当前部署页只渲染任务快照，未渲染事件时间线')
     await control({ deploymentHoldAt: 'installing' })
     const state = fixtureSnapshot(await snapshot())
     const target = remoteNode(state, node => node.agent?.deployed !== true)
@@ -902,7 +898,6 @@ test.describe('E05 — 部署 UI、取消与重试', () => {
   })
 
   test('刷新活动任务后使用 Last-Event-ID 续传 SSE', async ({ page, control, snapshot }) => {
-    test.fail(true, '当前部署页没有持久化 SSE Last-Event-ID，刷新会从头订阅')
     await control({ deploymentHoldAt: 'installing' })
     const state = fixtureSnapshot(await snapshot())
     const target = remoteNode(state, node => node.agent?.deployed !== true)
@@ -999,7 +994,6 @@ test.describe('E06 — 手动 Agent 配置与敏感字段边界', () => {
   })
 
   test('完成手动部署后立即调用目标节点健康检查并关闭对话框', async ({ page, snapshot }) => {
-    test.fail(true, '当前“完成并检查健康”只刷新聚合状态，没有请求目标节点健康端点')
     const state = fixtureSnapshot(await snapshot())
     const target = remoteNode(state, node => node.agent?.deployed !== true)
     const id = nodeId(target)

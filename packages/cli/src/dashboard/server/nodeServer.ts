@@ -19,6 +19,8 @@ import {
 import { serveStatic } from './staticServer.js';
 
 const MAX_BODY_BYTES = 1024 * 1024;
+/** 超限后最多再排空多少倍的数据，用来保证 413 响应能送达而不被无限拖住。 */
+const DRAIN_LIMIT_FACTOR = 8;
 const METHODS = new Set<DashboardHttpMethod>(['GET', 'HEAD', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS']);
 
 export interface NodeDashboardServerOptions {
@@ -39,22 +41,48 @@ function headers(request: IncomingMessage): DashboardHeaders {
   return Object.fromEntries(Object.entries(request.headers).map(([name, value]) => [name, value]));
 }
 
+/** 请求体读取失败要区分「太大」和「格式非法」，两者的状态码与恢复方式都不同。 */
+class BodyError extends Error {
+  constructor(readonly status: number, readonly code: string, message: string) {
+    super(message);
+    this.name = 'BodyError';
+  }
+}
+
 async function readBody(request: IncomingMessage): Promise<unknown> {
   const chunks: Buffer[] = [];
   let size = 0;
+  let overflow = false;
   for await (const value of request) {
     const chunk = Buffer.isBuffer(value) ? value : Buffer.from(value);
     size += chunk.length;
-    if (size > MAX_BODY_BYTES) throw new Error('Request body exceeds 1 MiB');
+    if (size > MAX_BODY_BYTES) {
+      // 超限后停止缓冲但继续排空请求流：直接 break 会销毁 socket，
+      // 客户端就收不到我们正要发送的 413 响应了（表现为连接被重置）。
+      overflow = true;
+      chunks.length = 0;
+      // 但也不能无限期陪跑，明显恶意的超大上传直接断开。
+      if (size > MAX_BODY_BYTES * DRAIN_LIMIT_FACTOR) {
+        request.destroy();
+        throw new BodyError(413, 'PAYLOAD_TOO_LARGE', '请求体超过 1 MiB 限制');
+      }
+      continue;
+    }
     chunks.push(chunk);
   }
+  if (overflow) throw new BodyError(413, 'PAYLOAD_TOO_LARGE', '请求体超过 1 MiB 限制');
   if (chunks.length === 0) return undefined;
   const source = Buffer.concat(chunks).toString('utf8');
   const contentType = request.headers['content-type'] ?? '';
-  return contentType.includes('application/json') ? JSON.parse(source) : source;
+  if (!contentType.includes('application/json')) return source;
+  try {
+    return JSON.parse(source);
+  } catch {
+    throw new BodyError(400, 'INVALID_JSON', '请求体不是合法的 JSON');
+  }
 }
 
-function requestAdapter(request: IncomingMessage, response: ServerResponse, url: URL, method: DashboardHttpMethod, body: unknown): DashboardRequest {
+function requestAdapter(request: IncomingMessage, response: ServerResponse, url: URL, method: DashboardHttpMethod, body: unknown, requestId: string): DashboardRequest {
   const listeners = new Map<() => void, () => void>();
   return {
     method: method === 'HEAD' ? 'GET' : method,
@@ -66,7 +94,7 @@ function requestAdapter(request: IncomingMessage, response: ServerResponse, url:
     headers: headers(request),
     body,
     params: {},
-    requestId: firstHeader(request.headers['x-request-id']) ?? randomUUID(),
+    requestId,
     ...(request.socket.remoteAddress ? { remoteAddress: request.socket.remoteAddress } : {}),
     onClose(listener) {
       const wrapped = () => listener();
@@ -125,16 +153,28 @@ export async function runNodeDashboardServer(options: NodeDashboardServerOptions
         return;
       }
       const url = new URL(incoming.url ?? '/', `http://${incoming.headers.host ?? 'localhost'}`);
+      // requestId 必须在读取 body 之前定下来：body 解析失败的响应同样要能被调用方关联。
+      const requestId = firstHeader(incoming.headers['x-request-id']) ?? randomUUID();
       let body: unknown;
       try {
         body = await readBody(incoming);
       } catch (error) {
-        outgoing.statusCode = 400;
+        const failure = error instanceof BodyError
+          ? error
+          : new BodyError(400, 'INVALID_BODY', error instanceof Error ? error.message : '请求体无效');
+        outgoing.statusCode = failure.status;
+        outgoing.setHeader('X-Request-ID', requestId);
         outgoing.setHeader('Content-Type', 'application/json; charset=utf-8');
-        outgoing.end(JSON.stringify({ success: false, error: error instanceof Error ? error.message : 'Invalid request body' }));
+        outgoing.end(JSON.stringify({
+          success: false,
+          error: { code: failure.code, message: failure.message, retryable: false },
+          timestamp: new Date().toISOString(),
+          requestId,
+          role: 'admin',
+        }));
         return;
       }
-      const request = requestAdapter(incoming, outgoing, url, method, body);
+      const request = requestAdapter(incoming, outgoing, url, method, body, requestId);
       const response = responseAdapter(outgoing);
       response.header('X-Request-ID', request.requestId);
       await options.onRequest?.(request);

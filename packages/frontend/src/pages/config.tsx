@@ -149,15 +149,22 @@ export default function ConfigPage({ initialConfigs, frontendConfig, initialErro
 
   const restore = async () => {
     if (!window.confirm('恢复到上一次成功配置？当前配置会保留为 pre-restore 备份。')) return
-    const response = await apiService.restoreConfig()
-    if (!response.success) return setError(displayError(response.error, '配置恢复失败'))
-    toast.success('已恢复 last-good 配置')
-    await refresh()
+    setError(null)
+    // apiService 在 HTTP 失败时抛出 ApiError；不捕获的话页面停在原状，用户看不到失败。
+    try {
+      const response = await apiService.restoreConfig()
+      if (!response.success) throw new Error(displayError(response.error, '配置恢复失败'))
+      toast.success('已恢复 last-good 配置')
+      await refresh()
+    } catch (caught) { setError(caught instanceof Error ? caught.message : '配置恢复失败') }
   }
 
   const previewImport = async () => {
     setError(null); setImportDiff([])
-    const response = await apiService.previewConfigImport(importSource)
+    let response
+    try {
+      response = await apiService.previewConfigImport(importSource)
+    } catch (caught) { return setError(caught instanceof Error ? caught.message : '导入文件无效') }
     if (!response.success && !response.data) return setError(displayError(response.error, '导入文件无效'))
     const data = response.data as { validation?: { valid: boolean; issues: Array<{ path: string; message: string }> }; differences?: Array<{ path: string; before: unknown; after: unknown }> } | undefined
     if (!data?.validation?.valid) return setError(data?.validation?.issues.map(item => `${item.path}: ${item.message}`).join('；') || '导入文件无效')

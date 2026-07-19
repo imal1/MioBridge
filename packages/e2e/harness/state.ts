@@ -20,7 +20,7 @@ export interface FixtureNode {
   configuredKernels: FixtureKernelConfig[];
   kernels: Array<{
     type: 'sing-box' | 'xray' | 'v2ray'; detected: boolean; monitored: boolean; accessible: boolean;
-    nodesCount: number; version?: string; configPaths: string[]; error?: string;
+    nodesCount: number; version?: string; configPaths: string[]; error?: string; binaryPath?: string;
   }>;
   online: boolean;
   latency?: number;
@@ -171,8 +171,8 @@ function baselineNodes(): FixtureNode[] {
       sshHostKey: 'SHA256:e2e-ready-host-key', ssh: { user: 'root', port: 22, authMethod: 'password', hostKey: 'SHA256:e2e-ready-host-key' },
       configuredKernels: [{ type: 'sing-box', configPath: '/opt/e2e/sing-box.json' }],
       kernels: [
-        { type: 'sing-box', detected: true, monitored: true, accessible: true, nodesCount: 3, version: '1.12.0-e2e', configPaths: ['/opt/e2e/sing-box.json'] },
-        { type: 'xray', detected: true, monitored: false, accessible: false, nodesCount: 0, version: '25.1-e2e', configPaths: ['/etc/xray/config.json'] },
+        { type: 'sing-box', detected: true, monitored: true, accessible: true, nodesCount: 3, version: '1.12.0-e2e', configPaths: ['/opt/e2e/sing-box.json'], binaryPath: '/opt/e2e/bin/sing-box' },
+        { type: 'xray', detected: true, monitored: false, accessible: false, nodesCount: 0, version: '25.1-e2e', configPaths: ['/etc/xray/config.json'], binaryPath: '/opt/e2e/bin/xray' },
         { type: 'v2ray', detected: false, monitored: false, accessible: false, nodesCount: 0, configPaths: [] },
       ],
       online: true, latency: 12, nodesCount: 3, subscriptionExists: true, clashExists: true,

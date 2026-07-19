@@ -64,7 +64,6 @@ test.describe('E07 · Agent 运行维护', () => {
   });
 
   test('Agent 卡片展示最近错误，便于从异常状态进入恢复链路', async ({ page }) => {
-    test.fail(true, '当前 Agent 页面没有渲染 PRD 要求的最近错误字段');
     await page.goto('/agents?node=node-ready');
     const readyCard = agentCard(page, '上海边缘节点');
     await expect(readyCard.getByText('最近错误', { exact: true })).toBeVisible();
@@ -157,7 +156,6 @@ test.describe('E08–E09 · 协议运行时与监控事务', () => {
   });
 
   test('未修改监控项时必须保留既有自定义配置路径', async ({ page, snapshot }) => {
-    test.fail(true, '当前监控对话框会把自定义路径替换为检测到的默认路径');
     await page.goto('/runtimes?node=node-ready');
     await expect(page.getByText('sing-box · /opt/e2e/sing-box.json')).toBeVisible();
     await page.getByRole('button', { name: '编辑监控范围与路径' }).click();
@@ -186,7 +184,6 @@ test.describe('E08–E09 · 协议运行时与监控事务', () => {
   });
 
   test('协议核心展示真实运行态而不只展示配置可读性', async ({ page }) => {
-    test.fail(true, '当前运行时页面没有渲染 running/stopped/degraded/error 运行态');
     await page.goto('/runtimes?node=node-ready');
     const singBox = runtimeCard(page, 'sing-box');
     await expect(singBox.getByText('运行状态', { exact: true })).toBeVisible();
@@ -194,7 +191,6 @@ test.describe('E08–E09 · 协议运行时与监控事务', () => {
   });
 
   test('协议核心展示组件状态接口返回的真实二进制路径', async ({ page }) => {
-    test.fail(true, '当前运行时页面硬编码 /usr/local/bin/<type>，没有读取真实组件路径');
     await page.goto('/runtimes?node=node-ready');
     const singBox = runtimeCard(page, 'sing-box');
     await expect(singBox.getByText('/opt/e2e/bin/sing-box', { exact: true })).toBeVisible();

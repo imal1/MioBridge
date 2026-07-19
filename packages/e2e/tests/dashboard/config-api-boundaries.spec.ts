@@ -55,7 +55,6 @@ test.describe('E17 · 配置导入与恢复边界', () => {
   });
 
   test('恢复失败不改变 effective 配置', async ({ page, request, control }) => {
-    test.fail(true, '当前恢复操作没有捕获 HTTP 异常，失败响应无法进入页面错误态');
     const changed = await request.patch('/api/config', {
       data: { changes: [{ path: 'app.port', value: 4403 }] },
     });

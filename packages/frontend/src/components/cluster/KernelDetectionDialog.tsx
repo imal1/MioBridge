@@ -22,7 +22,8 @@ const KERNEL_LABELS: Record<KernelType, string> = {
 interface KernelDetectionDialogProps {
   open: boolean;
   detections: KernelDetection[];
-  monitoredTypes: KernelType[];
+  /** 当前已监控的内核及其配置路径；保存时必须原样保留用户已有的自定义路径。 */
+  monitored: NodeKernelConfig[];
   submitting?: boolean;
   selectionLocked?: boolean;
   error?: string | null;
@@ -34,7 +35,7 @@ interface KernelDetectionDialogProps {
 export function KernelDetectionDialog({
   open,
   detections,
-  monitoredTypes,
+  monitored,
   submitting = false,
   selectionLocked = false,
   error = null,
@@ -42,8 +43,9 @@ export function KernelDetectionDialog({
   onCancel,
   onConfirm,
 }: KernelDetectionDialogProps) {
-  const [selected, setSelected] = useState<Set<KernelType>>(() => new Set(monitoredTypes));
+  const [selected, setSelected] = useState<Set<KernelType>>(() => new Set(monitored.map(item => item.type)));
   const detectionsByType = new Map(detections.map(detection => [detection.type, detection]));
+  const configuredPaths = new Map(monitored.map(item => [item.type, item.configPath]));
 
   const toggle = (type: KernelType) => {
     if (selectionLocked) return;
@@ -58,7 +60,8 @@ export function KernelDetectionDialog({
   const confirm = () => {
     const kernels = KERNEL_TYPES.flatMap(type => {
       if (!selected.has(type)) return [];
-      const configPath = detectionsByType.get(type)?.defaultConfigPath;
+      // 已监控内核沿用用户既有的配置路径；只有新加入的内核才回落到检测到的默认路径。
+      const configPath = configuredPaths.get(type) ?? detectionsByType.get(type)?.defaultConfigPath;
       return [{ type, ...(configPath ? { configPath } : {}) }];
     });
     onConfirm(kernels);
@@ -95,7 +98,9 @@ export function KernelDetectionDialog({
                     {detection?.version || detection?.error || '未检测到版本'}
                   </span>
                   <span className="mt-1 block break-all text-xs text-muted-foreground">
-                    默认配置：{detection?.defaultConfigPath || '未知'}
+                    {configuredPaths.get(type)
+                      ? `当前配置：${configuredPaths.get(type)}`
+                      : `默认配置：${detection?.defaultConfigPath || '未知'}`}
                   </span>
                   <span className="mt-2 block text-sm font-medium text-primary">
                     {installed ? '加入监听' : '安装并监听'}

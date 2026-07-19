@@ -687,6 +687,7 @@ export function createOperations(state: HarnessState): DashboardOperationsPort {
             runtimeState: !runtime.detected ? 'not_applicable' : runtime.accessible ? 'running' : 'stopped',
             monitorState: runtime.monitored ? 'monitored' : 'unmonitored',
             ...(runtime.version ? { version: runtime.version } : {}),
+            ...(runtime.binaryPath ? { path: runtime.binaryPath } : {}),
             ...(monitored?.configPath ? { configPath: monitored.configPath } : {}),
             sources: runtime.nodesCount,
             ...(latest ? { lastTaskId: latest.taskId } : {}),

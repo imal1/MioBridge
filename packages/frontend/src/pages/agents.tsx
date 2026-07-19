@@ -74,6 +74,8 @@ export default function AgentsPage() {
                   <div className="rounded-2xl bg-[var(--surface-container)] p-3"><span className="block text-xs text-muted-foreground">运行时间</span><span className="mt-1 block font-mono">{node.uptime ? `${Math.floor(node.uptime / 60)}m` : '-'}</span></div>
                   <div className="rounded-2xl bg-[var(--surface-container)] p-3"><span className="block text-xs text-muted-foreground">健康状态</span><span className="mt-1 block">{node.online ? '心跳正常' : deployed ? '心跳中断' : '-'}</span></div>
                   <div className="rounded-2xl bg-[var(--surface-container)] p-3"><span className="block text-xs text-muted-foreground">最近部署</span><span className="mt-1 block">{node.agent?.lastDeploy ? new Date(node.agent.lastDeploy).toLocaleString('zh-CN') : '-'}</span></div>
+                  {/* PRD 要求即使节点已恢复也保留最近一次失败原因，作为进入排障链路的入口。 */}
+                  <div className="col-span-2 rounded-2xl bg-[var(--surface-container)] p-3"><span className="block text-xs text-muted-foreground">最近错误</span><span className="mt-1 block break-all">{node.lastError || node.error || '无'}</span></div>
                 </div>
                 <div className="flex flex-wrap gap-2">
                   {!deployed ? <Button asChild size="sm"><Link to={`/deploy?node=${encodeURIComponent(node.nodeId)}&component=agent&operation=install`}>前往部署</Link></Button> : null}

@@ -58,13 +58,18 @@ export class NodeAggregationService {
       online: false, ...(node.agent ? { agent: node.agent } : {}),
       ...(node.ssh ? { sshUser: node.ssh.user, sshPort: node.ssh.port ?? 22, sshHostKey: node.ssh.hostKey } : {}),
     };
+    // 「最近错误」必须跨越恢复继续可见：节点重新在线后 error 会消失，
+    // 但用户仍需要看到上一次失败的原因才能判断要不要进排障链路。
+    const previousError = this.cache.get(node.id)?.lastError;
     try {
       const json = await this.agent.get(node, '/api/status') as Record<string, unknown>;
       const data = (json.data ?? json) as Record<string, unknown>;
       const kernels = this.agent.validateKernelStatuses(data.kernels);
-      const status: NodeStatus = { ...base, online: true, kernels, nodesCount: kernels.reduce((sum,k) => sum+k.nodesCount, 0), ...(node.agent ? { agent: node.agent } : {}), ...(typeof data.version === 'string' ? { version: data.version } : {}), ...(typeof data.uptime === 'number' ? { uptime: data.uptime } : {}), ...(typeof data.mihomoAvailable === 'boolean' ? { mihomoAvailable: data.mihomoAvailable } : {}), ...(typeof data.mihomoVersion === 'string' ? { mihomoVersion: data.mihomoVersion } : {}) };
+      const kernelError = kernels.find(kernel => kernel.error)?.error;
+      const lastError = kernelError ?? previousError;
+      const status: NodeStatus = { ...base, online: true, kernels, nodesCount: kernels.reduce((sum,k) => sum+k.nodesCount, 0), ...(lastError ? { lastError } : {}), ...(node.agent ? { agent: node.agent } : {}), ...(typeof data.version === 'string' ? { version: data.version } : {}), ...(typeof data.uptime === 'number' ? { uptime: data.uptime } : {}), ...(typeof data.mihomoAvailable === 'boolean' ? { mihomoAvailable: data.mihomoAvailable } : {}), ...(typeof data.mihomoVersion === 'string' ? { mihomoVersion: data.mihomoVersion } : {}) };
       this.cache.set(node.id, status); return status;
-    } catch (error) { const status = { ...base, error: error instanceof Error && error.name === 'AbortError' ? '请求超时' : `连接失败: ${error instanceof Error ? error.message : String(error)}` }; this.cache.set(node.id, status); return status; }
+    } catch (error) { const message = error instanceof Error && error.name === 'AbortError' ? '请求超时' : `连接失败: ${error instanceof Error ? error.message : String(error)}`; const status = { ...base, error: message, lastError: message }; this.cache.set(node.id, status); return status; }
   }
   private error(node: NodeConfig, message: string): string { return `节点 ${node.name} (${node.id}): ${message}`; }
 }

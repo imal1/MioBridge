@@ -41,8 +41,8 @@ export class AgentClient {
     for (const item of value) {
       if (!item || typeof item !== 'object' || Array.isArray(item)) throw new Error('Agent 返回了无效的内核状态');
       const s = item as Record<string, unknown>;
-      const keys = new Set(['type','detected','monitored','accessible','nodesCount','version','configPaths','error']);
-      if (Object.keys(s).some(k => !keys.has(k)) || typeof s.type !== 'string' || !KERNEL_TYPES.includes(s.type as never) || seen.has(s.type) || typeof s.detected !== 'boolean' || typeof s.monitored !== 'boolean' || typeof s.accessible !== 'boolean' || !Number.isInteger(s.nodesCount) || (s.nodesCount as number) < 0 || !Array.isArray(s.configPaths) || !s.configPaths.every(p => typeof p === 'string')) throw new Error('Agent 返回了无效的内核状态');
+      const keys = new Set(['type','detected','monitored','accessible','nodesCount','version','configPaths','error','binaryPath']);
+      if (Object.keys(s).some(k => !keys.has(k)) || typeof s.type !== 'string' || !KERNEL_TYPES.includes(s.type as never) || seen.has(s.type) || typeof s.detected !== 'boolean' || typeof s.monitored !== 'boolean' || typeof s.accessible !== 'boolean' || !Number.isInteger(s.nodesCount) || (s.nodesCount as number) < 0 || !Array.isArray(s.configPaths) || !s.configPaths.every(p => typeof p === 'string') || (s.binaryPath !== undefined && typeof s.binaryPath !== 'string')) throw new Error('Agent 返回了无效的内核状态');
       seen.add(s.type);
     }
     if (KERNEL_TYPES.some(type => !seen.has(type))) throw new Error('Agent 返回了无效的内核状态');

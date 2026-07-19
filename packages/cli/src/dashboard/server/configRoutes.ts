@@ -96,18 +96,19 @@ export function registerConfigRoutes(
             data.lines = (data.lines ?? []).filter(line => lineMatches(line, '', '', from, to));
           }
         }
+        // 日志响应同样是规范 ApiEnvelope 的一部分，role 不能缺席。
         if (result.success) {
-          res.json({ success: true, data: result.data, timestamp: result.timestamp ?? NOW(), requestId: req.requestId });
+          res.json({ success: true, data: result.data, timestamp: result.timestamp ?? NOW(), requestId: req.requestId, role: 'admin' });
         } else {
           res.status(result.statusCode ?? 502).json({
             success: false,
             error: { code: 'LOG_QUERY_FAILED', message: result.error ?? '日志读取失败', retryable: true },
-            timestamp: result.timestamp ?? NOW(), requestId: req.requestId,
+            timestamp: result.timestamp ?? NOW(), requestId: req.requestId, role: 'admin',
           });
         }
       } catch (error: unknown) {
         const msg = error instanceof Error ? error.message : 'Unknown error';
-        res.status(400).json({ success: false, error: { code: 'INVALID_LOG_QUERY', message: msg, retryable: false }, timestamp: NOW(), requestId: req.requestId });
+        res.status(400).json({ success: false, error: { code: 'INVALID_LOG_QUERY', message: msg, retryable: false }, timestamp: NOW(), requestId: req.requestId, role: 'admin' });
       }
     },
   });

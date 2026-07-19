@@ -243,6 +243,7 @@ export function createNodeDashboardDependencies(composition: NodeCoreComposition
             runtimeState: kernel.accessible ? 'running' : kernel.detected ? 'stopped' : 'not_applicable',
             monitorState: kernel.monitored ? 'monitored' : 'unmonitored',
             ...(kernel.version ? { version: kernel.version } : {}),
+            ...(kernel.binaryPath ? { path: kernel.binaryPath } : {}),
             ...(kernel.configPaths[0] ? { configPath: kernel.configPaths[0] } : {}),
             sources: kernel.nodesCount,
             ...(kernel.error ? { error: kernel.error } : {}),
