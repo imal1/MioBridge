@@ -57,7 +57,8 @@ export default function Dashboard({ initialCluster = null, initialStatus = null,
   // 出现「按钮高亮 30d、图表画的却是 24h」这种界面自相矛盾的状态。
   const requestSeq = useRef(0)
 
-  const refresh = useCallback(async () => {
+  /** 返回 false 表示这次响应已被更新的请求取代，没有写入任何状态。 */
+  const refresh = useCallback(async (): Promise<boolean> => {
     const seq = ++requestSeq.current
     let responses
     try {
@@ -68,23 +69,30 @@ export default function Dashboard({ initialCluster = null, initialStatus = null,
       ])
     } catch (error) {
       // 过期请求的失败同样要丢弃：新窗口已经加载成功时，不该再弹一条旧窗口的错误。
-      if (seq !== requestSeq.current) return
+      if (seq !== requestSeq.current) return false
       throw error
     }
-    if (seq !== requestSeq.current) return
+    if (seq !== requestSeq.current) return false
     const [nextStatus, nextCluster, nextMetrics] = responses
     setStatus(nextStatus)
     if (nextCluster.success) setCluster(nextCluster.data as ClusterStatus)
     if (nextMetrics.success && nextMetrics.data) setMetrics(nextMetrics.data)
+    return true
   }, [metricRange])
+
+  // 首次加载和刷新按钮共用同一条失败路径。把 refresh 直接交给 onClick 的话，
+  // 失败只会变成一条未捕获的 promise rejection，用户点了按钮什么都看不到。
+  // 只有真正写入了状态才清除旧错误：被取代的过期响应不足以证明后端已经恢复。
+  const runRefresh = useCallback(() => {
+    refresh()
+      .then(applied => { if (applied) setError(null) })
+      .catch((err: unknown) => setError(err instanceof Error ? err.message : '加载失败'))
+  }, [refresh])
 
   useEffect(() => {
     if (initialStatus !== null || initialCluster !== null) return
-    refresh().catch((err: unknown) => {
-      const message = err instanceof Error ? err.message : '加载失败'
-      setError(message)
-    })
-  }, [initialCluster, initialStatus, refresh])
+    runRefresh()
+  }, [initialCluster, initialStatus, runRefresh])
 
   const missingFiles = status ? FILES.filter(file => !status[file.key]) : FILES
   const remoteNodes = cluster?.nodes.filter(node => node.nodeId !== 'local') || []
@@ -111,7 +119,7 @@ export default function Dashboard({ initialCluster = null, initialStatus = null,
       maxWidth="narrow"
       actions={(
         <>
-          <Button variant="outline" onClick={refresh}><Icon icon="ph:arrow-clockwise-light" />刷新摘要</Button>
+          <Button variant="outline" onClick={runRefresh}><Icon icon="ph:arrow-clockwise-light" />刷新摘要</Button>
           <Button asChild variant="outline">
             <Link to="/subscription">
               前往订阅生成
