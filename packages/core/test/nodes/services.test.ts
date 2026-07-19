@@ -54,6 +54,42 @@ describe('node core services', () => {
     expect(result.errors[0]).toContain('未监控或不可访问');
   });
 
+  describe('Agent kernel status validation', () => {
+    it('tolerates a benign unknown field but strips it from the returned status', () => {
+      // 服务端/Agent 新增一个向后兼容的字段不应该让整份状态被判为无效。
+      const extended = kernels.map(kernel =>
+        kernel.type === 'xray' ? { ...kernel, releaseChannel: 'stable' } : kernel);
+      const result = new AgentClient().validateKernelStatuses(extended);
+      expect(result.map(item => item.type)).toEqual(['sing-box', 'xray', 'v2ray']);
+      // 但未知字段必须被剥掉，否则会顺着 NodeStatus.kernels 出现在 API 响应里。
+      expect(result[1]).not.toHaveProperty('releaseChannel');
+      expect(JSON.stringify(result)).not.toContain('releaseChannel');
+    });
+
+    it.each([
+      ['sshPassword', 'hunter2'],
+      ['privateKey', 'BEGIN OPENSSH PRIVATE KEY'],
+      ['agentSecret', 'shared-secret'],
+      ['apiToken', 'token'],
+    ])('rejects the whole payload when a kernel status carries %s', (key, value) => {
+      const leaking = kernels.map(kernel =>
+        kernel.type === 'xray' ? { ...kernel, [key]: value } : kernel);
+      expect(() => new AgentClient().validateKernelStatuses(leaking))
+        .toThrow('Agent 返回了无效的内核状态');
+    });
+
+    it('accepts the optional binary path and rejects a non-string one', () => {
+      const withPath = kernels.map(kernel =>
+        kernel.type === 'xray' ? { ...kernel, binaryPath: '/usr/local/bin/xray' } : kernel);
+      expect(new AgentClient().validateKernelStatuses(withPath)[1]?.binaryPath).toBe('/usr/local/bin/xray');
+
+      const malformed = kernels.map(kernel =>
+        kernel.type === 'xray' ? { ...kernel, binaryPath: 42 } : kernel);
+      expect(() => new AgentClient().validateKernelStatuses(malformed))
+        .toThrow('Agent 返回了无效的内核状态');
+    });
+  });
+
   it('keeps the last error visible after the node recovers, across a restart', async () => {
     const nodesYaml = `nodes:\n  - id: node-a\n    name: A\n    host: agent.example\n    secret: secret\n    kernels:\n      - type: xray\n    location: HK\n    enabled: true\n`;
     const entries = new Map<string, string>();

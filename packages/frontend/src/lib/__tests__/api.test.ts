@@ -37,8 +37,19 @@ describe('Kernel detection response validation', () => {
     [[detection('sing-box'), detection('xray'), { ...detection('v2ray'), installed: 'yes' }]],
     [[detection('sing-box'), detection('xray'), { ...detection('v2ray'), password: 'secret' }]],
     [[detection('sing-box'), detection('xray'), { ...detection('v2ray'), privateKey: 'secret-key' }]],
-  ])('rejects incomplete, duplicate, or malformed results', (value) => {
+    [[detection('sing-box'), detection('xray'), { ...detection('v2ray'), sshPassphrase: 'secret' }]],
+    [[detection('sing-box'), detection('xray'), { ...detection('v2ray'), apiToken: 'secret' }]],
+  ])('rejects incomplete, duplicate, malformed, or credential-bearing results', (value) => {
     expect(() => validateKernelDetections(value)).toThrow('内核检测响应无效');
+  });
+
+  it('tolerates a benign unknown field instead of discarding the whole response', () => {
+    // 服务端新增一个向后兼容的字段不应该让整块检测功能静默退化成「未检测到」。
+    const extended = { ...detection('sing-box'), releaseChannel: 'stable' };
+    const result = validateKernelDetections([extended, detection('xray'), detection('v2ray')]);
+    expect(result.map(item => item.type)).toEqual(['sing-box', 'xray', 'v2ray']);
+    // 但未知字段不会被带进结果对象里。
+    expect(result[0]).not.toHaveProperty('releaseChannel');
   });
 
   it('carries the SSH-verified binary path through instead of dropping the response', () => {
