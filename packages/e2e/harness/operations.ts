@@ -399,7 +399,7 @@ export function createOperations(state: HarnessState): DashboardOperationsPort {
       const hostKey = typeof input.sshHostKey === 'string' ? input.sshHostKey : '';
       const node: FixtureNode = {
         id, nodeId: id, name, host, location, enabled: true, tags,
-        sshUser, sshPort, sshHostKey: hostKey,
+        sshUser, sshPort, sshHostKey: hostKey, sshAuthMethod: authMethod,
         ssh: { user: sshUser, port: sshPort, authMethod, hostKey },
         configuredKernels: validateKernelConfigs(input.kernels ?? []),
         kernels: KERNEL_TYPES.map(type => ({ type, detected: false, monitored: false, accessible: false, nodesCount: 0, configPaths: [] })),
@@ -455,6 +455,12 @@ export function createOperations(state: HarnessState): DashboardOperationsPort {
         if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error('SSH 端口无效');
         node.sshPort = port;
         if (node.ssh) node.ssh.port = port;
+      }
+      // 与真实服务端一致：只要带了该字段就整体覆盖认证方式。
+      if (input.sshAuthMethod !== undefined) {
+        const authMethod = input.sshAuthMethod === 'privateKey' ? 'privateKey' : 'password';
+        node.sshAuthMethod = authMethod;
+        if (node.ssh) node.ssh.authMethod = authMethod;
       }
       return ok(publicNode(node));
     },

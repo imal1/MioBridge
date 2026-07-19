@@ -60,8 +60,10 @@ export default function NodesPage() {
     setDraft({
       name: node.name, host: node.host || '', location: node.location, tags: (node.tags || []).join(', '),
       sshUser: node.sshUser || 'root', sshPort: String(node.sshPort ?? 22),
+      // 认证方式必须取节点现状：写死 'password' 会让私钥节点一打开编辑框就显示错误状态。
+      sshAuthMethod: node.sshAuthMethod ?? 'password',
       // 凭据只写不读：编辑框始终从空开始，留空表示保留现有凭据。
-      sshAuthMethod: 'password', sshCredential: '',
+      sshCredential: '',
     })
   }
   const saveEdit = async () => {
@@ -73,9 +75,12 @@ export default function NodesPage() {
         ...rest,
         tags: tags.split(',').map(value => value.trim()).filter(Boolean),
         sshPort: Number(sshPort) || 22,
-        sshAuthMethod,
+        // 认证方式只随新凭据一起提交：服务端收到该字段就会覆盖，单独发送会把
+        // 私钥节点静默翻成无凭据的密码认证，之后所有 SSH 操作都会失败。
         ...(sshCredential
-          ? sshAuthMethod === 'password' ? { sshPassword: sshCredential } : { sshPrivateKey: sshCredential }
+          ? sshAuthMethod === 'password'
+            ? { sshAuthMethod, sshPassword: sshCredential }
+            : { sshAuthMethod, sshPrivateKey: sshCredential }
           : {}),
       })
       if (!response.success) throw new Error(response.error || '节点更新失败')

@@ -462,6 +462,36 @@ test.describe('E03 — 节点档案管理', () => {
     await expect.soft(replacementCredential).toHaveValue('')
   })
 
+  test('编辑私钥认证节点且不更换凭据时不得把它翻成密码认证', async ({ page, request, snapshot }) => {
+    // 服务端只要收到 sshAuthMethod 就整体覆盖，因此界面不能在用户没有提供
+    // 新凭据时擅自提交该字段——否则私钥节点会变成没有凭据的密码认证节点。
+    const created = await request.post('/api/cluster/nodes', {
+      data: {
+        name: 'E2E 私钥节点', host: 'privatekey-node.e2e.invalid', location: 'E2E-LAB',
+        sshUser: 'deploy', sshPort: 2222, sshAuthMethod: 'privateKey',
+        sshPrivateKey: 'BEGIN E2E TEST KEY',
+      },
+    })
+    expect(created.ok()).toBeTruthy()
+
+    await page.goto('/nodes')
+    await page.getByLabel('搜索节点').fill('E2E 私钥节点')
+    await page.getByRole('button', { name: '编辑档案' }).click()
+    const editor = page.getByRole('dialog', { name: '编辑节点档案' })
+    // 界面必须反映节点真实的认证方式，而不是一律显示密码。
+    await expect(editor.getByLabel('SSH 私钥', { exact: true })).toBeVisible()
+
+    await editor.getByLabel('地域', { exact: true }).fill('E2E-LAB-2')
+    await editor.getByRole('button', { name: '保存档案' }).click()
+    await expect(editor).toBeHidden()
+
+    const saved = fixtureSnapshot(await snapshot()).nodes
+      .find(node => node.name === 'E2E 私钥节点') as Record<string, unknown> | undefined
+    expect(saved?.location).toBe('E2E-LAB-2')
+    expect(saved?.sshAuthMethod).toBe('privateKey')
+    expect((saved?.ssh as { authMethod?: string } | undefined)?.authMethod).toBe('privateKey')
+  })
+
   test('enabled 更新返回 success:false 时保留原状态且不得 toast 成功', async ({ page, snapshot }) => {
     const before = fixtureSnapshot(await snapshot())
     const target = remoteNode(before, node => node.enabled !== false)

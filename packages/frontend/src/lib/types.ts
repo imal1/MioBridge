@@ -70,6 +70,8 @@ export interface NodeStatus {
   sshUser?: string;
   sshPort?: number;
   sshHostKey?: string;
+  /** 认证方式本身不是凭据，必须暴露：否则编辑界面无从得知现状，只能猜。 */
+  sshAuthMethod?: SshAuthMethod;
   configuredKernels: NodeKernelConfig[];
   kernels: KernelRuntimeStatus[];
   location: string;

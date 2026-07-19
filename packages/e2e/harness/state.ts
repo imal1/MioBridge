@@ -16,6 +16,7 @@ export interface FixtureNode {
   sshUser: string;
   sshPort: number;
   sshHostKey: string;
+  sshAuthMethod: 'password' | 'privateKey';
   ssh?: { user: string; port: number; authMethod: 'password' | 'privateKey'; hostKey: string };
   configuredKernels: FixtureKernelConfig[];
   kernels: Array<{
@@ -168,7 +169,7 @@ function baselineNodes(): FixtureNode[] {
     {
       id: 'node-ready', nodeId: 'node-ready', name: '上海边缘节点', host: 'ready-node.e2e.invalid',
       location: 'CN-SHA', enabled: true, tags: ['edge', 'ready'], sshUser: 'root', sshPort: 22,
-      sshHostKey: 'SHA256:e2e-ready-host-key', ssh: { user: 'root', port: 22, authMethod: 'password', hostKey: 'SHA256:e2e-ready-host-key' },
+      sshHostKey: 'SHA256:e2e-ready-host-key', sshAuthMethod: 'password', ssh: { user: 'root', port: 22, authMethod: 'password', hostKey: 'SHA256:e2e-ready-host-key' },
       configuredKernels: [{ type: 'sing-box', configPath: '/opt/e2e/sing-box.json' }],
       kernels: [
         // 真实 Agent 不上报 binaryPath，这里刻意也不报：二进制路径由控制面的
@@ -185,7 +186,7 @@ function baselineNodes(): FixtureNode[] {
     {
       id: 'node-empty', nodeId: 'node-empty', name: '待部署节点', host: 'empty-node.e2e.invalid',
       location: 'E2E-LAB', enabled: true, tags: ['empty'], sshUser: 'root', sshPort: 22,
-      sshHostKey: 'SHA256:e2e-empty-host-key', ssh: { user: 'root', port: 22, authMethod: 'password', hostKey: 'SHA256:e2e-empty-host-key' },
+      sshHostKey: 'SHA256:e2e-empty-host-key', sshAuthMethod: 'password', ssh: { user: 'root', port: 22, authMethod: 'password', hostKey: 'SHA256:e2e-empty-host-key' },
       configuredKernels: [], kernels: [
         { type: 'sing-box', detected: false, monitored: false, accessible: false, nodesCount: 0, configPaths: [] },
         { type: 'xray', detected: false, monitored: false, accessible: false, nodesCount: 0, configPaths: [] },

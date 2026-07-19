@@ -18,8 +18,10 @@ const DEFAULT_POLICY: SubscriptionPolicy = { enabled: false, cron: '0 */6 * * *'
 /** 对外兼容 URL：状态检查必须真的取一次，不能只看产物元数据。 */
 const PUBLIC_URLS = ['/raw.txt', '/subscription.txt', '/clash.yaml'] as const
 
+// 重试间隔以整数分钟计（标签与 OpenAPI schema 都声明 integer），
+// 小数既无实际意义也会让界面与契约不一致，这里直接滤掉。
 function parseMinutes(value: string): number[] {
-  return value.split(',').map(item => Number(item.trim())).filter(item => Number.isFinite(item) && item > 0)
+  return value.split(',').map(item => Number(item.trim())).filter(item => Number.isInteger(item) && item > 0)
 }
 
 /**

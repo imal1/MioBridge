@@ -27,6 +27,8 @@ export interface NodeStatus {
   /** 最近一次观察到的失败原因，节点恢复在线后依然保留，用于进入排障链路。 */
   lastError?: string;
   host?: string; enabled?: boolean; tags?: string[]; sshUser?: string; sshPort?: number; sshHostKey?: string;
+  /** 认证方式本身不是凭据，必须暴露：否则编辑界面无从得知现状，只能猜。 */
+  sshAuthMethod?: NodeSshConfig['authMethod'];
   latency?: number; nodesCount?: number; subscriptionExists?: boolean;
   clashExists?: boolean; mihomoAvailable?: boolean; mihomoVersion?: string; version?: string;
   uptime?: number; agent?: NodeAgentInfo;

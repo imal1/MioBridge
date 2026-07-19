@@ -82,7 +82,7 @@ export class NodeAggregationService {
       kernels: unavailable(node.kernels), location: node.location, enabled: node.enabled,
       ...(node.tags?.length ? { tags: node.tags } : {}),
       online: false, ...(node.agent ? { agent: node.agent } : {}),
-      ...(node.ssh ? { sshUser: node.ssh.user, sshPort: node.ssh.port ?? 22, sshHostKey: node.ssh.hostKey } : {}),
+      ...(node.ssh ? { sshUser: node.ssh.user, sshPort: node.ssh.port ?? 22, sshHostKey: node.ssh.hostKey, sshAuthMethod: node.ssh.authMethod } : {}),
     };
     // 「最近错误」必须跨越恢复继续可见：节点重新在线后 error 会消失，
     // 但用户仍需要看到上一次失败的原因才能判断要不要进排障链路。
