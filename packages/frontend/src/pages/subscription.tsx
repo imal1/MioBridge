@@ -11,7 +11,6 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Progress } from '@/components/ui/progress'
 import SignalPage from '@/components/shared/SignalPage'
-import WorkflowRail from '@/components/shared/WorkflowRail'
 
 const STEP_LABELS: Record<SubscriptionJob['step'], string> = {
   collect: '采集', parse: '解析', deduplicate: '去重', encode: '编码', convert: 'mihomo 转换',
@@ -106,7 +105,6 @@ export default function SubscriptionPage() {
 
   return (
     <SignalPage crumb="Subscription jobs" title="订阅生成" description="先预检来源，再以持久化任务执行采集、解析、去重、转换、验证、发布和备份。" status={`${preflight?.sourcesTotal || 0} 个来源 · ${activeJobs.length} 个活动任务`} maxWidth="narrow" actions={<Button variant="outline" onClick={refresh}><Icon icon="ph:arrow-clockwise-light" />重新预检</Button>}>
-      <WorkflowRail current="generate-subscription" />
       {error ? <Alert variant="destructive"><AlertTitle>订阅任务失败</AlertTitle><AlertDescription>{error}</AlertDescription></Alert> : null}
       {streamBroken ? <Alert variant="destructive"><AlertTitle>订阅进度连接已中断</AlertTitle><AlertDescription className="flex flex-wrap items-center gap-3"><span>页面显示的进度可能已经过期；任务本身仍在服务端继续执行。</span><Button size="sm" variant="outline" onClick={() => { setStreamBroken(false); setStreamAttempt(value => value + 1); refresh().catch(() => {}) }}>重新连接进度</Button></AlertDescription></Alert> : null}
       {preflight ? <Alert variant={preflight.ready ? 'success' : 'destructive'}><AlertTitle>{preflight.ready ? '生成前检查通过' : '生成被阻断'}</AlertTitle><AlertDescription>{preflight.ready ? `预计从 ${preflight.sourcesTotal} 个来源生成约 ${preflight.nodesEstimated} 个节点。${preflight.warnings.length ? ` ${preflight.warnings.join('；')}` : ''}` : preflight.blockingErrors.join('；')}</AlertDescription></Alert> : null}

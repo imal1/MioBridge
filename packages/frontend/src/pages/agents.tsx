@@ -9,7 +9,6 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import SignalPage from '@/components/shared/SignalPage'
-import WorkflowRail from '@/components/shared/WorkflowRail'
 
 function statusLabel(node: NodeStatus) {
   if (!node.agent?.deployed) return '未安装'
@@ -54,7 +53,6 @@ export default function AgentsPage() {
 
   return (
     <SignalPage crumb="Agent lifecycle" title="Agent 维护" description="维护已安装监控程序的运行生命周期；安装态变更统一前往部署中心。" status={`${nodes.filter(node => node.agent?.status === 'running').length}/${nodes.length} 运行中`} maxWidth="narrow" actions={<Button variant="outline" onClick={refresh}><Icon icon="ph:arrow-clockwise-light" />刷新</Button>}>
-      <WorkflowRail current="maintain-agent" />
       {error ? <Alert variant="destructive"><AlertTitle>Agent 操作失败</AlertTitle><AlertDescription>{error}</AlertDescription></Alert> : null}
       <div className="grid gap-5 lg:grid-cols-2">
         {nodes.map(node => {

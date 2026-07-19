@@ -13,7 +13,6 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Progress } from '@/components/ui/progress'
 import { Select } from '@/components/ui/select'
 import SignalPage from '@/components/shared/SignalPage'
-import WorkflowRail from '@/components/shared/WorkflowRail'
 
 const COMPONENTS: Array<{ value: DeployComponent; label: string; description: string; icon: string }> = [
   { value: 'agent', label: 'Agent', description: '监控、健康、来源与日志 API', icon: 'ph:heartbeat-light' },
@@ -240,7 +239,6 @@ export default function DeployPage() {
 
   return (
     <SignalPage crumb="Deployment control plane" title="部署中心" description="每次只处理一个节点和一个组件；安装态变更、运行态维护和监控状态彼此分离。" status={`${activeTasks.length} 个活动任务 · ${taskList.filter(item => item.status === 'error').length} 个失败任务`} maxWidth="narrow" actions={<Button variant="outline" onClick={refresh}><Icon icon="ph:arrow-clockwise-light" />刷新状态</Button>}>
-      <WorkflowRail current={component === 'agent' ? 'deploy-agent' : 'deploy-kernel'} />
       {error ? <Alert variant="destructive"><AlertTitle>部署操作失败</AlertTitle><AlertDescription>{error}</AlertDescription></Alert> : null}
 
       <div className="grid gap-5 xl:grid-cols-[0.9fr_1.25fr]">

@@ -12,7 +12,6 @@ import { Label } from '@/components/ui/label'
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from '@/components/ui/resizable'
 import { Select } from '@/components/ui/select'
 import SignalPage from '@/components/shared/SignalPage'
-import WorkflowRail from '@/components/shared/WorkflowRail'
 
 type LogSource = 'control' | 'agent' | 'deployment' | 'subscription'
 
@@ -235,7 +234,6 @@ export default function LogsPage() {
     maxWidth="narrow"
     actions={<><Button variant={autoRefresh ? 'default' : 'outline'} onClick={() => setAutoRefresh(value => !value)}><Icon icon={autoRefresh ? 'ph:pause-light' : 'ph:play-light'} />{autoRefresh ? '暂停自动刷新' : '自动刷新'}</Button><Button variant="outline" onClick={copyLogs} disabled={!logs?.lines.length}>复制</Button><Button variant="outline" onClick={exportLogs} disabled={!logs?.lines.length}>导出</Button><Button variant="outline" onClick={() => { void loadLogs() }} disabled={loading}><Icon icon={loading ? 'ph:spinner-light' : 'ph:arrow-clockwise-light'} className={loading ? 'animate-spin' : ''} />刷新日志</Button></>}
   >
-    <WorkflowRail current="logs" />
     {error ? <Alert variant="destructive"><Icon icon="ph:warning-circle-bold" className="h-5 w-5" /><div><AlertTitle>日志读取失败</AlertTitle><AlertDescription>{error}</AlertDescription></div></Alert> : null}
 
     <Card className="min-h-0 md:min-h-[72vh]">

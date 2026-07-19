@@ -11,7 +11,6 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Select } from '@/components/ui/select'
 import SignalPage from '@/components/shared/SignalPage'
-import WorkflowRail from '@/components/shared/WorkflowRail'
 
 const LABELS: Record<KernelType, string> = { 'sing-box': 'sing-box', xray: 'Xray', v2ray: 'V2Ray' }
 
@@ -97,7 +96,6 @@ export default function RuntimesPage() {
 
   return (
     <SignalPage crumb="Runtime operations" title="运行时" description="维护 mihomo 与协议核心的运行状态、配置路径和 Agent 监控范围。" status={node ? `${node.name} · ${detections.filter(item => item.installed).length} 个协议核心已安装` : '请选择节点'} maxWidth="narrow" actions={<Button variant="outline" onClick={() => detect()} disabled={!nodeId || busy !== null}><Icon icon={busy?.endsWith(':detect') ? 'ph:spinner-bold' : 'ph:magnifying-glass-light'} className={busy?.endsWith(':detect') ? 'animate-spin' : ''} />检测运行时</Button>}>
-      <WorkflowRail current="manage-kernel" />
       {/* 对话框打开时错误已在对话框内展示；页面级告警会被模态层遮挡，重复渲染只会制造看不见的噪音。 */}
       {error && !editorOpen ? <Alert variant="destructive"><AlertTitle>运行时操作失败</AlertTitle><AlertDescription>{error}</AlertDescription></Alert> : null}
 

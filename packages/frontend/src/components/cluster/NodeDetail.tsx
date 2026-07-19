@@ -77,8 +77,6 @@ export function NodeDetail({
     }
   };
 
-  const isLocal = node.nodeId === 'local';
-
   return (
     <Dialog open={isOpen} onOpenChange={(open) => { if (!open) onClose(); }}>
       <DialogContent className="max-w-2xl max-h-[86vh] overflow-y-auto">
@@ -99,34 +97,11 @@ export function NodeDetail({
         </div>
       ) : (
         <div className="space-y-2">
-          {isLocal ? (
-            <>
-              <InfoRow label="订阅文件">
-                <StatusBadge
-                  label={node.subscriptionExists ? '已生成' : '未生成'}
-                  status={node.subscriptionExists ? 'success' : 'danger'}
-                />
-              </InfoRow>
-              <InfoRow label="Clash 配置">
-                <StatusBadge
-                  label={node.clashExists ? '已生成' : '未生成'}
-                  status={node.clashExists ? 'success' : 'danger'}
-                />
-              </InfoRow>
-              <InfoRow label="Mihomo">
-                <StatusBadge
-                  label={node.mihomoAvailable ? '可用' : '不可用'}
-                  status={node.mihomoAvailable ? 'success' : 'danger'}
-                />
-              </InfoRow>
-            </>
-          ) : (
-            <InfoRow label="节点角色">
-              <span className="text-sm" style={{ color: 'var(--muted-foreground)' }}>
-                子节点仅提供节点源，订阅与 Clash 配置由主节点统一生成
-              </span>
-            </InfoRow>
-          )}
+          <InfoRow label="节点角色">
+            <span className="text-sm" style={{ color: 'var(--muted-foreground)' }}>
+              子节点仅提供节点源，订阅与 Clash 配置由主节点统一生成
+            </span>
+          </InfoRow>
           <InfoRow label="代理数">
             <span className="font-mono text-sm" style={{ color: 'var(--foreground)' }}>
               {node.nodesCount ?? '-'}
@@ -166,8 +141,7 @@ export function NodeDetail({
         />
       </div>
 
-      {/* Agent deployment info — only for remote nodes */}
-      {node.nodeId !== 'local' && node.agent && (
+      {node.agent && (
         <div className="mt-4 rounded-2xl bg-[var(--surface-container)] p-3">
           <h4
             className="text-xs font-semibold uppercase tracking-widest mb-2"

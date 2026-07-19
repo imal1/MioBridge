@@ -37,13 +37,8 @@ function visibleLogField(page: Page, name: 'source' | 'node' | 'task' | 'compone
   return page.locator(`#log-${name}-desktop`);
 }
 
-/**
- * 每个页面顶部都有全局流程导航（nav[aria-label="用户需求闭环"]），其步骤名与
- * 页面自身的下一步 CTA 重名。这里排除该导航，只断言页面内容里的入口。
- */
 function nextStepLink(page: Page, name: string) {
-  return page.getByRole('link', { name, exact: true })
-    .and(page.locator(':not(nav[aria-label="用户需求闭环"] a)'));
+  return page.getByRole('link', { name, exact: true });
 }
 
 function artifactCard(page: Page, name: 'raw.txt' | 'subscription.txt' | 'clash.yaml') {

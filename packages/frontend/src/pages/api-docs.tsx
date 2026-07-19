@@ -7,7 +7,6 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import MethodBadge from '@/components/shared/MethodBadge'
 import SignalPage from '@/components/shared/SignalPage'
-import WorkflowRail from '@/components/shared/WorkflowRail'
 
 const HTTP_METHODS = ['get', 'post', 'put', 'patch', 'delete', 'head', 'options'] as const
 
@@ -113,7 +112,6 @@ export default function ApiDocsPage() {
     maxWidth="narrow"
     actions={<Button variant="outline" onClick={load} disabled={loading}><Icon icon={loading ? 'ph:spinner-light' : 'ph:arrow-clockwise-light'} className={loading ? 'animate-spin' : ''} />刷新文档</Button>}
   >
-    <WorkflowRail current="api" />
 
     {error ? <Alert variant="destructive"><Icon icon="ph:warning-circle-bold" className="h-5 w-5" /><div><AlertTitle>无法读取 API 契约</AlertTitle><AlertDescription>{error}</AlertDescription></div></Alert> : null}
 
