@@ -53,4 +53,31 @@ describe('node core services', () => {
     expect(result.sources).toEqual([]);
     expect(result.errors[0]).toContain('未监控或不可访问');
   });
+
+  it('keeps the last error visible after the node recovers, across a restart', async () => {
+    const nodesYaml = `nodes:\n  - id: node-a\n    name: A\n    host: agent.example\n    secret: secret\n    kernels:\n      - type: xray\n    location: HK\n    enabled: true\n`;
+    const entries = new Map<string, string>();
+    const keyedStore: StateStore = {
+      kind: 'file',
+      get: async key => entries.get(key) ?? null,
+      set: async (key, value) => { entries.set(key, value); },
+      del: async key => { entries.delete(key); },
+      withLock: async (_key, fn) => fn(),
+    };
+    const offline = new AgentClient({ fetch: (async () => { throw new Error('offline'); }) as typeof fetch });
+    const online = new AgentClient({ fetch: (async () => new Response(
+      JSON.stringify({ data: { kernels, sources: [{ kernel: 'xray', url: 'vless://id@example.com:443' }] } }),
+      { status: 200 },
+    )) as typeof fetch });
+
+    const failing = await new NodeAggregationService(new NodeRepository(memoryStore(nodesYaml)), offline, keyedStore).getClusterStatus();
+    expect(failing.nodes[0]?.error).toContain('offline');
+    expect(failing.nodes[0]?.lastError).toContain('offline');
+
+    // 全新实例代表进程重启：内存缓存已空，最近错误只能来自持久化存储。
+    const recovered = await new NodeAggregationService(new NodeRepository(memoryStore(nodesYaml)), online, keyedStore).getClusterStatus();
+    expect(recovered.nodes[0]?.online).toBe(true);
+    expect(recovered.nodes[0]?.error).toBeUndefined();
+    expect(recovered.nodes[0]?.lastError).toContain('offline');
+  });
 });

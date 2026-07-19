@@ -41,6 +41,19 @@ describe('Kernel detection response validation', () => {
     expect(() => validateKernelDetections(value)).toThrow('内核检测响应无效');
   });
 
+  it('carries the SSH-verified binary path through instead of dropping the response', () => {
+    const withPath = { ...detection('sing-box'), binaryPath: '/usr/local/bin/sing-box' };
+    const result = validateKernelDetections([withPath, detection('xray'), detection('v2ray')]);
+    expect(result[0]?.binaryPath).toBe('/usr/local/bin/sing-box');
+    expect(result[1]?.binaryPath).toBeUndefined();
+  });
+
+  it('rejects a binary path that is not absolute', () => {
+    const relative = { ...detection('sing-box'), binaryPath: 'sing-box' };
+    expect(() => validateKernelDetections([relative, detection('xray'), detection('v2ray')]))
+      .toThrow('内核检测响应无效');
+  });
+
   it('returns rebuilt detection objects instead of caller-owned values', () => {
     const input = [detection('sing-box'), detection('xray'), detection('v2ray')];
     const result = validateKernelDetections(input);

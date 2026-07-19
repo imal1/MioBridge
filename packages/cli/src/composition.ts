@@ -114,7 +114,7 @@ export function createNodeCore(options: NodeCoreOptions = {}): NodeCoreCompositi
       : {}),
   });
   const agent = new AgentClient();
-  const aggregation = new NodeAggregationService(repository, agent);
+  const aggregation = new NodeAggregationService(repository, agent, state);
   const remote = options.remote ?? aggregation;
   const mihomo = options.mihomo ?? new MihomoAdapter({
     paths, process: processRunner, fs: createKernelFileSystem(), logger,

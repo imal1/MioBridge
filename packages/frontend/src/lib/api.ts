@@ -17,7 +17,7 @@ export type DetectKernelsPayload =
     };
 
 export const API_RETRY_METHODS = ['get'] as const;
-const KERNEL_DETECTION_FIELDS = new Set(['type', 'installed', 'version', 'defaultConfigPath', 'error']);
+const KERNEL_DETECTION_FIELDS = new Set(['type', 'installed', 'version', 'defaultConfigPath', 'binaryPath', 'error']);
 
 export function validateKernelDetections(value: unknown): KernelDetection[] {
   if (!Array.isArray(value) || value.length !== KERNEL_TYPES.length) {
@@ -33,6 +33,7 @@ export function validateKernelDetections(value: unknown): KernelDetection[] {
         typeof candidate.installed !== 'boolean' || typeof candidate.defaultConfigPath !== 'string' ||
         !candidate.defaultConfigPath.startsWith('/') ||
         (candidate.version !== undefined && typeof candidate.version !== 'string') ||
+        (candidate.binaryPath !== undefined && (typeof candidate.binaryPath !== 'string' || !candidate.binaryPath.startsWith('/'))) ||
         (candidate.error !== undefined && typeof candidate.error !== 'string')) {
       throw new Error('内核检测响应无效');
     }
@@ -41,6 +42,7 @@ export function validateKernelDetections(value: unknown): KernelDetection[] {
       installed: candidate.installed,
       defaultConfigPath: candidate.defaultConfigPath,
       ...(candidate.version !== undefined ? { version: candidate.version as string } : {}),
+      ...(candidate.binaryPath !== undefined ? { binaryPath: candidate.binaryPath as string } : {}),
       ...(candidate.error !== undefined ? { error: candidate.error as string } : {}),
     });
   }

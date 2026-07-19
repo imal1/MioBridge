@@ -40,6 +40,8 @@ export interface KernelDetection {
   readonly installed: boolean;
   readonly version?: string;
   readonly defaultConfigPath: string;
+  /** 检测时以 test -x 实际验证过可执行的管理脚本路径；未安装时不返回。 */
+  readonly binaryPath?: string;
   readonly error?: string;
 }
 
@@ -852,8 +854,10 @@ export class SshDeploymentService {
       const result = await this.exec(ssh, probe);
       const output = (result.stdout || result.stderr).replace(/\u001b\[[0-9;]*m/g, '').trim();
       const version = output.split(/\r?\n/).find(line => line.trim())?.trim();
+      // probe 的第一步就是 test -x wrapperPath，code === 0 意味着这个路径
+      // 在目标主机上确实存在且可执行，可以如实上报，不需要前端再去猜。
       return result.code === 0
-        ? { type, installed: true, ...(version ? { version } : {}), defaultConfigPath: DEFAULT_CONFIG_PATHS[type] }
+        ? { type, installed: true, ...(version ? { version } : {}), defaultConfigPath: DEFAULT_CONFIG_PATHS[type], binaryPath: definition.wrapperPath }
         : {
             type, installed: false, defaultConfigPath: DEFAULT_CONFIG_PATHS[type],
             error: output || `未找到兼容的 233boy ${type} 管理脚本: ${definition.wrapperPath}`,

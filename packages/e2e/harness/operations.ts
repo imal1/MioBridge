@@ -79,6 +79,13 @@ function preflightChecks(failure?: string) {
   }));
 }
 
+/** 对应真实实现 KERNEL_SCRIPTS[type].wrapperPath，检测时以 test -x 验证。 */
+const KERNEL_WRAPPER_PATHS: Record<KernelType, string> = {
+  'sing-box': '/opt/e2e/bin/sing-box',
+  xray: '/opt/e2e/bin/xray',
+  v2ray: '/opt/e2e/bin/v2ray',
+};
+
 function detectionFor(node: FixtureNode, type: KernelType) {
   const runtime = node.kernels.find(candidate => candidate.type === type);
   const defaultConfigPath = `/etc/${type}/config.json`;
@@ -87,6 +94,8 @@ function detectionFor(node: FixtureNode, type: KernelType) {
     installed: runtime?.detected === true,
     ...(runtime?.version ? { version: runtime.version } : {}),
     defaultConfigPath,
+    // 真实服务端在 SSH 检测里 test -x 验证通过后回传管理脚本路径，这里同步镜像。
+    ...(runtime?.detected ? { binaryPath: KERNEL_WRAPPER_PATHS[type] } : {}),
     ...(runtime?.error ? { error: runtime.error } : {}),
   };
 }

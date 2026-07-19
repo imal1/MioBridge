@@ -224,6 +224,8 @@ export interface KernelDetection {
   installed: boolean;
   defaultConfigPath: string;
   version?: string;
+  /** SSH 检测时以 test -x 实际验证过可执行的路径；未安装时不返回。 */
+  binaryPath?: string;
   error?: string;
 }
 
