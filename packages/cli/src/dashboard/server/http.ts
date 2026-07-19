@@ -33,6 +33,22 @@ export interface DashboardResponse {
 
 export type DashboardRouteHandler = (request: DashboardRequest, response: DashboardResponse) => void | Promise<void>;
 
+/**
+ * Artifact URLs serve double duty: clients (and the dashboard's "open" action)
+ * read them inline, while the "download" action wants a save prompt. Only the
+ * explicit `?download=1` form gets `attachment`, otherwise `attachment` would
+ * make "open" indistinguishable from "download".
+ */
+export function contentDisposition(
+  query: DashboardRequest['query'],
+  filename: string,
+): string {
+  const requested = query['download'];
+  const value = Array.isArray(requested) ? requested[0] : requested;
+  const download = value !== undefined && value !== '0' && value !== 'false';
+  return `${download ? 'attachment' : 'inline'}; filename="${filename}"`;
+}
+
 export interface DashboardRoute {
   readonly method: DashboardHttpMethod;
   readonly path: string;

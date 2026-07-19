@@ -148,3 +148,36 @@ jobs:
             exit 1
           fi
           echo "Bundle boundary clean"
+
+  dashboard-e2e:
+    name: Dashboard E2E (Playwright)
+    needs: [typecheck, test]
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.2.13
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - run: bun install --frozen-lockfile
+
+      - run: bun run e2e:prepare
+      - run: bun run --cwd packages/e2e browser:install:ci
+      - run: bun run --cwd packages/e2e typecheck
+      - run: bun run --cwd packages/e2e test
+
+      - name: Upload Playwright reports and failure evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: dashboard-playwright-report
+          path: packages/e2e/.artifacts
+          if-no-files-found: warn
+          retention-days: 14

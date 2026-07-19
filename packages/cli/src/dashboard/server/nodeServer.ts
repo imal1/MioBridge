@@ -14,6 +14,7 @@ import {
   type DashboardHttpMethod,
   type DashboardRequest,
   type DashboardResponse,
+  type DashboardRouteRegistrar,
 } from './http.js';
 import { serveStatic } from './staticServer.js';
 
@@ -27,6 +28,10 @@ export interface NodeDashboardServerOptions {
   readonly reservedPaths: readonly string[];
   readonly fallbackToIndex: boolean;
   readonly dependencies: DashboardServerDependencies;
+  /** Optional composition seam for isolated adapters such as contract-test controls. */
+  readonly extendRoutes?: (routes: DashboardRouteRegistrar) => void;
+  /** Optional read-only observer used by diagnostics and HTTP contract harnesses. */
+  readonly onRequest?: (request: DashboardRequest) => void | Promise<void>;
   readonly signal?: AbortSignal;
 }
 
@@ -106,6 +111,7 @@ function registerRoutes(routes: DashboardRouteRegistry, dependencies: DashboardS
 export async function runNodeDashboardServer(options: NodeDashboardServerOptions): Promise<number> {
   const routes = new DashboardRouteRegistry();
   registerRoutes(routes, options.dependencies);
+  options.extendRoutes?.(routes);
   const responses = new Set<ServerResponse>();
 
   const server = createServer(async (incoming, outgoing) => {
@@ -131,6 +137,7 @@ export async function runNodeDashboardServer(options: NodeDashboardServerOptions
       const request = requestAdapter(incoming, outgoing, url, method, body);
       const response = responseAdapter(outgoing);
       response.header('X-Request-ID', request.requestId);
+      await options.onRequest?.(request);
       if (await routes.dispatch(request, response)) return;
       if (method === 'GET' || method === 'HEAD') {
         const served = await serveStatic(request, response, {

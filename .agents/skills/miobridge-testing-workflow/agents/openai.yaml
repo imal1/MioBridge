@@ -1,0 +1,4 @@
+interface:
+  display_name: "MioBridge Testing Workflow"
+  short_description: "Efficient Playwright testing for MioBridge"
+  default_prompt: "Use $miobridge-testing-workflow to update or debug MioBridge Playwright tests efficiently."

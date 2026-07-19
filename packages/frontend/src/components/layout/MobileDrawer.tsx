@@ -71,7 +71,10 @@ export default function MobileDrawer() {
           background: 'var(--sidebar)',
           boxShadow: 'var(--shadow-elevated)',
           transform: mobileDrawerOpen ? 'translateX(0)' : 'translateX(-100%)',
-          transition: 'transform 720ms var(--motion)',
+          // 关闭后必须真正隐藏：只靠 translateX 会把抽屉留在焦点顺序和无障碍树里。
+          // visibility 延迟到滑出动画结束再切换，保留原有过渡观感。
+          visibility: mobileDrawerOpen ? 'visible' : 'hidden',
+          transition: `transform 720ms var(--motion), visibility 0s linear ${mobileDrawerOpen ? '0s' : '720ms'}`,
           overscrollBehavior: 'contain',
         }}
       >

@@ -17,6 +17,7 @@ export { SelfMaintenanceService } from './self/service.js';
 export type { SelfMaintenanceAdapters, SelfMaintenanceOptions } from './self/service.js';
 export { createNodeSelfMaintenanceAdapters } from './self/nodeAdapters.js';
 export { createDashboardServerComposition } from './dashboard/server/composition.js';
+export { runNodeDashboardServer, type NodeDashboardServerOptions } from './dashboard/server/nodeServer.js';
 export { DashboardRouteRegistry, createDashboardTestRequest, createDashboardTestResponse } from './dashboard/server/http.js';
 export type { DashboardCorePort, DashboardConfigPort, DashboardConvertPort, DashboardOperationsPort, DashboardServerComposition, DashboardServerDependencies, DashboardSubscriptionPort, DashboardYamlPort, LogFilters, OperationsResult } from './dashboard/server/composition.js';
 export { SubscriptionJobService, type ArtifactState, type SubscriptionJob, type SubscriptionJobEvent, type SubscriptionJobStatus, type SubscriptionJobStep, type SubscriptionPolicy } from './operations/subscriptionJobs.js';

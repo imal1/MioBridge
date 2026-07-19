@@ -142,6 +142,19 @@ export interface NodePreflightResult {
   checks: Array<{ key: string; label: string; ok: boolean; detail: string }>;
 }
 
+// 服务端统一返回 { success: false, error: string | { message } }；
+// 这里把它取出来当作 Error.message，否则界面只能显示无信息量的状态行。
+function serverErrorMessage(data: unknown): string | null {
+  if (!data || typeof data !== 'object') return null;
+  const reason = (data as { error?: unknown }).error;
+  if (typeof reason === 'string' && reason.trim()) return reason;
+  if (reason && typeof reason === 'object') {
+    const message = (reason as { message?: unknown }).message;
+    if (typeof message === 'string' && message.trim()) return message;
+  }
+  return null;
+}
+
 // 自定义错误类
 export class ApiError extends Error {
   constructor(
@@ -149,7 +162,7 @@ export class ApiError extends Error {
     public statusText: string,
     public data?: any
   ) {
-    super(`API Error ${status}: ${statusText}`);
+    super(serverErrorMessage(data) ?? `API Error ${status}: ${statusText}`);
     this.name = 'ApiError';
   }
 }
@@ -271,7 +284,8 @@ class ApiService {
 
   // 下载文件URL生成器
   getDownloadUrl(filename: string): string {
-    return `${API_BASE_URL}/${filename}`;
+    // download=1 让服务端回 attachment；不带该参数的同一 URL 用于「打开」，走 inline。
+    return `${API_BASE_URL}/${filename}?download=1`;
   }
 
   // 转换订阅内容为Clash配置

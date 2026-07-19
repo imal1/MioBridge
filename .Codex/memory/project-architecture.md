@@ -55,3 +55,11 @@ metadata:
 - Software install, reinstall, upgrade, repair, and uninstall use persisted
   node-by-component deployment tasks; day-to-day start/stop/restart remains on
   the Agent or runtime maintenance page.
+
+## 2026-07-16 — Dashboard browser-test boundary
+
+- `packages/e2e` is the private Playwright workspace. It serves the built SPA
+  through the real CLI HTTP routes on loopback while replacing SSH, Agent,
+  systemd, and remote-kernel operations with deterministic stateful ports.
+- Every run owns its runtime and report directories; browser and server network
+  guards prevent the suite from contacting configured or Tailscale nodes.

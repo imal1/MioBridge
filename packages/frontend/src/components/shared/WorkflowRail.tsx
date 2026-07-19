@@ -21,7 +21,7 @@ export default function WorkflowRail({ current }: { current: string }) {
                   color: active ? 'var(--on-primary-container)' : 'var(--foreground)',
                 }}
               >
-                <span className="block text-xs text-muted-foreground">{String(index + 1).padStart(2, '0')}</span>
+                <span aria-hidden="true" className="block text-xs text-muted-foreground">{String(index + 1).padStart(2, '0')}</span>
                 <span className="block text-sm font-medium">{step.label}</span>
               </Link>
             </li>
