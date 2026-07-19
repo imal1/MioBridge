@@ -137,9 +137,12 @@ async function fillPasswordNodeForm(page: Page, input: {
 }
 
 async function expectCompletePreflight(page: Page): Promise<void> {
-  await expect(page.getByText('全部通过', { exact: true })).toBeVisible()
-  for (const label of PREFLIGHT_CHECKS) await expect(page.getByText(label, { exact: true })).toBeVisible()
-  await expect(page.getByText('主机指纹：')).toBeVisible()
+  // 必须限定在预检结果面板内：'SSH 认证' 同时是表单里的认证方式标签，
+  // 不限定范围会同时命中表单标签与预检结果行。
+  const panel = page.locator('div').filter({ hasText: /^SSH 预检结果/ }).first()
+  await expect(panel.getByText('全部通过', { exact: true })).toBeVisible()
+  for (const label of PREFLIGHT_CHECKS) await expect(panel.getByText(label, { exact: true })).toBeVisible()
+  await expect(panel.getByText('主机指纹：')).toBeVisible()
 }
 
 async function createPasswordNode(page: Page, input: {
@@ -419,7 +422,8 @@ test.describe('E03 — 节点档案管理', () => {
       request.method() === 'PATCH' && pathname(request.url()) === '/api/cluster/nodes')
     await page.getByRole('button', { name: '暂停纳管' }).click()
     expect((await pauseRequest).postDataJSON()).toMatchObject({ nodeId: created.id, enabled: false })
-    await expect(page.getByText('已暂停', { exact: true })).toBeVisible()
+    // 排除筛选下拉里的同名 <option>，只断言节点卡片上的状态徽章。
+    await expect(page.getByText('已暂停', { exact: true }).and(page.locator(':not(option)'))).toBeVisible()
     await page.getByLabel('筛选节点').selectOption('disabled')
     await expect(page.getByText('E2E 管理节点（已编辑）', { exact: true })).toBeVisible()
 

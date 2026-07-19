@@ -1,4 +1,4 @@
-import type { Download, Page } from '@playwright/test';
+import type { Download, Page, Route } from '@playwright/test';
 import { expect, test, type HarnessSnapshot } from '../../fixtures/e2e.js';
 
 function requests(
@@ -35,6 +35,15 @@ async function grantClipboard(page: Page): Promise<void> {
 
 function visibleLogField(page: Page, name: 'source' | 'node' | 'task' | 'component' | 'level' | 'file' | 'from' | 'to' | 'query') {
   return page.locator(`#log-${name}-desktop`);
+}
+
+/**
+ * 每个页面顶部都有全局流程导航（nav[aria-label="用户需求闭环"]），其步骤名与
+ * 页面自身的下一步 CTA 重名。这里排除该导航，只断言页面内容里的入口。
+ */
+function nextStepLink(page: Page, name: string) {
+  return page.getByRole('link', { name, exact: true })
+    .and(page.locator(':not(nav[aria-label="用户需求闭环"] a)'));
 }
 
 function artifactCard(page: Page, name: 'raw.txt' | 'subscription.txt' | 'clash.yaml') {
@@ -95,7 +104,7 @@ test.describe('E10 · 订阅预检与正式生成', () => {
     await page.goto('/subscription');
     expect((await preflight).status()).toBe(503);
     await expect(page.getByText('订阅任务失败')).toBeVisible();
-    await expect(page.getByText(/API Error 503/)).toBeVisible();
+    await expect(page.getByText('fixture subscription preflight failure').first()).toBeVisible();
     await expect(page.getByRole('button', { name: '创建正式生成任务' })).toBeDisabled();
   });
 
@@ -111,7 +120,8 @@ test.describe('E10 · 订阅预检与正式生成', () => {
     await page.getByRole('button', { name: '创建正式生成任务' }).click();
     expect((await created).status()).toBe(503);
     await expect(page.getByText('订阅任务失败')).toBeVisible();
-    await expect(page.getByText(/API Error 503/)).toBeVisible();
+    // 页内告警与 toast 会同时呈现同一条服务端原因，取首个即可。
+    await expect(page.getByText('fixture subscription start failure').first()).toBeVisible();
     await expect(page.getByText('订阅生成未启动')).toBeVisible();
     expect((await snapshot()).subscriptionJobs?.length ?? 0).toBe(before);
   });
@@ -152,10 +162,17 @@ test.describe('E10 · 订阅预检与正式生成', () => {
       };
     }), `/api/subscription-jobs/${encodeURIComponent(body.data.jobId)}/events`);
 
-    expect(events.map(event => event.eventType)).toEqual(['progress', 'progress', 'progress']);
-    expect(events.map(event => event.eventId)).toEqual(['000001', '000002', '000003']);
-    expect(events.map(event => event.data.status)).toEqual(['queued', 'running', 'succeeded']);
-    expect(events.map(event => event.data.step)).toEqual(['collect', 'convert', 'done']);
+    // 正式管线是 采集 → 解析 → 去重 → 编码 → 转换 → 验证 → 发布 → 备份 → 完成，
+    // 每一步都单独上报一次 progress，事件号为 8 位零填充且严格递增。
+    expect(new Set(events.map(event => event.eventType))).toEqual(new Set(['progress']));
+    expect(events.map(event => event.eventId))
+      .toEqual(events.map((_, index) => String(index + 1).padStart(8, '0')));
+    expect(events.map(event => event.data.step)).toEqual([
+      'collect', 'collect', 'parse', 'deduplicate', 'encode', 'convert', 'validate', 'publish', 'backup', 'done',
+    ]);
+    expect(events.map(event => event.data.status)).toEqual([
+      'queued', ...Array<string>(8).fill('running'), 'succeeded',
+    ]);
     for (const event of events) {
       expect(event.data).toMatchObject({
         eventId: event.eventId,
@@ -199,7 +216,7 @@ test.describe('E11 · 订阅历史、恢复与重试', () => {
     await page.reload();
     await expect(page.getByText('成功', { exact: true })).toBeVisible();
     await expect(page.getByRole('link', { name: '前往衍生输出' })).toHaveAttribute('href', '/outputs');
-    await expect(page.getByRole('link', { name: '维护订阅状态' })).toHaveAttribute('href', '/subscription-status');
+    await expect(nextStepLink(page, '维护订阅状态')).toHaveAttribute('href', '/subscription-status');
   });
 
   test('失败任务可按原输入创建重试任务', async ({ page, control, snapshot }) => {
@@ -223,7 +240,7 @@ test.describe('E11 · 订阅历史、恢复与重试', () => {
     await expect(page.getByText('来源 2/3')).toBeVisible();
     await expect(page.getByText('警告：一个远端来源不可用')).toBeVisible();
     await expect(page.getByRole('link', { name: '前往衍生输出' })).toHaveAttribute('href', '/outputs');
-    await expect(page.getByRole('link', { name: '维护订阅状态' })).toHaveAttribute('href', '/subscription-status');
+    await expect(nextStepLink(page, '维护订阅状态')).toHaveAttribute('href', '/subscription-status');
   });
 
   test('重试请求失败应保留原任务并显示可操作错误', async ({ page, control, snapshot }) => {
@@ -329,7 +346,6 @@ test.describe('E12 · 正式产物', () => {
   });
 
   test('验证接口 success:false 时不得报告全部产物通过', async ({ page }) => {
-    test.fail(true, '当前 Outputs 忽略 success:false，并在缺少 data 时错误显示全部验证通过');
     await page.route('**/api/artifacts/validate', route => route.fulfill({
       status: 200,
       contentType: 'application/json',
@@ -455,6 +471,9 @@ test.describe('E14 · 订阅健康与策略', () => {
       return (await response).status();
     };
 
+    await expect(freshness).toHaveValue('24');
+    await expect(nodeDrop).toHaveValue('30');
+
     await freshness.fill('1');
     await nodeDrop.fill('0');
     expect(await saveStatus()).toBe(200);
@@ -488,6 +507,32 @@ test.describe('E14 · 订阅健康与策略', () => {
       expect.objectContaining({ freshnessHours: 1, nodeDropPercent: 101 }),
     ]);
     expect((await snapshot()).policy).toMatchObject({ freshnessHours: 1, nodeDropPercent: 100 });
+  });
+
+  test('策略加载迟到时不得覆盖用户已输入的草稿', async ({ page, snapshot }) => {
+    // 把策略 GET 拖到用户开始输入之后才返回，复现「抢先输入被静默吞掉」。
+    let releasePolicy = () => {};
+    const policyLoaded = new Promise<void>(resolve => { releasePolicy = resolve; });
+    await page.route('**/api/subscription-policy', async route => {
+      if (route.request().method() !== 'GET') return route.continue();
+      await policyLoaded;
+      return route.continue();
+    });
+
+    await page.goto('/subscription-status');
+    const freshness = page.getByLabel('新鲜度目标（小时）');
+    await freshness.fill('7');
+    releasePolicy();
+
+    // 迟到的服务端值（24）不得回填，用户输入必须保留并且能原样保存。
+    await expect(freshness).toHaveValue('7');
+    const saved = page.waitForResponse(item =>
+      new URL(item.url()).pathname === '/api/subscription-policy'
+      && item.request().method() === 'PUT');
+    await page.getByRole('button', { name: '保存策略' }).click();
+    expect((await saved).ok()).toBeTruthy();
+    await expect(freshness).toHaveValue('7');
+    expect((await snapshot()).policy).toMatchObject({ freshnessHours: 7 });
   });
 
   test('策略保存失败可见，保留草稿、原策略与各恢复路径', async ({ page, control, snapshot }) => {
@@ -548,8 +593,14 @@ test.describe('E14 · 订阅健康与策略', () => {
   test('失败重试间隔与备份保留数量必须可编辑并随策略原子保存', async ({ page, snapshot }) => {
     test.fail(true, '当前 subscription-status 仅以静态文本展示 retryDelaysMinutes 与 backupRetention');
     await page.goto('/subscription-status');
-    await page.getByLabel(/失败重试/).fill('2, 8, 30');
-    await page.getByLabel(/备份保留/).fill('12');
+    // 先断言控件存在再填写：直接 fill 会一直等到整个用例超时，
+    // 而超时不会被 test.fail() 记为「预期内失败」，反而成为非预期失败。
+    const retryField = page.getByLabel(/失败重试/);
+    const retentionField = page.getByLabel(/备份保留/);
+    await expect(retryField).toBeVisible({ timeout: 5_000 });
+    await expect(retentionField).toBeVisible({ timeout: 5_000 });
+    await retryField.fill('2, 8, 30');
+    await retentionField.fill('12');
     await page.getByRole('button', { name: '保存策略' }).click();
     await expect.poll(async () => {
       const writes = exactRequests(await snapshot(), 'PUT', '/api/subscription-policy');
@@ -863,13 +914,17 @@ test.describe('E19 · 动态 OpenAPI', () => {
   });
 
   test('契约加载失败可见，恢复后刷新文档重新渲染', async ({ page }) => {
-    await page.route('**/api/openapi.json', route => route.fulfill({
+    // ky 对 503 会自动重试，用 times: 1 只能挡住首次请求，重试就拿到了真实文档。
+    // 这里拦住全部请求，确认错误态之后再解除拦截，验证「刷新文档」能恢复。
+    const handler = (route: Route) => route.fulfill({
       status: 503,
       contentType: 'application/json',
       body: JSON.stringify({ success: false, error: 'OpenAPI fixture unavailable' }),
-    }), { times: 1 });
+    });
+    await page.route('**/api/openapi.json', handler);
     await page.goto('/api-docs');
     await expect(page.getByText('无法读取 API 契约')).toBeVisible();
+    await page.unroute('**/api/openapi.json', handler);
     await page.getByRole('button', { name: '刷新文档' }).click();
     await expect(page.getByText('MioBridge API')).toBeVisible();
     await expect(page.getByText(/\d+ 个端点 · v/)).toBeVisible();
@@ -928,8 +983,14 @@ test.describe('E20 · 安全、兼容 URL 与 API contract', () => {
       const response = await request.get(path);
       expect(response.ok(), path).toBeTruthy();
       expect(response.headers()['content-type'], path).toContain(contentType);
-      expect(response.headers()['content-disposition'], path).toContain('attachment');
+      // 默认 inline，订阅客户端与「打开」都直接读取内容；
+      // 只有显式 ?download=1 才让浏览器另存为，否则「打开」与「下载」无从区分。
+      expect(response.headers()['content-disposition'], path).toContain('inline');
       expect((await response.text()).length, path).toBeGreaterThan(0);
+
+      const download = await request.get(`${path}?download=1`);
+      expect(download.ok(), path).toBeTruthy();
+      expect(download.headers()['content-disposition'], path).toContain('attachment');
     }
 
     const missing = await request.get('/api/not-a-real-route');

@@ -1,5 +1,5 @@
 import type { DashboardRouteRegistrar, DashboardServerDependencies } from './composition.js';
-import type { DashboardRequest, DashboardResponse } from './http.js';
+import { contentDisposition, type DashboardRequest, type DashboardResponse } from './http.js';
 
 const NOW = () => new Date().toISOString();
 
@@ -74,11 +74,11 @@ export function registerCoreRoutes(
     registrar.register({
       method: 'GET',
       path: `/api/file/${name}`,
-      handler: async (_req: DashboardRequest, res: DashboardResponse) => {
+      handler: async (req: DashboardRequest, res: DashboardResponse) => {
         try {
           const content = String(await deps.core.artifacts.getFileContent(entry.filename));
           res.header('Content-Type', entry.contentType);
-          res.header('Content-Disposition', `attachment; filename="${entry.filename}"`);
+          res.header('Content-Disposition', contentDisposition(req.query, entry.filename));
           res.text(content);
         } catch (error: unknown) {
           const msg = error instanceof Error ? error.message : 'Unknown error';

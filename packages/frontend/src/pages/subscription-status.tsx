@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Icon } from '@iconify/react'
 import { Link } from 'react-router-dom'
 import { toast } from 'sonner'
@@ -23,6 +23,13 @@ export default function SubscriptionStatusPage() {
   const [draft, setDraft] = useState<SubscriptionPolicy>(DEFAULT_POLICY)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  // 草稿是否已被用户编辑，只能相对「草稿派生自的那份生效值」判断，
+  // 所以这里同步保留一份 policy 的即时副本，供异步回调读取。
+  const policyRef = useRef(DEFAULT_POLICY)
+  const applyPolicy = useCallback((next: SubscriptionPolicy) => {
+    policyRef.current = next
+    setPolicy(next)
+  }, [])
 
   const refresh = useCallback(async () => {
     setError(null)
@@ -33,9 +40,16 @@ export default function SubscriptionStatusPage() {
       setStatus(nextStatus)
       if (artifactResponse.success && artifactResponse.data) setArtifacts(artifactResponse.data.artifacts)
       if (jobResponse.success && jobResponse.data) setJobs(jobResponse.data.jobs)
-      if (policyResponse.success && policyResponse.data) { setPolicy(policyResponse.data); setDraft(policyResponse.data) }
+      if (policyResponse.success && policyResponse.data) {
+        const next = policyResponse.data
+        const baseline = policyRef.current
+        applyPolicy(next)
+        // 只有草稿仍与旧生效值一致（用户没有未保存的编辑）时才跟随刷新；
+        // 否则迟到的响应会静默吞掉用户已经输入的内容。要放弃编辑请用「放弃草稿」。
+        setDraft(previous => JSON.stringify(previous) === JSON.stringify(baseline) ? next : previous)
+      }
     } catch (caught) { setError(caught instanceof Error ? caught.message : '状态检查失败') }
-  }, [])
+  }, [applyPolicy])
   useEffect(() => { refresh().catch(() => {}) }, [refresh])
 
   const latestJob = jobs[0]
@@ -54,7 +68,7 @@ export default function SubscriptionStatusPage() {
     try {
       const response = await apiService.updateSubscriptionPolicy(draft)
       if (!response.success || !response.data) throw new Error('定时策略保存失败')
-      setPolicy(response.data); setDraft(response.data); toast.success('订阅策略已保存')
+      applyPolicy(response.data); setDraft(response.data); toast.success('订阅策略已保存')
     } catch (caught) { setError(caught instanceof Error ? caught.message : '定时策略保存失败') }
     finally { setSaving(false) }
   }

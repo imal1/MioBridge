@@ -55,6 +55,9 @@ test.describe('E00–E01 · 全局壳层与总览', () => {
     const consoleErrors: string[] = [];
     page.on('pageerror', error => pageErrors.push(error.stack ?? error.message));
     page.on('console', message => {
+      // 夹具会切断所有跨源请求（见 fixtures/e2e.ts），浏览器为此产生的
+      // 资源加载错误来自隔离守卫本身，不是产品缺陷；真正的 JS 异常仍会被捕获。
+      if (message.type() === 'error' && /ERR_BLOCKED_BY_CLIENT/.test(message.text())) return;
       if (message.type() === 'error') consoleErrors.push(message.text());
     });
 
@@ -113,25 +116,34 @@ test.describe('E00–E01 · 全局壳层与总览', () => {
   });
 
   test('总览四步导航只做上下文跳转，不产生写请求', async ({ page, snapshot }) => {
+    // '添加节点' 落地即打开添加节点对话框，模态框会把页面内容标记为 aria-hidden，
+    // 此时页面 h1 不在无障碍树里，只能断言对话框本身。
     const workflow = [
-      ['添加节点', '/nodes?intent=add', '节点'],
-      ['部署运行环境', '/deploy', '部署中心'],
-      ['生成订阅', '/subscription', '订阅生成'],
-      ['维护订阅状态', '/subscription-status', '订阅状态'],
+      ['添加节点', '/nodes?intent=add', 'dialog', '添加节点'],
+      ['部署运行环境', '/deploy', 'heading', '部署中心'],
+      ['生成订阅', '/subscription', 'heading', '订阅生成'],
+      ['维护订阅状态', '/subscription-status', 'heading', '订阅状态'],
     ] as const;
 
-    for (const [label, href, heading] of workflow) {
+    for (const [label, href, landmark, name] of workflow) {
       await page.goto('/');
       const link = page.getByRole('link', { name: label, exact: true });
       await expect(link).toHaveAttribute('href', href);
       await link.click();
-      await expect(page.getByRole('heading', { level: 1, name: heading })).toBeVisible();
+      await expect(landmark === 'dialog'
+        ? page.getByRole('dialog', { name })
+        : page.getByRole('heading', { level: 1, name })).toBeVisible();
       const current = new URL(page.url());
       expect(`${current.pathname}${current.search}`).toBe(href);
     }
 
+    // /api/subscription-jobs/preflight 是只读探测，只因需要请求体才用 POST，
+    // 不会改动任何状态，所以不算「写请求」。
+    const readOnlyProbes = ['/api/subscription-jobs/preflight'];
     const state = await snapshot();
-    expect(state.requests.filter(request => ['POST', 'PUT', 'PATCH', 'DELETE'].includes(request.method))).toEqual([]);
+    expect(state.requests.filter(request =>
+      ['POST', 'PUT', 'PATCH', 'DELETE'].includes(request.method)
+      && !readOnlyProbes.includes(request.path))).toEqual([]);
   });
 
   test('健康端点与 SPA fallback 保持服务边界', async ({ request }) => {

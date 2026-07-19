@@ -1,4 +1,5 @@
 import type { DashboardRouteRegistrar, DashboardServerDependencies } from './composition.js';
+import { contentDisposition } from './http.js';
 
 /**
  * Stable compatibility URL routes for subscription clients.
@@ -19,11 +20,11 @@ export function registerCompatRoutes(
     registrar.register({
       method: 'GET',
       path: entry.path,
-      handler: async (_req, res) => {
+      handler: async (req, res) => {
         try {
           const content = String(await deps.core.artifacts.getFileContent(entry.filename));
           res.header('Content-Type', entry.contentType);
-          res.header('Content-Disposition', `attachment; filename="${entry.filename}"`);
+          res.header('Content-Disposition', contentDisposition(req.query, entry.filename));
           res.text(content);
         } catch (error: unknown) {
           const msg = error instanceof Error ? error.message : 'Unknown error';

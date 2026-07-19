@@ -139,7 +139,7 @@ export default function Dashboard({ initialCluster = null, initialStatus = null,
               {workflow.map((step, index) => (
                 <Link key={step.label} to={step.href} className="group rounded-[22px] border border-[var(--border)] bg-[var(--surface-container)] p-4 transition-[transform,background-color] duration-700 ease-[var(--motion)] hover:-translate-y-1">
                   <div className="flex items-center justify-between">
-                    <span className="signal-mono text-xs text-muted-foreground">0{index + 1}</span>
+                    <span aria-hidden="true" className="signal-mono text-xs text-muted-foreground">0{index + 1}</span>
                     <span className="grid h-9 w-9 place-items-center rounded-full bg-[var(--muted)] text-primary transition-transform duration-700 ease-[var(--motion)] group-hover:translate-x-1">
                       <Icon icon={step.icon} />
                     </span>

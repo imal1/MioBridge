@@ -34,7 +34,8 @@ test.describe('E17 · 配置导入与恢复边界', () => {
     await page.getByPlaceholder('粘贴 YAML 配置，仅执行预览').fill('app: [unterminated');
     await page.getByRole('button', { name: '预览导入差异' }).click();
     await expect(page.getByRole('heading', { name: '配置操作失败' })).toBeVisible();
-    await expect(page.getByText(/YAML|导入文件无效/).first()).toBeVisible();
+    // 就地错误必须来自解析器本身并定位到出错位置，而不是笼统的“导入失败”。
+    await expect(page.getByText(/line \d+, column \d+/).first()).toBeVisible();
     expect(await effectiveConfig(request)).toEqual(before);
   });
 

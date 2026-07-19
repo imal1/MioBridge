@@ -122,8 +122,12 @@ test.describe('E08–E09 · 协议运行时与监控事务', () => {
     await page.goto('/runtimes?node=node-ready');
     const singBox = runtimeCard(page, 'sing-box');
     await expect(singBox.getByText('可读', { exact: true })).toBeVisible();
+    // 「可读」来自集群状态，检测结果尚未回来时也会显示；必须等运行维护按钮出现，
+    // 否则 kernelFailure 会打断仍在飞行中的首次检测，按钮永远不会渲染。
+    const stop = singBox.getByRole('button', { name: '停止', exact: true });
+    await expect(stop).toBeVisible();
     await control({ kernelFailure: true });
-    await singBox.getByRole('button', { name: '停止', exact: true }).click();
+    await stop.click();
     await expect(page.getByRole('heading', { name: '运行时操作失败' })).toBeVisible();
     await expect(page.getByText(/API Error 500|协议核心维护失败/).first()).toBeVisible();
 
@@ -141,11 +145,15 @@ test.describe('E08–E09 · 协议运行时与监控事务', () => {
     await page.getByRole('button', { name: '保存并验证监控配置' }).click();
     await expect(page.getByText('监控配置已写入远端并通过 Agent 验证')).toBeVisible();
 
+    // 成功 toast 在 refreshCluster/detect 之前就弹出，立刻取快照会漏掉复检请求。
+    await expect.poll(async () => (await snapshot()).requests
+      .filter(request => request.method === 'POST' && request.path === '/api/cluster/kernel/detect').length)
+      .toBe(2);
+
     const state = await snapshot();
     const writes = state.requests.filter(request => request.method === 'PUT' && request.path === '/api/cluster/nodes');
     expect(writes).toHaveLength(1);
     expect(writes[0]?.body).toMatchObject({ nodeId: 'node-ready' });
-    expect(state.requests.filter(request => request.method === 'POST' && request.path === '/api/cluster/kernel/detect')).toHaveLength(2);
   });
 
   test('未修改监控项时必须保留既有自定义配置路径', async ({ page, snapshot }) => {
@@ -168,7 +176,10 @@ test.describe('E08–E09 · 协议运行时与监控事务', () => {
     await page.getByRole('button', { name: '编辑监控范围与路径' }).click();
     await page.getByLabel('Xray 加入监听').check();
     await page.getByRole('button', { name: '保存并验证监控配置' }).click();
-    await expect(page.getByRole('heading', { name: '运行时操作失败' })).toBeVisible();
+    // 保存失败后对话框保持打开，错误必须显示在对话框内部：
+    // 页面底层的告警被模态框遮挡，用户看不到。
+    const dialog = page.getByRole('dialog', { name: '选择监听内核' });
+    await expect(dialog.getByText('Agent 监控配置验证失败（E2E fixture）')).toBeVisible();
     const state = await snapshot();
     const ready = state.nodes.find(node => node.nodeId === 'node-ready');
     expect(ready?.configuredKernels).toEqual([{ type: 'sing-box', configPath: '/opt/e2e/sing-box.json' }]);

@@ -89,7 +89,7 @@ const Sidebar = memo(function Sidebar() {
         </span>
       </Link>
 
-      <nav className="flex flex-1 flex-col gap-2">
+      <nav className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto">
         {NAV_ITEMS.map(item => (
           <NavItem
             key={item.href}
