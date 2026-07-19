@@ -1,5 +1,5 @@
 import { Icon } from '@iconify/react'
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { apiService, type ApiStatus } from '@/lib/api'
 import type { ClusterStatus, MetricsSnapshot, MetricsSummary } from '@/lib/types'
@@ -52,12 +52,27 @@ export default function Dashboard({ initialCluster = null, initialStatus = null,
   const [metricRange, setMetricRange] = useState<'24h' | '7d' | '30d'>('24h')
   const [metrics, setMetrics] = useState<{ snapshot: MetricsSnapshot; history: MetricsSnapshot[]; summary: MetricsSummary } | null>(null)
 
+  // 每次刷新领一个序号，只有最新那次的响应可以写入状态。切换指标窗口会立刻发起
+  // 新请求，而先发的请求完全可能后到；不做丢弃的话它会把新窗口的数据覆盖回旧数据，
+  // 出现「按钮高亮 30d、图表画的却是 24h」这种界面自相矛盾的状态。
+  const requestSeq = useRef(0)
+
   const refresh = useCallback(async () => {
-    const [nextStatus, nextCluster, nextMetrics] = await Promise.all([
-      apiService.getStatus(),
-      apiService.getClusterStatus(),
-      apiService.getMetrics(metricRange),
-    ])
+    const seq = ++requestSeq.current
+    let responses
+    try {
+      responses = await Promise.all([
+        apiService.getStatus(),
+        apiService.getClusterStatus(),
+        apiService.getMetrics(metricRange),
+      ])
+    } catch (error) {
+      // 过期请求的失败同样要丢弃：新窗口已经加载成功时，不该再弹一条旧窗口的错误。
+      if (seq !== requestSeq.current) return
+      throw error
+    }
+    if (seq !== requestSeq.current) return
+    const [nextStatus, nextCluster, nextMetrics] = responses
     setStatus(nextStatus)
     if (nextCluster.success) setCluster(nextCluster.data as ClusterStatus)
     if (nextMetrics.success && nextMetrics.data) setMetrics(nextMetrics.data)
