@@ -142,6 +142,22 @@ export class DashboardSystemdService {
     return result;
   }
 
+  /**
+   * 原地重启已在运行的服务。刻意不走 stop()+start()：start() 会用当前进程的
+   * 路径重写单元文件，如果调用方（比如 upgrade）是从别的位置运行的，会把
+   * ExecStart 劫持过去，服务直接进入 203/EXEC 崩溃循环。升级场景里二进制是
+   * 在原路径上原子替换的，单元定义一个字都不需要动。
+   */
+  async restart(): Promise<void> {
+    const result = await this.adapters.run('systemctl', ['--user', 'restart', DASHBOARD_UNIT_NAME]);
+    if (result.exitCode !== 0) throw new Error(`Could not restart dashboard: ${output(result) || 'systemctl failed'}`);
+    const host = this.options.host ?? '0.0.0.0';
+    const port = this.options.port ?? 3000;
+    if (!(await this.adapters.waitForReady(host, port))) {
+      throw new Error(`Dashboard service did not become ready at http://${host}:${port}/health. Inspect logs with: ${this.journalCommand()}`);
+    }
+  }
+
   async stop(): Promise<DashboardDaemonStatus> {
     const current = await this.status();
     if (current.state === 'unsupported') throw new Error(current.message);
