@@ -138,6 +138,30 @@ describe('dashboard systemd user lifecycle', () => {
     expect(restarting.calls.some(([, args]) => args.includes('disable') && args.includes('--now'))).toBe(true);
   });
 
+  it('restarts in place without rewriting the unit definition', async () => {
+    const { service, calls, files } = await fixture({}, { active: true, enabled: true });
+    await service.restart();
+    expect(calls.some(([, args]) => args.includes('restart'))).toBe(true);
+    // 不得重写单元文件：如果 upgrade 是从别的路径运行的，重写会把
+    // ExecStart 劫持到那个路径，服务立刻进入 203/EXEC 崩溃循环。
+    expect(files.size).toBe(0);
+  });
+
+  it('surfaces a restart that never becomes ready', async () => {
+    const { service } = await fixture({ waitForReady: async () => false }, { active: true, enabled: true });
+    await expect(service.restart()).rejects.toThrow(/journalctl/);
+  });
+
+  it('surfaces a restart the service manager rejects', async () => {
+    const { service } = await fixture({
+      async run(command, args) {
+        if (args.includes('restart')) return { exitCode: 1, stdout: '', stderr: 'unit masked' };
+        return { exitCode: 0, stdout: 'active\n', stderr: '' };
+      },
+    }, { active: true, enabled: true });
+    await expect(service.restart()).rejects.toThrow(/unit masked/);
+  });
+
   it('removes the managed unit and reloads systemd during CLI uninstall', async () => {
     const installed = await fixture({}, { active: true, enabled: true });
     await installed.service.uninstall();

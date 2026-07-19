@@ -23,6 +23,21 @@ const maintenance = new SelfMaintenanceService({
   dashboardPath: `${composition.paths.distDir}/dashboard`,
   configDir: composition.paths.baseDir,
   adapters: createNodeSelfMaintenanceAdapters(),
+  progress: message => output.stdout(message),
+  serviceControl: {
+    async detect() {
+      if ((await dashboardDaemon.status()).state === 'running') return 'systemd';
+      // systemd 没接管但端口上有活的 dashboard，多半是前台进程还在跑旧版本。
+      const port = Number(process.env.MIOBRIDGE_DASHBOARD_PORT) || dashboardConfig?.port || 3000;
+      try {
+        const response = await fetch(`http://127.0.0.1:${port}/health`, { signal: AbortSignal.timeout(2_000) });
+        return response.ok ? 'external' : 'none';
+      } catch {
+        return 'none';
+      }
+    },
+    restart: () => dashboardDaemon.restart(),
+  },
   ...(process.env.MIOBRIDGE_REPOSITORY ? { repository: process.env.MIOBRIDGE_REPOSITORY } : {}),
   ...(process.env.MIOBRIDGE_VERSION ? { targetVersion: process.env.MIOBRIDGE_VERSION } : {}),
   ...(process.env.MIOBRIDGE_RELEASE_BASE_URL ? { releaseBaseUrl: process.env.MIOBRIDGE_RELEASE_BASE_URL } : {}),
