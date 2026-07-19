@@ -48,15 +48,16 @@ export class NodeRepository {
         await this.save(others);
         return null;
       }
+      const { randomBytes } = await import('node:crypto');
       const local = this.normalize({
         ...existing,
         id: LOCAL_NODE_ID,
         name: existing?.name ?? '本机节点',
         host: existing?.host ?? '127.0.0.1',
-        secret: existing?.secret ?? '',
+        secret: existing?.secret ?? randomBytes(32).toString('hex'),
         kernels: existing?.kernels.length ? existing.kernels : [{ type: 'sing-box' }],
         location: existing?.location ?? '本机',
-        enabled: true,
+        enabled: existing?.enabled ?? true,
       });
       await this.save([local, ...others]);
       return local;
