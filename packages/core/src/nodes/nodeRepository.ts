@@ -65,7 +65,7 @@ export class NodeRepository {
   }
 
   async isLocalNodeConfigured(): Promise<boolean> {
-    return (await this.list()).some(node => node.id === LOCAL_NODE_ID);
+    return (await this.list({ enabledOnly: false })).some(node => node.id === LOCAL_NODE_ID);
   }
 
   async update(nodeId: string, update: (node: NodeConfig) => NodeConfig | void): Promise<NodeConfig> {
