@@ -4,9 +4,9 @@ set -eu
 REPOSITORY="${MIOBRIDGE_REPOSITORY:-imal1/miobridge}"
 VERSION="${MIOBRIDGE_VERSION:-}"
 BASE_URL="${MIOBRIDGE_RELEASE_BASE_URL:-}"
-INSTALL_DIR="${MIOBRIDGE_AGENT_INSTALL_DIR:-/usr/local/bin}"
-CONFIG_DIR="${MIOBRIDGE_AGENT_CONFIG_DIR:-/etc/miobridge-agent}"
-UNIT_PATH="${MIOBRIDGE_AGENT_UNIT_PATH:-/etc/systemd/system/miobridge-agent.service}"
+INSTALL_DIR="${MIOBRIDGE_AGENT_INSTALL_DIR:-$HOME/.local/bin}"
+CONFIG_DIR="${MIOBRIDGE_AGENT_CONFIG_DIR:-$HOME/.config/miobridge-agent}"
+UNIT_PATH="${MIOBRIDGE_AGENT_UNIT_PATH:-${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user/miobridge-agent.service}"
 SYSTEMCTL="${MIOBRIDGE_AGENT_SYSTEMCTL:-systemctl}"
 CONFIG_SOURCE=""
 NODE_ID=""
@@ -31,8 +31,9 @@ Independent configuration mode:
                    [--kernel TYPE:CONFIG_PATH]... [--port PORT]
 
 The installer downloads a checksum-covered Agent binary, validates the
-configuration, installs a systemd unit, restarts the Agent, and verifies /health.
+configuration, installs a user systemd unit, restarts the Agent, and verifies /health.
 It never installs MioBridge CLI, Dashboard, Bun, mihomo, or protocol kernels.
+It runs entirely as the current user and does not require sudo.
 EOF
 }
 
@@ -71,14 +72,18 @@ case "$(uname -m)" in
   *) echo "unsupported Linux architecture: $(uname -m)" >&2; exit 1 ;;
 esac
 
-if [ "$(id -u)" -ne 0 ] && [ "${MIOBRIDGE_AGENT_ALLOW_NON_ROOT:-0}" != 1 ]; then
-  echo "install-agent.sh must run as root; use sudo sh install-agent.sh ..." >&2
-  exit 1
-fi
-
 for command in "$SYSTEMCTL" gzip awk sed mktemp mv cp chmod mkdir rm dirname head id cat sleep; do
   command -v "$command" >/dev/null 2>&1 || { echo "required command not found: $command" >&2; exit 1; }
 done
+
+systemctl_user() {
+  XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}" "$SYSTEMCTL" --user "$@"
+}
+
+if ! systemctl_user show-environment >/dev/null 2>&1; then
+  echo "user systemd is unavailable; log in as the target user or enable lingering for that account" >&2
+  exit 1
+fi
 
 download() {
   if command -v curl >/dev/null 2>&1; then curl -fL --retry 3 -o "$2" "$1"
@@ -128,18 +133,18 @@ had_unit=0
 
 rollback() {
   [ "$MUTATED" -eq 1 ] || return 0
-  "$SYSTEMCTL" stop miobridge-agent >/dev/null 2>&1 || true
+  systemctl_user stop miobridge-agent >/dev/null 2>&1 || true
   rm -f "$binary" "$config_candidate" "$unit_candidate"
   [ "$REPLACE_CONFIG" -eq 0 ] || rm -f "$config"
   rm -f "$UNIT_PATH"
   [ ! -e "$binary_backup" ] || mv "$binary_backup" "$binary"
   [ ! -e "$config_backup" ] || mv "$config_backup" "$config"
   [ ! -e "$unit_backup" ] || mv "$unit_backup" "$UNIT_PATH"
-  "$SYSTEMCTL" daemon-reload >/dev/null 2>&1 || true
+  systemctl_user daemon-reload >/dev/null 2>&1 || true
   if [ "$had_unit" -eq 1 ] && [ "$old_active" -eq 1 ]; then
-    "$SYSTEMCTL" restart miobridge-agent >/dev/null 2>&1 || true
+    systemctl_user restart miobridge-agent >/dev/null 2>&1 || true
   elif [ "$had_unit" -eq 0 ]; then
-    "$SYSTEMCTL" disable miobridge-agent >/dev/null 2>&1 || true
+    systemctl_user disable miobridge-agent >/dev/null 2>&1 || true
   fi
   MUTATED=0
 }
@@ -206,7 +211,7 @@ elif [ "$manual_config" -eq 1 ]; then
         printf '    configPath: "%s"\n' "$(yaml_quote "$kernel_path")"
       done
     fi
-    printf 'mihomo:\n  path: "/usr/local/bin/mihomo"\n'
+    printf 'mihomo:\n  path: "mihomo"\n'
     printf 'port: %s\n' "$PORT"
   } > "$tmp/agent.yaml"
   REPLACE_CONFIG=1
@@ -228,6 +233,7 @@ chmod 0755 "$binary_candidate"
 chmod 0600 "$config_candidate"
 escaped_binary=$(yaml_quote "$binary")
 escaped_config=$(yaml_quote "$config")
+escaped_config_dir=$(yaml_quote "$CONFIG_DIR")
 cat > "$unit_candidate" <<EOF
 [Unit]
 Description=MioBridge Agent
@@ -237,15 +243,19 @@ Wants=network-online.target
 [Service]
 Type=simple
 ExecStart="$escaped_binary" --config "$escaped_config"
+WorkingDirectory="$escaped_config_dir"
+Environment="PATH=%h/.config/miobridge/bin:%h/.local/bin:/usr/local/bin:/usr/bin:/bin"
 Restart=always
 RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
 
 [Install]
-WantedBy=multi-user.target
+WantedBy=default.target
 EOF
 chmod 0644 "$unit_candidate"
 
-"$SYSTEMCTL" is-active --quiet miobridge-agent >/dev/null 2>&1 && old_active=1 || true
+systemctl_user is-active --quiet miobridge-agent >/dev/null 2>&1 && old_active=1 || true
 [ ! -e "$binary" ] || had_binary=1
 [ ! -e "$config" ] || had_config=1
 [ ! -e "$UNIT_PATH" ] || had_unit=1
@@ -270,10 +280,10 @@ if ! replace_files; then
   exit 1
 fi
 
-if ! "$SYSTEMCTL" daemon-reload \
-  || ! "$SYSTEMCTL" enable miobridge-agent \
-  || ! "$SYSTEMCTL" restart miobridge-agent \
-  || ! "$SYSTEMCTL" is-active --quiet miobridge-agent; then
+if ! systemctl_user daemon-reload \
+  || ! systemctl_user enable miobridge-agent \
+  || ! systemctl_user restart miobridge-agent \
+  || ! systemctl_user is-active --quiet miobridge-agent; then
   rollback
   echo "Agent systemd activation failed; previous files restored" >&2
   exit 1
@@ -301,4 +311,4 @@ rm -f "$binary_backup" "$config_backup" "$unit_backup" "$config_candidate"
 MUTATED=0
 echo "MioBridge Agent $VERSION installed at $binary"
 echo "Agent config: $config"
-echo "systemd service: miobridge-agent (active)"
+echo "user systemd service: miobridge-agent (active)"

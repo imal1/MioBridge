@@ -41,7 +41,7 @@ export function getDefaultConfig(): AgentConfig {
   return {
     node: { id: '', name: '', secret: '' },
     kernels: [{ type: 'sing-box', configPath: '/etc/sing-box/config.json' }],
-    mihomo: { path: '/usr/local/bin/mihomo' },
+    mihomo: { path: 'mihomo' },
     port: 3001,
   };
 }

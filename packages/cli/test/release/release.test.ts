@@ -85,6 +85,7 @@ describe('CLI release distribution', () => {
     writeFileSync(join(coreDir, 'dist', 'stale.js'), 'stale');
     writeFileSync(join(sandbox, 'packages', 'cli', 'src', 'main.ts'), 'fixture');
     copyFileSync(packageScript, sandboxScript);
+    copyFileSync(installer, join(sandbox, 'scripts', 'install.sh'));
     writeFileSync(fakeBun, [
       '#!/bin/sh',
       'set -eu',
@@ -132,6 +133,10 @@ describe('CLI release distribution', () => {
       expect(binaryLine?.startsWith('-rwx')).toBe(true);
       expect(statSync(join(release, `miobridge-agent-1.2.3-linux-${arch}.gz`)).size).toBeGreaterThan(0);
     }
+    expect(sums).toContain('install.sh');
+    expect(sums).toContain('install-agent.sh');
+    expect(statSync(join(release, 'install.sh')).mode & 0o111).not.toBe(0);
+    expect(statSync(join(release, 'install-agent.sh')).mode & 0o111).not.toBe(0);
   });
 
   it.each([['x86_64', 'x64'], ['aarch64', 'arm64']])('maps %s and installs from an external cwd', (machine, expected) => {

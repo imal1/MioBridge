@@ -4,7 +4,6 @@ import { randomUUID } from 'node:crypto';
 import { spawn } from 'node:child_process';
 import { lookup } from 'node:dns/promises';
 import { createConnection, isIP } from 'node:net';
-import { posix } from 'node:path';
 import {
   KERNEL_TYPES,
   validateNodeKernels,
@@ -25,9 +24,13 @@ import {
   wrapperCommand,
 } from './kernelScripts.js';
 
-const AGENT_REMOTE_PATH = '/usr/local/bin/miobridge-agent';
-const AGENT_CONFIG_PATH = '/etc/miobridge-agent/agent.yaml';
-const AGENT_SERVICE_PATH = '/etc/systemd/system/miobridge-agent.service';
+const AGENT_USER_BIN = '$HOME/.local/bin/miobridge-agent';
+const AGENT_USER_CONFIG = '$HOME/.config/miobridge-agent/agent.yaml';
+const AGENT_USER_UNIT = '$HOME/.config/systemd/user/miobridge-agent.service';
+const LEGACY_AGENT_PATH = '/usr/local/bin/miobridge-agent';
+const LEGACY_AGENT_CONFIG_PATH = '/etc/miobridge-agent/agent.yaml';
+const LEGACY_AGENT_SERVICE_PATH = '/etc/systemd/system/miobridge-agent.service';
+const MIHOMO_USER_PATH = '$HOME/.config/miobridge/bin/mihomo';
 const PROGRESS_TTL_MS = 10 * 60 * 1000;
 const TASK_HISTORY_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 
@@ -143,6 +146,11 @@ function shellQuote(value: string): string {
   return `'${value.replace(/'/g, `'\\''`)}'`;
 }
 
+function userSystemctl(...args: readonly string[]): string {
+  const command = ['systemctl', '--user', ...args].map(shellQuote).join(' ');
+  return `XDG_RUNTIME_DIR=\"\${XDG_RUNTIME_DIR:-/run/user/$(id -u)}\" ${command}`;
+}
+
 function validatePrivateKey(value: string): void {
   if (Buffer.byteLength(value, 'utf8') > 64 * 1024) throw new Error('SSH 私钥不能超过 64 KiB');
   const trimmed = value.trim();
@@ -181,6 +189,7 @@ export class SshDeploymentService {
     checks: Array<{ key: string; label: string; ok: boolean; detail: string }>;
   }> {
     const input = inputObject(body);
+    const component = typeof input.component === 'string' ? this.deployComponent(input.component) : 'agent';
     const target = typeof input.nodeId === 'string'
       ? await this.targetForNode(input.nodeId)
       : await this.targetFromSsh(inputObject(input.ssh));
@@ -203,13 +212,19 @@ export class SshDeploymentService {
     }
     const ssh = await this.connect(target);
     try {
+      const needsUserSystemd = component === 'agent';
+      const needsSystemd = component !== 'mihomo';
       const [system, architecture, disk, systemd, downloader, privilege] = await Promise.all([
         this.exec(ssh, 'uname -s'),
         this.exec(ssh, 'uname -m'),
         this.exec(ssh, "df -Pk / | awk 'NR==2 {print $4}'"),
-        this.exec(ssh, 'command -v systemctl'),
+        !needsSystemd
+          ? Promise.resolve({ stdout: '', stderr: '', code: 0 })
+          : needsUserSystemd
+          ? this.exec(ssh, userSystemctl('show-environment'))
+          : this.exec(ssh, 'command -v systemctl'),
         this.exec(ssh, 'command -v curl || command -v wget'),
-        this.execRoot(ssh, target, 'true'),
+        Promise.resolve({ stdout: '', stderr: '', code: 0 }),
       ]);
       const freeKb = Number(disk.stdout.trim());
       const checks = [
@@ -219,9 +234,9 @@ export class SshDeploymentService {
         { key: 'system', label: 'Linux 系统', ok: system.code === 0 && system.stdout.trim() === 'Linux', detail: system.stdout.trim() || system.stderr.trim() },
         { key: 'architecture', label: 'CPU 架构', ok: /^(x86_64|amd64|aarch64|arm64)$/.test(architecture.stdout.trim()), detail: architecture.stdout.trim() || architecture.stderr.trim() },
         { key: 'disk', label: '磁盘空间', ok: Number.isFinite(freeKb) && freeKb >= 200 * 1024, detail: Number.isFinite(freeKb) ? `${Math.round(freeKb / 1024)} MiB 可用` : '无法读取' },
-        { key: 'systemd', label: 'systemd', ok: systemd.code === 0, detail: systemd.stdout.trim() || '未找到' },
+        { key: 'systemd', label: needsUserSystemd ? '用户级 systemd' : 'systemd', ok: systemd.code === 0, detail: !needsSystemd ? 'mihomo 用户态安装不需要 systemd' : systemd.code === 0 ? (needsUserSystemd ? 'systemctl --user 可用' : systemd.stdout.trim()) : (systemd.stderr || systemd.stdout).trim() || '未找到' },
         { key: 'download', label: '下载工具', ok: downloader.code === 0, detail: downloader.stdout.trim() || '未找到 curl/wget' },
-        { key: 'privilege', label: '管理员权限', ok: privilege.code === 0, detail: privilege.code === 0 ? 'root/sudo 可用' : (privilege.stderr || privilege.stdout).trim() },
+        { key: 'privilege', label: '执行权限', ok: privilege.code === 0, detail: KERNEL_TYPES.includes(component as KernelType) ? '优先直接调用 233boy 全局 wrapper；仅在明确权限不足时提权回退' : '此组件使用用户态部署，无需 sudo' },
       ];
       return { hostKey: target.ssh.hostKey, architecture: architecture.stdout.trim(), checks };
     } finally { ssh.end(); }
@@ -396,16 +411,29 @@ export class SshDeploymentService {
     const target = await this.targetForNode(nodeId);
     const ssh = await this.connect(target);
     try {
-      const command = action === 'uninstall'
+      const userCommand = action === 'uninstall'
+        ? [
+            `${userSystemctl('disable', '--now', 'miobridge-agent.service')} 2>/dev/null || true`,
+            `rm -f \"${AGENT_USER_BIN}\" \"${AGENT_USER_UNIT}\"`,
+            ...(options.preserveConfig ? [] : [`rm -rf \"$HOME/.config/miobridge-agent\"`]),
+            ...(options.preserveData ? [] : [`rm -rf \"$HOME/.local/share/miobridge-agent\"`]),
+            userSystemctl('daemon-reload'),
+          ].join(' && ')
+        : userSystemctl(action, 'miobridge-agent.service');
+      const userAgent = await this.exec(ssh, `test -x \"${AGENT_USER_BIN}\"`);
+      const legacyAgent = await this.exec(ssh, `test -x ${shellQuote(LEGACY_AGENT_PATH)} || test -f ${shellQuote(LEGACY_AGENT_SERVICE_PATH)}`);
+      const legacyCommand = action === 'uninstall'
         ? [
             'systemctl disable --now miobridge-agent 2>/dev/null || true',
-            `rm -f ${AGENT_REMOTE_PATH} ${AGENT_SERVICE_PATH}`,
+            `rm -f ${shellQuote(LEGACY_AGENT_PATH)} ${shellQuote(LEGACY_AGENT_SERVICE_PATH)}`,
             ...(options.preserveConfig ? [] : ['rm -rf /etc/miobridge-agent']),
             ...(options.preserveData ? [] : ['rm -rf /var/lib/miobridge-agent']),
             'systemctl daemon-reload',
           ].join(' && ')
         : `systemctl ${action} miobridge-agent`;
-      const executed = await this.execRoot(ssh, target, command);
+      const executed = userAgent.code === 0 || legacyAgent.code !== 0
+        ? await this.exec(ssh, userCommand)
+        : await this.execRoot(ssh, target, legacyCommand);
       if (executed.code !== 0) throw new Error((executed.stderr || executed.stdout).trim() || `Agent ${action} 失败`);
       await this.composition.repository.update(nodeId, node => ({
         ...node,
@@ -439,7 +467,7 @@ export class SshDeploymentService {
     const target = await this.targetForNode(nodeId);
     const ssh = await this.connect(target);
     try {
-      const executed = await this.execRoot(ssh, target, uninstallCommand(type, options.preserveConfig));
+      const executed = await this.execWithPrivilegeFallback(ssh, target, uninstallCommand(type, options.preserveConfig));
       if (executed.code !== 0) throw new Error((executed.stderr || executed.stdout).trim() || `${type} 卸载失败`);
       return await this.detectKernel(ssh, type);
     } finally {
@@ -454,7 +482,7 @@ export class SshDeploymentService {
     const target = await this.targetForNode(nodeId);
     const ssh = await this.connect(target);
     try {
-      const executed = await this.execRoot(ssh, target, wrapperCommand(type, action));
+      const executed = await this.execWithPrivilegeFallback(ssh, target, wrapperCommand(type, action));
       if (executed.code !== 0) throw new Error((executed.stderr || executed.stdout).trim() || `${type} ${action} 失败`);
       return { nodeId, kernelType: type, status: action === 'stop' ? 'stopped' : 'running' };
     } finally { ssh.end(); }
@@ -488,10 +516,11 @@ export class SshDeploymentService {
         'gzip -dc "$workdir/mihomo.gz" > "$workdir/mihomo"',
         'chmod 755 "$workdir/mihomo"',
         `"$workdir/mihomo" -v | grep -F ${shellQuote(artifact.version.replace(/^v/, ''))} >/dev/null`,
-        'install -m 755 "$workdir/mihomo" /usr/local/bin/mihomo',
+        'mkdir -p "$HOME/.config/miobridge/bin"',
+        `install -m 755 "$workdir/mihomo" \"${MIHOMO_USER_PATH}\"`,
       ].join('\n');
       const command = `URL=${shellQuote(artifact.url)} SHA256=${shellQuote(artifact.sha256)} bash -c ${shellQuote(script)}`;
-      const installed = await this.execRoot(ssh, target, command);
+      const installed = await this.exec(ssh, command);
       if (installed.code !== 0) throw new Error(`mihomo 安装失败: ${(installed.stderr || installed.stdout).trim().slice(-600)}`);
       return await this.detectMihomoOn(ssh);
     } finally { ssh.end(); }
@@ -501,7 +530,10 @@ export class SshDeploymentService {
     const target = await this.targetForNode(nodeId);
     const ssh = await this.connect(target);
     try {
-      const removed = await this.execRoot(ssh, target, 'rm -f /usr/local/bin/mihomo');
+      const detected = await this.detectMihomoOn(ssh);
+      const removed = detected.installed && detected.path === '/usr/local/bin/mihomo'
+        ? await this.execRoot(ssh, target, 'rm -f /usr/local/bin/mihomo')
+        : await this.exec(ssh, `rm -f \"${MIHOMO_USER_PATH}\" "$HOME/.local/bin/mihomo"`);
       if (removed.code !== 0) throw new Error((removed.stderr || removed.stdout).trim() || 'mihomo 卸载失败');
       return await this.detectMihomoOn(ssh);
     } finally { ssh.end(); }
@@ -593,7 +625,7 @@ export class SshDeploymentService {
     const ssh = await this.connect(target);
     try {
       await this.ensureKernel(ssh, target, { type });
-      const repaired = await this.execRoot(ssh, target, repairCommand(type));
+      const repaired = await this.execWithPrivilegeFallback(ssh, target, repairCommand(type));
       if (repaired.code !== 0) throw new Error((repaired.stderr || repaired.stdout).trim() || `${type} 修复检查失败`);
       return await this.detectKernel(ssh, type);
     } finally { ssh.end(); }
@@ -604,7 +636,7 @@ export class SshDeploymentService {
     const ssh = await this.connect(target);
     try {
       await this.ensureKernel(ssh, target, { type });
-      const upgraded = await this.execRoot(ssh, target, upgradeCommand(type));
+      const upgraded = await this.execWithPrivilegeFallback(ssh, target, upgradeCommand(type));
       if (upgraded.code !== 0) throw new Error((upgraded.stderr || upgraded.stdout).trim() || `${type} 升级失败`);
       return await this.detectKernel(ssh, type);
     } finally { ssh.end(); }
@@ -614,7 +646,7 @@ export class SshDeploymentService {
     const target = await this.targetForNode(nodeId);
     const ssh = await this.connect(target);
     try {
-      const reinstalled = await this.execRoot(ssh, target, reinstallCommand(type, options.preserveConfig));
+      const reinstalled = await this.execWithPrivilegeFallback(ssh, target, reinstallCommand(type, options.preserveConfig));
       if (reinstalled.code !== 0) throw new Error((reinstalled.stderr || reinstalled.stdout).trim() || `${type} 重装失败`);
       return await this.detectKernel(ssh, type);
     } finally { ssh.end(); }
@@ -644,7 +676,7 @@ export class SshDeploymentService {
     try {
       for (const kernel of kernels) {
         const path = kernel.configPath ?? DEFAULT_CONFIG_PATHS[kernel.type];
-        const checked = await this.execRoot(ssh, target, `test -r ${shellQuote(path)}`);
+        const checked = await this.exec(ssh, `test -r ${shellQuote(path)}`);
         if (checked.code !== 0) throw new Error(`${kernel.type} 监控路径不可读: ${path}`);
       }
       replaced = await this.replaceAgentConfig(ssh, target, this.agentYaml(target, kernels));
@@ -656,11 +688,11 @@ export class SshDeploymentService {
         ...(current.ssh ? { ssh: { ...current.ssh, hostKey: target.ssh.hostKey } } : {}),
         ...(current.agent ? { agent: { ...current.agent, status: 'running' as const } } : {}),
       }));
-      await this.execRoot(ssh, target, `rm -f ${shellQuote(`${AGENT_CONFIG_PATH}.rollback`)}`);
+      await this.exec(ssh, 'rm -f "$HOME/.config/miobridge-agent/agent.yaml.rollback"');
       return updated;
     } catch (error) {
       if (replaced) {
-        await this.execRoot(ssh, target, `if [ -f ${shellQuote(`${AGENT_CONFIG_PATH}.rollback`)} ]; then cp ${shellQuote(`${AGENT_CONFIG_PATH}.rollback`)} ${shellQuote(AGENT_CONFIG_PATH)}; systemctl restart miobridge-agent || true; else rm -f ${shellQuote(AGENT_CONFIG_PATH)}; systemctl stop miobridge-agent || true; fi`).catch(() => undefined);
+        await this.exec(ssh, `if [ -f "$HOME/.config/miobridge-agent/agent.yaml.rollback" ]; then cp "$HOME/.config/miobridge-agent/agent.yaml.rollback" "$HOME/.config/miobridge-agent/agent.yaml"; ${userSystemctl('restart', 'miobridge-agent.service')} || true; else rm -f "$HOME/.config/miobridge-agent/agent.yaml"; ${userSystemctl('stop', 'miobridge-agent.service')} || true; fi`).catch(() => undefined);
       }
       throw error;
     } finally {
@@ -670,20 +702,21 @@ export class SshDeploymentService {
 
   private async replaceAgentConfig(ssh: DeploymentConnection, target: SshTarget, content: string): Promise<boolean> {
     const encoded = Buffer.from(content).toString('base64');
-    const rollback = `${AGENT_CONFIG_PATH}.rollback`;
     const script = [
       'set -e',
-      `mkdir -p ${shellQuote(posix.dirname(AGENT_CONFIG_PATH))}`,
-      `tmp=$(mktemp ${shellQuote(posix.join(posix.dirname(AGENT_CONFIG_PATH), '.agent.yaml.tmp.XXXXXX'))})`,
+      'config="$HOME/.config/miobridge-agent/agent.yaml"',
+      'rollback="$config.rollback"',
+      'mkdir -p "$(dirname "$config")"',
+      'tmp=$(mktemp "$HOME/.config/miobridge-agent/.agent.yaml.tmp.XXXXXX")',
       `trap 'rm -f -- "$tmp"' EXIT`,
       `printf %s ${shellQuote(encoded)} | base64 -d > "$tmp"`,
       'chmod 600 "$tmp"',
-      `${shellQuote(AGENT_REMOTE_PATH)} --check-config "$tmp"`,
-      `if [ -f ${shellQuote(AGENT_CONFIG_PATH)} ]; then cp ${shellQuote(AGENT_CONFIG_PATH)} ${shellQuote(rollback)}; else rm -f ${shellQuote(rollback)}; fi`,
-      `mv "$tmp" ${shellQuote(AGENT_CONFIG_PATH)}`,
+      '"$HOME/.local/bin/miobridge-agent" --check-config "$tmp"',
+      'if [ -f "$config" ]; then cp "$config" "$rollback"; else rm -f "$rollback"; fi',
+      'mv "$tmp" "$config"',
       'trap - EXIT',
     ].join('\n');
-    const result = await this.execRoot(ssh, target, `bash -c ${shellQuote(script)}`);
+    const result = await this.exec(ssh, `bash -c ${shellQuote(script)}`);
     if (result.code !== 0) throw new Error(`Agent 配置校验或原子替换失败: ${(result.stderr || result.stdout).trim()}`);
     return true;
   }
@@ -710,10 +743,12 @@ export class SshDeploymentService {
       const monitored: NodeKernelConfig[] = [];
       for (const kernel of kernels) {
         emit('kernel', 'running', `检查 ${kernel.type} 内核`, 25);
-        await this.ensureKernel(ssh, target, kernel);
-        monitored.push(kernel);
+        const detected = await this.detectKernel(ssh, kernel.type);
+        const configPath = kernel.configPath ?? detected.defaultConfigPath;
+        const readable = detected.installed ? await this.exec(ssh, `test -r ${shellQuote(configPath)}`) : { code: 1 };
+        if (detected.installed && readable.code === 0) monitored.push({ ...kernel, configPath });
       }
-      emit('kernel', 'success', `${monitored.length} 个内核已就绪`, 50);
+      emit('kernel', 'success', `${monitored.length} 个已安装且可读的内核将由 Agent 监控；未安装内核不会自动安装`, 50);
 
       emit('agent', 'running', '下载并安装已校验 Agent', 60);
       await this.installAgent(ssh, target, monitored);
@@ -900,6 +935,16 @@ export class SshDeploymentService {
     return this.exec(ssh, elevated, target.ssh.password ? `${target.ssh.password}\n` : undefined);
   }
 
+  private async execWithPrivilegeFallback(ssh: DeploymentConnection, target: SshTarget, command: string): Promise<ExecResult> {
+    const direct = await this.exec(ssh, command);
+    if (direct.code === 0) return direct;
+    const output = `${direct.stdout}\n${direct.stderr}`;
+    if (!/permission denied|operation not permitted|must (?:be run|run) as root|requires? root|需要.*(?:root|管理员)|请.*root/iu.test(output)) {
+      return direct;
+    }
+    return this.execRoot(ssh, target, command);
+  }
+
   private async detectKernel(ssh: DeploymentConnection, type: KernelType): Promise<KernelDetection> {
     try {
       const definition = KERNEL_SCRIPTS[type];
@@ -926,19 +971,21 @@ export class SshDeploymentService {
 
   private async detectMihomoOn(ssh: DeploymentConnection): Promise<MihomoDetection> {
     try {
-      const result = await this.exec(ssh, '/usr/local/bin/mihomo -v 2>&1');
+      const result = await this.exec(ssh, 'for candidate in "$HOME/.config/miobridge/bin/mihomo" "$HOME/.local/bin/mihomo" /usr/local/bin/mihomo; do if [ -x "$candidate" ]; then printf "%s\\n" "$candidate"; "$candidate" -v 2>&1; exit $?; fi; done; exit 127');
       const output = (result.stdout || result.stderr).trim();
+      const [path, ...versionLines] = output.split(/\r?\n/);
+      const version = versionLines.find(line => line.trim())?.trim();
       return result.code === 0
-        ? { installed: true, path: '/usr/local/bin/mihomo', ...(output ? { version: output.split(/\r?\n/, 1)[0] } : {}) }
-        : { installed: false, path: '/usr/local/bin/mihomo', ...(output ? { error: output } : {}) };
+        ? { installed: true, path: path || MIHOMO_USER_PATH, ...(version ? { version } : {}) }
+        : { installed: false, path: MIHOMO_USER_PATH, ...(output ? { error: output } : {}) };
     } catch (error) {
-      return { installed: false, path: '/usr/local/bin/mihomo', error: error instanceof Error ? error.message : '检测失败' };
+      return { installed: false, path: MIHOMO_USER_PATH, error: error instanceof Error ? error.message : '检测失败' };
     }
   }
 
   private async ensureKernel(ssh: DeploymentConnection, target: SshTarget, kernel: NodeKernelConfig): Promise<void> {
     if ((await this.detectKernel(ssh, kernel.type)).installed) return;
-    const installed = await this.execRoot(ssh, target, installCommand(kernel.type));
+    const installed = await this.execWithPrivilegeFallback(ssh, target, installCommand(kernel.type));
     if (installed.code !== 0 && !/installed|success|生成配置文件|链接 \(URL\)|使用协议/.test(installed.stdout)) {
       throw new Error(`${kernel.type} 安装失败: ${(installed.stderr || installed.stdout).trim()}`);
     }
@@ -969,28 +1016,32 @@ export class SshDeploymentService {
       '[ "$actual" = "$expected" ]',
       'gzip -dc "$workdir/agent.gz" > "$workdir/agent"',
       `test "$(chmod 755 "$workdir/agent" && "$workdir/agent" --version)" = ${shellQuote(version)}`,
-      `mkdir -p /etc/miobridge-agent /usr/local/bin && install -m 755 "$workdir/agent" ${AGENT_REMOTE_PATH}`,
+      'mkdir -p "$HOME/.local/bin" "$HOME/.config/miobridge-agent" "$HOME/.config/systemd/user"',
+      'install -m 755 "$workdir/agent" "$HOME/.local/bin/miobridge-agent"',
     ].join('\n');
-    const installed = await this.execRoot(ssh, target, `bash -c ${shellQuote(installScript)}`);
+    const installed = await this.exec(ssh, `bash -c ${shellQuote(installScript)}`);
     if (installed.code !== 0) throw new Error(`Agent 安装或校验失败: ${(installed.stderr || installed.stdout).trim().slice(-600)}`);
-    await this.writeRemoteFile(ssh, target, AGENT_CONFIG_PATH, this.agentYaml(target, kernels), 0o600);
-    await this.writeRemoteFile(ssh, target, AGENT_SERVICE_PATH, this.systemdUnit(), 0o644);
+    await this.writeUserFile(ssh, 'miobridge-agent/agent.yaml', this.agentYaml(target, kernels), 0o600, 'config');
+    await this.writeUserFile(ssh, 'miobridge-agent.service', this.systemdUnit(), 0o644, 'unit');
   }
 
-  private async writeRemoteFile(ssh: DeploymentConnection, target: SshTarget, file: string, content: string, mode: number): Promise<void> {
-    const template = posix.join(posix.dirname(file), `.${posix.basename(file)}.tmp.XXXXXX`);
+  private async writeUserFile(ssh: DeploymentConnection, relative: string, content: string, mode: number, kind: 'config' | 'unit'): Promise<void> {
     const encoded = Buffer.from(content).toString('base64');
     const script = [
       'set -e',
-      `tmp=$(mktemp ${shellQuote(template)})`,
+      kind === 'config'
+        ? `target="$HOME/.config/${relative}"`
+        : `target="$HOME/.config/systemd/user/${relative}"`,
+      'mkdir -p "$(dirname "$target")"',
+      'tmp=$(mktemp "$(dirname "$target")/.miobridge.tmp.XXXXXX")',
       `trap 'rm -f -- "$tmp"' EXIT`,
       `printf %s ${shellQuote(encoded)} | base64 -d > "$tmp"`,
       `chmod ${mode.toString(8)} "$tmp"`,
-      `mv -- "$tmp" ${shellQuote(file)}`,
+      'mv -- "$tmp" "$target"',
       'trap - EXIT',
     ].join('\n');
-    const written = await this.execRoot(ssh, target, `bash -c ${shellQuote(script)}`);
-    if (written.code !== 0) throw new Error(`写入 ${file} 失败: ${(written.stderr || written.stdout).trim()}`);
+    const written = await this.exec(ssh, `bash -c ${shellQuote(script)}`);
+    if (written.code !== 0) throw new Error(`写入用户态 Agent 文件失败: ${(written.stderr || written.stdout).trim()}`);
   }
 
   private agentYaml(target: SshTarget, kernels: readonly NodeKernelConfig[]): string {
@@ -999,15 +1050,17 @@ export class SshDeploymentService {
       `    configPath: ${JSON.stringify(kernel.configPath ?? DEFAULT_CONFIG_PATHS[kernel.type])}`,
     ].join('\n')).join('\n');
     const kernelsBlock = kernelYaml ? `kernels:\n${kernelYaml}` : 'kernels: []';
-    return `node:\n  id: ${JSON.stringify(target.nodeId)}\n  name: ${JSON.stringify(target.nodeName)}\n  secret: ${JSON.stringify(target.secret)}\n${kernelsBlock}\nmihomo:\n  path: "/usr/local/bin/mihomo"\nport: ${target.agentPort}\n`;
+    return `node:\n  id: ${JSON.stringify(target.nodeId)}\n  name: ${JSON.stringify(target.nodeName)}\n  secret: ${JSON.stringify(target.secret)}\n${kernelsBlock}\nmihomo:\n  path: "mihomo"\nport: ${target.agentPort}\n`;
   }
 
   private systemdUnit(): string {
-    return `[Unit]\nDescription=MioBridge Agent\nAfter=network.target\n\n[Service]\nType=simple\nExecStart=${AGENT_REMOTE_PATH} --config ${AGENT_CONFIG_PATH}\nWorkingDirectory=/etc/miobridge-agent\nRestart=always\nRestartSec=5\n\n[Install]\nWantedBy=multi-user.target\n`;
+    return `[Unit]\nDescription=MioBridge Agent\nAfter=network-online.target\nWants=network-online.target\n\n[Service]\nType=simple\nExecStart=%h/.local/bin/miobridge-agent --config %h/.config/miobridge-agent/agent.yaml\nWorkingDirectory=%h/.config/miobridge-agent\nEnvironment=PATH=%h/.config/miobridge/bin:%h/.local/bin:/usr/local/bin:/usr/bin:/bin\nRestart=always\nRestartSec=5\nNoNewPrivileges=true\nPrivateTmp=true\n\n[Install]\nWantedBy=default.target\n`;
   }
 
   private async startAgent(ssh: DeploymentConnection, target: SshTarget): Promise<void> {
-    const started = await this.execRoot(ssh, target, 'systemctl daemon-reload && systemctl enable --now miobridge-agent && systemctl restart miobridge-agent');
+    const legacy = await this.exec(ssh, `test -x ${shellQuote(LEGACY_AGENT_PATH)} || test -f ${shellQuote(LEGACY_AGENT_SERVICE_PATH)} || test -f ${shellQuote(LEGACY_AGENT_CONFIG_PATH)}`);
+    if (legacy.code === 0) throw new Error('检测到旧版系统级 Agent。请先由管理员执行 "sudo systemctl disable --now miobridge-agent" 并删除旧 unit，之后重试用户态部署。');
+    const started = await this.exec(ssh, `${userSystemctl('daemon-reload')} && ${userSystemctl('enable', '--now', 'miobridge-agent.service')} && ${userSystemctl('restart', 'miobridge-agent.service')}`);
     if (started.code !== 0) throw new Error(`Agent 启动失败: ${(started.stderr || started.stdout).trim()}`);
   }
 

@@ -453,9 +453,15 @@ class ApiService {
     }
   }
 
-  async preflightDeployment(nodeId: string): Promise<ApiResponse<NodePreflightResult>> {
+  async preflightDeployment(
+    nodeId: string,
+    component: DeployComponent,
+    operation: DeployOperation,
+  ): Promise<ApiResponse<NodePreflightResult>> {
     try {
-      return await apiClient.post(`api/cluster/nodes/${encodeURIComponent(nodeId)}/preflight`).json<ApiResponse<NodePreflightResult>>();
+      return await apiClient.post('api/deployments/preflight', {
+        json: { nodeId, component, operation },
+      }).json<ApiResponse<NodePreflightResult>>();
     } catch (error) { return this.handleError(error); }
   }
 

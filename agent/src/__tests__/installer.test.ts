@@ -63,6 +63,7 @@ function fixture(machine = 'x86_64') {
   writeFileSync(join(fakeBin, 'systemctl'), [
     '#!/bin/sh',
     'printf "%s\\n" "$*" >> "$FAKE_SYSTEMCTL_LOG"',
+    '[ "$1" != "--user" ] || shift',
     'case "$1" in',
     '  is-active) test -f "$FAKE_ACTIVE" ;;',
     '  restart) test ! -f "$FAKE_FAIL_RESTART" || exit 1; touch "$FAKE_ACTIVE" ;;',
@@ -95,7 +96,6 @@ function fixture(machine = 'x86_64') {
   const env = {
     ...process.env,
     PATH: `${fakeBin}:${process.env.PATH}`,
-    MIOBRIDGE_AGENT_ALLOW_NON_ROOT: '1',
     MIOBRIDGE_AGENT_UNIT_PATH: unitPath,
     MIOBRIDGE_AGENT_SYSTEMCTL: 'systemctl',
     FAKE_SYSTEMCTL_LOG: systemctlLog,
@@ -118,6 +118,23 @@ function installArgs(context: ReturnType<typeof fixture>, extra: string[] = []):
 }
 
 describe('install-agent.sh', () => {
+  test('uses current-user binary, config, and user systemd paths by default', () => {
+    const context = fixture();
+    const userHome = join(context.directory, 'home');
+    const xdgConfig = join(context.directory, 'xdg');
+    const { MIOBRIDGE_AGENT_UNIT_PATH: _unitPath, ...env } = context.env;
+    execFileSync('sh', [
+      installer,
+      '--version', '1.2.3',
+      '--base-url', `file://${context.release}`,
+      '--config', context.config,
+    ], { env: { ...env, HOME: userHome, XDG_CONFIG_HOME: xdgConfig } });
+
+    expect(execFileSync(join(userHome, '.local', 'bin', 'miobridge-agent'), ['--version'], { encoding: 'utf8' }).trim()).toBe('1.2.3');
+    expect(readFileSync(join(userHome, '.config', 'miobridge-agent', 'agent.yaml'), 'utf8')).toContain('id: "node-1"');
+    expect(readFileSync(join(xdgConfig, 'systemd', 'user', 'miobridge-agent.service'), 'utf8')).toContain('WantedBy=default.target');
+  });
+
   test.each([['x86_64', 'x64'], ['amd64', 'x64'], ['aarch64', 'arm64'], ['arm64', 'arm64']])(
     'maps %s to the %s release and installs an explicit-config systemd unit',
     (machine) => {
@@ -130,8 +147,9 @@ describe('install-agent.sh', () => {
       expect(output).toContain('MioBridge Agent 1.2.3 installed');
       expect(execFileSync(binary, ['--marker'], { encoding: 'utf8' }).trim()).toBe('initial');
       expect(readFileSync(context.unitPath, 'utf8')).toContain(`ExecStart="${binary}" --config "${join(context.configDir, 'agent.yaml')}"`);
-      expect(readFileSync(context.systemctlLog, 'utf8')).toContain('daemon-reload');
-      expect(readFileSync(context.systemctlLog, 'utf8')).toContain('restart miobridge-agent');
+      expect(readFileSync(context.unitPath, 'utf8')).toContain('WantedBy=default.target');
+      expect(readFileSync(context.systemctlLog, 'utf8')).toContain('--user daemon-reload');
+      expect(readFileSync(context.systemctlLog, 'utf8')).toContain('--user restart miobridge-agent');
     },
   );
 

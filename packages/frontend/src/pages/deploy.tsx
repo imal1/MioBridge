@@ -165,7 +165,7 @@ export default function DeployPage() {
     setPreflighting(true)
     setError(null)
     try {
-      const response = await apiService.preflightDeployment(selectedNode)
+      const response = await apiService.preflightDeployment(selectedNode, component, operation)
       if (!response.success) throw new Error(errorMessage(response.error, 'SSH 预检失败'))
       const failed = response.data?.checks.filter(check => !check.ok) ?? []
       // 预检结论必须成为创建任务的 gate；本机节点由后端改为直接执行检查。
@@ -176,7 +176,7 @@ export default function DeployPage() {
       const message = caught instanceof Error ? caught.message : 'SSH 预检失败'
       setError(message)
     } finally { setPreflighting(false) }
-  }, [node?.nodeId, selectedNode])
+  }, [component, node?.nodeId, operation, selectedNode])
 
   const blocking = blockedNodes[selectedNode] ?? []
 
@@ -235,7 +235,8 @@ export default function DeployPage() {
     await refresh()
   }, [node?.name, refresh, selectedNode])
 
-  const installer = `curl -fsSL https://github.com/imal1/miobridge/releases/latest/download/install-agent.sh -o /tmp/install-agent.sh\nsudo sh /tmp/install-agent.sh --config /tmp/miobridge-agent.yaml`
+  const sshTarget = `${node?.sshUser || '<ssh-user>'}@${node?.host || '<child-host>'}`
+  const installer = `curl -fsSL https://github.com/imal1/miobridge/releases/latest/download/install-agent.sh -o /tmp/install-agent.sh\nsh /tmp/install-agent.sh --config /tmp/miobridge-agent.yaml`
 
   return (
     <SignalPage crumb="Deployment control plane" title="部署中心" description="每次只处理一个节点和一个组件；安装态变更、运行态维护和监控状态彼此分离。" status={`${activeTasks.length} 个活动任务 · ${taskList.filter(item => item.status === 'error').length} 个失败任务`} maxWidth="narrow" actions={<Button variant="outline" onClick={refresh}><Icon icon="ph:arrow-clockwise-light" />刷新状态</Button>}>
@@ -302,7 +303,7 @@ export default function DeployPage() {
       </Card>
 
       <Dialog open={manualOpen} onOpenChange={setManualOpen}>
-        <DialogContent className="max-w-2xl"><DialogHeader><DialogTitle>手动 Shell 部署 Agent</DialogTitle><DialogDescription>适用于无法由控制面直连 SSH 的子节点。它只安装 Agent，不安装 CLI、Dashboard、Bun、mihomo 或协议核心。</DialogDescription></DialogHeader><div className="space-y-4 py-2"><div className="grid gap-2 sm:grid-cols-3"><div className="rounded-2xl bg-[var(--surface-container)] p-3"><p className="text-xs text-muted-foreground">节点 ID</p><p className="break-all font-medium">{selectedNode}</p></div><div className="rounded-2xl bg-[var(--surface-container)] p-3"><p className="text-xs text-muted-foreground">节点名称</p><p className="font-medium">{node?.name || '—'}</p></div><div className="rounded-2xl bg-[var(--surface-container)] p-3"><p className="text-xs text-muted-foreground">Agent 端口</p><p className="font-medium">{node?.agent?.port || 3001}</p></div></div><ol className="list-decimal space-y-2 pl-5 text-sm"><li>下载下方 Agent 配置，并传到子节点的 <code>/tmp/miobridge-agent.yaml</code>。</li><li>在子节点下载校验过的安装器并执行。</li><li>返回本页刷新状态，立即检查 Agent 健康和心跳。</li></ol><pre className="overflow-x-auto rounded-2xl bg-[var(--surface-container-high)] p-4 text-xs leading-6">scp agent.yaml root@child:/tmp/miobridge-agent.yaml{`\n\n`}{installer}</pre></div><DialogFooter><Button asChild variant="outline"><a href={apiService.manualAgentConfigUrl(selectedNode)}><Icon icon="ph:download-simple-light" />下载 Agent 配置</a></Button><Button variant="outline" onClick={async () => { await navigator.clipboard.writeText(installer); toast.success('已复制安装命令') }}><Icon icon="ph:copy-light" />复制安装命令</Button><Button onClick={() => { setManualOpen(false); completeManual().catch(() => {}) }}>完成并检查健康</Button></DialogFooter></DialogContent>
+        <DialogContent className="max-w-2xl"><DialogHeader><DialogTitle>手动 Shell 部署 Agent</DialogTitle><DialogDescription>适用于无法由控制面直连 SSH 的子节点。它只安装 Agent，不安装 CLI、Dashboard、Bun、mihomo 或协议核心。</DialogDescription></DialogHeader><div className="space-y-4 py-2"><div className="grid gap-2 sm:grid-cols-3"><div className="rounded-2xl bg-[var(--surface-container)] p-3"><p className="text-xs text-muted-foreground">节点 ID</p><p className="break-all font-medium">{selectedNode}</p></div><div className="rounded-2xl bg-[var(--surface-container)] p-3"><p className="text-xs text-muted-foreground">节点名称</p><p className="font-medium">{node?.name || '—'}</p></div><div className="rounded-2xl bg-[var(--surface-container)] p-3"><p className="text-xs text-muted-foreground">Agent 端口</p><p className="font-medium">{node?.agent?.port || 3001}</p></div></div><ol className="list-decimal space-y-2 pl-5 text-sm"><li>下载下方 Agent 配置，并传到子节点的 <code>/tmp/miobridge-agent.yaml</code>。</li><li>在子节点下载校验过的安装器并执行。</li><li>返回本页刷新状态，立即检查 Agent 健康和心跳。</li></ol><pre className="overflow-x-auto rounded-2xl bg-[var(--surface-container-high)] p-4 text-xs leading-6">scp agent.yaml {sshTarget}:/tmp/miobridge-agent.yaml{`\n\n`}{installer}</pre></div><DialogFooter><Button asChild variant="outline"><a href={apiService.manualAgentConfigUrl(selectedNode)}><Icon icon="ph:download-simple-light" />下载 Agent 配置</a></Button><Button variant="outline" onClick={async () => { await navigator.clipboard.writeText(installer); toast.success('已复制安装命令') }}><Icon icon="ph:copy-light" />复制安装命令</Button><Button onClick={() => { setManualOpen(false); completeManual().catch(() => {}) }}>完成并检查健康</Button></DialogFooter></DialogContent>
       </Dialog>
     </SignalPage>
   )

@@ -1,5 +1,5 @@
 # MioBridge Agent 配置文件
-# 部署到 /etc/miobridge-agent/agent.yaml
+# 部署到 ~/.config/miobridge-agent/agent.yaml
 
 node:
   id: "node-sg"          # 节点唯一标识
@@ -13,6 +13,6 @@ kernels:
     configPath: "/etc/xray/config.json"
 
 mihomo:
-  path: "/usr/local/bin/mihomo"
+  path: "mihomo"
 
 port: 3001

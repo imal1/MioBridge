@@ -22,8 +22,9 @@ GitHub Release, verifies SHA-256, then atomically installs
 `~/.local/bin/miobridge` and the static dashboard under
 `~/.config/miobridge/dist/dashboard`, then runs
 `miobridge setup --yes --local-node` to install pinned runtime dependencies,
-persist this server as the local node, and install the matching Agent configured
-to monitor sing-box, Xray, and V2Ray from its checksum-covered release installer.
+persist this server as the local node, and install the matching user-level Agent.
+Agent deployment monitors only already-installed, readable protocol kernels and
+never installs sing-box, Xray, or V2Ray as a side effect.
 Pass `--no-local-node` to skip the local node and Agent. It needs `curl` or
 `wget`, `tar`, and `sha256sum` (or `shasum`).
 It does not require Git, Node.js, Bun, or a source checkout.
@@ -102,26 +103,33 @@ Exact versions, URLs, and SHA-256 values are reviewed source in
 [`packages/cli/src/setup/catalog.ts`](../packages/cli/src/setup/catalog.ts).
 Setup redacts credentials and query secrets from errors.
 
+Explicit protocol-kernel actions use the installed 233boy
+`/usr/local/bin/<kernel>` wrapper. MioBridge runs that wrapper directly first;
+it retries through sudo only when the command explicitly reports a permission
+failure. Detection and ordinary successful lifecycle commands do not request
+sudo.
+
 Remote Agent deployment follows the same layering: the CLI selects the
 same-version x64/arm64 compressed Agent asset, verifies `SHA256SUMS`, and installs
-the binary on the child without installing Bun or compiling source.
+the binary under the SSH user's home with a `systemctl --user` service. It needs
+no sudo and does not install Bun, compile source, or install a protocol kernel.
 
 For a manual child-node bootstrap, download `install-agent.sh` from the same
 GitHub Release and an `agent.yaml` from the Dashboard deployment center:
 
 ```bash
-scp agent.yaml root@child:/tmp/miobridge-agent.yaml
+scp agent.yaml child:/tmp/miobridge-agent.yaml
 curl -fsSL https://github.com/imal1/miobridge/releases/latest/download/install-agent.sh \
   -o /tmp/install-agent.sh
-sudo sh /tmp/install-agent.sh --config /tmp/miobridge-agent.yaml
+sh /tmp/install-agent.sh --config /tmp/miobridge-agent.yaml
 ```
 
-This installer owns only `/usr/local/bin/miobridge-agent`,
-`/etc/miobridge-agent/agent.yaml`, and the systemd service. It validates the
-binary and config before replacement and rolls all three files back when restart
-or local health verification fails. It never installs CLI, Dashboard, Bun,
-mihomo, or protocol kernels. See [DEPLOYMENT.md](./DEPLOYMENT.md) for independent
-parameter and mirror examples.
+This installer owns only `~/.local/bin/miobridge-agent`,
+`~/.config/miobridge-agent/agent.yaml`, and the user systemd service. It validates
+the binary and config before replacement and rolls all three files back when
+restart or local health verification fails. It never installs CLI, Dashboard,
+Bun, mihomo, or protocol kernels. See [DEPLOYMENT.md](./DEPLOYMENT.md) for
+independent parameter and mirror examples.
 
 ## Dashboard provider and systemd user service
 

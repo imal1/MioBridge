@@ -48,7 +48,7 @@ export class LocalNodeConfigurationService {
         type: kernel.type,
         configPath: kernel.configPath ?? DEFAULT_CONFIG_PATHS[kernel.type],
       })),
-      mihomo: { path: this.adapters.mihomoPath ?? '/usr/local/bin/mihomo' },
+      mihomo: { path: this.adapters.mihomoPath ?? 'mihomo' },
       port: node.port ?? node.agent?.port ?? 3001,
     }, { lineWidth: 0 });
   }

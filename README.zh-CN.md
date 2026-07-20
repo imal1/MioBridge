@@ -13,7 +13,8 @@ curl -fsSL https://raw.githubusercontent.com/imal1/MioBridge/main/scripts/instal
 ```
 
 引导脚本安装经过校验的 Linux CLI、静态仪表盘和固定版本运行依赖；默认把当前
-服务器登记为本机节点，并安装监控 sing-box、Xray、V2Ray 的同版本 Agent。使用
+服务器登记为本机节点，并安装同版本的用户态 Agent。Agent 只监听已经安装且
+配置可读的协议内核；部署 Agent 不会安装 sing-box、Xray 或 V2Ray。使用
 `--no-local-node` 可跳过本机节点和 Agent。安装过程不会克隆或构建源码仓库，
 运行数据位于 `~/.config/miobridge/`。
 
@@ -104,15 +105,20 @@ CLI 通信。CLI 二进制统一负责 API 与静态文件服务。
 
 新增或编辑子节点时，MioBridge 会先通过 SSH 检测 sing-box、Xray 和 V2Ray。
 选择对话框会分别显示各内核的已安装版本与默认配置路径。至少选择一个内核；
-已选择但缺失的内核会在部署阶段安装，已安装但未选择的内核仍会显示为"未监听"。
+Agent 部署只保留已安装且配置可读的内核，缺失内核绝不会随 Agent 自动安装；
+需要时必须通过对应内核的安装操作明确安装。已安装但未选择的内核仍显示为
+“未监听”。
 
 协议内核的安装、升级、修复、重装和卸载统一委托给上游 233boy 管理脚本
 （`233boy/sing-box`、`233boy/Xray`、`233boy/v2ray`）。MioBridge 检测
 `/usr/local/bin/<内核>` 管理入口并读取 `/etc/<内核>` 下的配置；只有官方裸内核、
 但没有 `url [name]` 命令时，不会被误判为可用的节点来源。
+维护操作会先直接调用这个全局 wrapper；只有 wrapper 明确报告权限不足时才回退
+到 sudo。
 
 CLI 会为子节点选择同版本的 x64/arm64 Agent Release 制品，使用
-`SHA256SUMS` 校验后安装；子节点不需要 Git、Bun 或源码构建。
+`SHA256SUMS` 校验后安装到 SSH 用户目录，并通过 `systemctl --user` 管理；该流程
+不需要 sudo、Git、Bun 或源码构建。
 
 Agent 配置使用有序的 `kernels` 列表，因此同一个子节点可以发布多个运行时的
 结构化来源：

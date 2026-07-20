@@ -2,6 +2,18 @@
 
 本文档记录 MioBridge 的重要变更。版本号遵循语义化版本规范。
 
+## [1.2.3] — 2026-07-19
+
+### Fixed
+
+- Agent 部署与协议内核安装解耦：部署 Agent 只监控已安装且配置可读的内核，
+  不再因预选 sing-box、Xray 或 V2Ray 而自动安装它们。
+- Agent 与 mihomo 改为用户目录和用户级 systemd 生命周期，安装、升级、启停与
+  卸载不再要求 sudo；手动 `install-agent.sh` 也默认以当前用户运行。
+- 233boy 内核 wrapper 的维护命令优先直接执行；只有输出明确表示权限不足时才
+  尝试 sudo 回退，避免受 `NoNewPrivileges` 限制的 Dashboard 无故提权失败。
+- Release assets 同时发布并校验 `install.sh` 与 `install-agent.sh`。
+
 ## [1.2.2] — 2026-07-19
 
 ### Fixed

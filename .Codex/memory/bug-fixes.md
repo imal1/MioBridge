@@ -7,6 +7,9 @@ metadata:
 
 # Bug Fixes
 
+- 2026-07-19: Agent deployment no longer installs selected missing protocol
+  kernels. Agent and mihomo use user paths and user systemd without sudo; 233boy
+  wrappers run directly and elevate only after an explicit permission failure.
 - 2026-07-19: Local-node installation now bootstraps a verified Agent, reconciles
   its observed state, and keeps it in deployment/Agent/runtime/subscription flows.
   Multi-kernel collection uses each 233boy `url` command with per-config isolation;
