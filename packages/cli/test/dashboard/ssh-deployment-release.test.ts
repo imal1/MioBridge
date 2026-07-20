@@ -86,7 +86,7 @@ describe('local deployment transport', () => {
     expect(node.kernels).toEqual([]);
   });
 
-  it('runs an installed 233boy wrapper directly and elevates only after an explicit permission error', async () => {
+  it('runs an installed 233boy wrapper directly without retrying through sudo', async () => {
     const node = {
       id: 'local', name: '本机节点', host: '127.0.0.1', secret: 'secret', location: '本机', enabled: true,
       kernels: [{ type: 'sing-box' as const }],
@@ -103,15 +103,38 @@ describe('local deployment transport', () => {
     await direct.kernelAction('local', 'sing-box', 'restart');
     expect(directCommands).toEqual(["'/usr/local/bin/sing-box' 'restart'"]);
 
-    const fallbackCommands: string[] = [];
-    const fallback = new SshDeploymentService(composition, { runLocal: async command => {
-      fallbackCommands.push(command);
-      return command.startsWith('sudo -n')
-        ? { stdout: '', stderr: '', code: 0 }
-        : { stdout: '', stderr: 'permission denied', code: 1 };
+    const failedCommands: string[] = [];
+    const failed = new SshDeploymentService(composition, { runLocal: async command => {
+      failedCommands.push(command);
+      return { stdout: '', stderr: 'permission denied', code: 1 };
     } });
-    await fallback.kernelAction('local', 'sing-box', 'restart');
-    expect(fallbackCommands[0]).toBe("'/usr/local/bin/sing-box' 'restart'");
-    expect(fallbackCommands[1]).toContain('sudo -n bash -lc');
+    await expect(failed.kernelAction('local', 'sing-box', 'restart')).rejects.toThrow('permission denied');
+    expect(failedCommands).toEqual(["'/usr/local/bin/sing-box' 'restart'"]);
+    expect(failedCommands.some(command => command.includes('sudo'))).toBe(false);
+  });
+
+  it('runs the 233boy installer directly and reports its root check without a sudo retry', async () => {
+    const node = {
+      id: 'local', name: '本机节点', host: '127.0.0.1', secret: 'secret', location: '本机', enabled: true,
+      kernels: [] as Array<{ type: 'sing-box' }>,
+    };
+    const composition = {
+      repository: { list: async () => [node] },
+      core: { state: { get: async () => null } },
+    } as unknown as NodeCoreComposition;
+    const commands: string[] = [];
+    const service = new SshDeploymentService(composition, { runLocal: async command => {
+      commands.push(command);
+      if (command.includes("'/usr/local/bin/sing-box' 'help'")) {
+        return { stdout: '', stderr: 'missing', code: 1 };
+      }
+      return { stdout: '', stderr: '当前非 ROOT用户', code: 1 };
+    } });
+
+    await expect(service.installKernel('local', 'sing-box')).rejects.toThrow('当前非 ROOT用户');
+    expect(commands).toHaveLength(2);
+    expect(commands[1]).toContain('raw.githubusercontent.com/233boy/sing-box/main/install.sh');
+    expect(commands[1]).toContain('bash "$workdir/install.sh"');
+    expect(commands.some(command => command.includes('sudo'))).toBe(false);
   });
 });

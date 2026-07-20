@@ -96,9 +96,9 @@ miobridge uninstall --purge
 [`packages/cli/src/setup/catalog.ts`](../packages/cli/src/setup/catalog.ts) 中。
 Setup 错误会隐藏凭据和查询参数中的密钥。
 
-明确触发协议内核操作时，MioBridge 会先直接调用已经安装的 233boy
-`/usr/local/bin/<内核>` wrapper；只有命令明确报告权限不足时才通过 sudo 重试。
-检测及可直接成功的日常启停、升级等操作不会请求 sudo。
+明确触发协议内核安装时，MioBridge 始终直接执行对应的 233boy 上游
+`install.sh`；维护操作始终直接调用已经安装的 `/usr/local/bin/<内核>` wrapper。
+MioBridge 不会添加 sudo 或提权重试；上游脚本自身的权限错误会原样返回。
 
 远端 Agent 也遵循同一分层：CLI 选择同版本的 x64/arm64 压缩 Agent 制品，
 校验 `SHA256SUMS` 后安装到 SSH 用户目录并由 `systemctl --user` 管理。该流程

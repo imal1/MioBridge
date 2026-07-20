@@ -103,11 +103,11 @@ Exact versions, URLs, and SHA-256 values are reviewed source in
 [`packages/cli/src/setup/catalog.ts`](../packages/cli/src/setup/catalog.ts).
 Setup redacts credentials and query secrets from errors.
 
-Explicit protocol-kernel actions use the installed 233boy
-`/usr/local/bin/<kernel>` wrapper. MioBridge runs that wrapper directly first;
-it retries through sudo only when the command explicitly reports a permission
-failure. Detection and ordinary successful lifecycle commands do not request
-sudo.
+Explicit protocol-kernel installation invokes the corresponding upstream 233boy
+`install.sh` directly. Maintenance actions always use the installed
+`/usr/local/bin/<kernel>` wrapper directly. MioBridge never adds sudo or retries
+with elevated privileges; permission errors from the upstream script are returned
+unchanged.
 
 Remote Agent deployment follows the same layering: the CLI selects the
 same-version x64/arm64 compressed Agent asset, verifies `SHA256SUMS`, and installs

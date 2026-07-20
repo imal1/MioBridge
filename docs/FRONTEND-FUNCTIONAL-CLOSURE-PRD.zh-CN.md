@@ -159,7 +159,7 @@ getMetricsSnapshot(): Promise<MetricsSnapshot>
 ### 7.1 添加节点
 
 - 输入名称、主机、地域、标签、SSH 用户、端口和凭据。
-- 预检包含 DNS、TCP、SSH 认证、sudo/root、Linux、架构、磁盘、systemd 和下载工具。
+- 预检包含 DNS、TCP、SSH 认证、用户权限、Linux、架构、磁盘、systemd 和下载工具。
 - 展示并确认 SSH host key。
 - 保存时只创建控制面档案，不安装 Agent、mihomo 或协议核心。
 - 普通节点接口不返回节点 secret、SSH 密码或私钥。

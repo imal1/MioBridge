@@ -236,7 +236,7 @@ export class SshDeploymentService {
         { key: 'disk', label: '磁盘空间', ok: Number.isFinite(freeKb) && freeKb >= 200 * 1024, detail: Number.isFinite(freeKb) ? `${Math.round(freeKb / 1024)} MiB 可用` : '无法读取' },
         { key: 'systemd', label: needsUserSystemd ? '用户级 systemd' : 'systemd', ok: systemd.code === 0, detail: !needsSystemd ? 'mihomo 用户态安装不需要 systemd' : systemd.code === 0 ? (needsUserSystemd ? 'systemctl --user 可用' : systemd.stdout.trim()) : (systemd.stderr || systemd.stdout).trim() || '未找到' },
         { key: 'download', label: '下载工具', ok: downloader.code === 0, detail: downloader.stdout.trim() || '未找到 curl/wget' },
-        { key: 'privilege', label: '执行权限', ok: privilege.code === 0, detail: KERNEL_TYPES.includes(component as KernelType) ? '优先直接调用 233boy 全局 wrapper；仅在明确权限不足时提权回退' : '此组件使用用户态部署，无需 sudo' },
+        { key: 'privilege', label: '执行权限', ok: privilege.code === 0, detail: KERNEL_TYPES.includes(component as KernelType) ? '直接执行 233boy install.sh 或全局 wrapper，不使用 sudo 回退' : '此组件使用用户态部署，无需 sudo' },
       ];
       return { hostKey: target.ssh.hostKey, architecture: architecture.stdout.trim(), checks };
     } finally { ssh.end(); }
@@ -455,7 +455,7 @@ export class SshDeploymentService {
     const target = await this.targetForNode(nodeId);
     const ssh = await this.connect(target);
     try {
-      await this.ensureKernel(ssh, target, { type });
+      await this.ensureKernel(ssh, { type });
       return await this.detectKernel(ssh, type);
     } finally {
       ssh.end();
@@ -467,7 +467,7 @@ export class SshDeploymentService {
     const target = await this.targetForNode(nodeId);
     const ssh = await this.connect(target);
     try {
-      const executed = await this.execWithPrivilegeFallback(ssh, target, uninstallCommand(type, options.preserveConfig));
+      const executed = await this.exec(ssh, uninstallCommand(type, options.preserveConfig));
       if (executed.code !== 0) throw new Error((executed.stderr || executed.stdout).trim() || `${type} 卸载失败`);
       return await this.detectKernel(ssh, type);
     } finally {
@@ -482,7 +482,7 @@ export class SshDeploymentService {
     const target = await this.targetForNode(nodeId);
     const ssh = await this.connect(target);
     try {
-      const executed = await this.execWithPrivilegeFallback(ssh, target, wrapperCommand(type, action));
+      const executed = await this.exec(ssh, wrapperCommand(type, action));
       if (executed.code !== 0) throw new Error((executed.stderr || executed.stdout).trim() || `${type} ${action} 失败`);
       return { nodeId, kernelType: type, status: action === 'stop' ? 'stopped' : 'running' };
     } finally { ssh.end(); }
@@ -624,8 +624,8 @@ export class SshDeploymentService {
     const target = await this.targetForNode(nodeId);
     const ssh = await this.connect(target);
     try {
-      await this.ensureKernel(ssh, target, { type });
-      const repaired = await this.execWithPrivilegeFallback(ssh, target, repairCommand(type));
+      await this.ensureKernel(ssh, { type });
+      const repaired = await this.exec(ssh, repairCommand(type));
       if (repaired.code !== 0) throw new Error((repaired.stderr || repaired.stdout).trim() || `${type} 修复检查失败`);
       return await this.detectKernel(ssh, type);
     } finally { ssh.end(); }
@@ -635,8 +635,8 @@ export class SshDeploymentService {
     const target = await this.targetForNode(nodeId);
     const ssh = await this.connect(target);
     try {
-      await this.ensureKernel(ssh, target, { type });
-      const upgraded = await this.execWithPrivilegeFallback(ssh, target, upgradeCommand(type));
+      await this.ensureKernel(ssh, { type });
+      const upgraded = await this.exec(ssh, upgradeCommand(type));
       if (upgraded.code !== 0) throw new Error((upgraded.stderr || upgraded.stdout).trim() || `${type} 升级失败`);
       return await this.detectKernel(ssh, type);
     } finally { ssh.end(); }
@@ -646,7 +646,7 @@ export class SshDeploymentService {
     const target = await this.targetForNode(nodeId);
     const ssh = await this.connect(target);
     try {
-      const reinstalled = await this.execWithPrivilegeFallback(ssh, target, reinstallCommand(type, options.preserveConfig));
+      const reinstalled = await this.exec(ssh, reinstallCommand(type, options.preserveConfig));
       if (reinstalled.code !== 0) throw new Error((reinstalled.stderr || reinstalled.stdout).trim() || `${type} 重装失败`);
       return await this.detectKernel(ssh, type);
     } finally { ssh.end(); }
@@ -935,16 +935,6 @@ export class SshDeploymentService {
     return this.exec(ssh, elevated, target.ssh.password ? `${target.ssh.password}\n` : undefined);
   }
 
-  private async execWithPrivilegeFallback(ssh: DeploymentConnection, target: SshTarget, command: string): Promise<ExecResult> {
-    const direct = await this.exec(ssh, command);
-    if (direct.code === 0) return direct;
-    const output = `${direct.stdout}\n${direct.stderr}`;
-    if (!/permission denied|operation not permitted|must (?:be run|run) as root|requires? root|需要.*(?:root|管理员)|请.*root/iu.test(output)) {
-      return direct;
-    }
-    return this.execRoot(ssh, target, command);
-  }
-
   private async detectKernel(ssh: DeploymentConnection, type: KernelType): Promise<KernelDetection> {
     try {
       const definition = KERNEL_SCRIPTS[type];
@@ -983,9 +973,9 @@ export class SshDeploymentService {
     }
   }
 
-  private async ensureKernel(ssh: DeploymentConnection, target: SshTarget, kernel: NodeKernelConfig): Promise<void> {
+  private async ensureKernel(ssh: DeploymentConnection, kernel: NodeKernelConfig): Promise<void> {
     if ((await this.detectKernel(ssh, kernel.type)).installed) return;
-    const installed = await this.execWithPrivilegeFallback(ssh, target, installCommand(kernel.type));
+    const installed = await this.exec(ssh, installCommand(kernel.type));
     if (installed.code !== 0 && !/installed|success|生成配置文件|链接 \(URL\)|使用协议/.test(installed.stdout)) {
       throw new Error(`${kernel.type} 安装失败: ${(installed.stderr || installed.stdout).trim()}`);
     }
