@@ -139,7 +139,7 @@ describe('CLI release distribution', () => {
     const installDir = join(dir, 'installed');
     const cwd = join(dir, 'external');
     mkdirSync(cwd);
-    const output = execFileSync('sh', [installer, '--version', '1.2.3', '--base-url', `file://${release}`, '--install-dir', installDir], {
+    const output = execFileSync('sh', [installer, '--version', '1.2.3', '--base-url', `file://${release}`, '--install-dir', installDir, '--no-local-node'], {
       cwd,
       env: { ...process.env, HOME: dir, PATH: fakePlatform(dir, machine) },
       encoding: 'utf8',
@@ -175,7 +175,7 @@ describe('CLI release distribution', () => {
     expect(result.status).not.toBe(0);
     expect(result.stderr).toContain('dependency-download-failed');
     expect(result.stderr).toContain('MioBridge CLI 1.2.3 is installed, but runtime dependency setup failed.');
-    expect(result.stderr).toContain(`Retry with: ${join(installDir, 'miobridge')} setup --yes`);
+    expect(result.stderr).toContain(`Retry with: ${join(installDir, 'miobridge')} setup --yes --local-node`);
     expect(execFileSync(join(installDir, 'miobridge'), { encoding: 'utf8' }).trim()).toBe('x64-v1');
   });
 

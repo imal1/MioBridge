@@ -18,6 +18,10 @@ metadata:
 - Cluster state goes through `StateStore` under `~/.config/miobridge`.
 - A child Agent can monitor multiple kernels and returns structured, kernel-tagged
   sources plus per-kernel runtime status to the main node.
+- A configured local node also runs Agent with `sing-box`, `xray`, and `v2ray`
+  discovery by default; legacy sing-box-only local profiles are filled forward.
+  Direct local sing-box collection remains a compatibility source; exact URLs
+  are deduplicated.
 - Cluster proxy totals and generated artifacts use exact-URL global deduplication;
   Clash-only naming prefixes region and appends the source URL on name conflicts.
 - `@miobridge/core` composes artifact generation and status through the explicit

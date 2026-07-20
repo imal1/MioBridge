@@ -20,10 +20,13 @@ The installer selects `linux-x64` for `x86_64`/`amd64` and `linux-arm64` for
 `aarch64`/`arm64`, downloads the versioned archive and `SHA256SUMS` from its
 GitHub Release, verifies SHA-256, then atomically installs
 `~/.local/bin/miobridge` and the static dashboard under
-`~/.config/miobridge/dist/dashboard`, then runs `miobridge setup --yes` to
-install pinned runtime dependencies. It needs `curl` or `wget`, `tar`, and
-`sha256sum` (or `shasum`). It does not require Git, Node.js, Bun, or a source
-checkout.
+`~/.config/miobridge/dist/dashboard`, then runs
+`miobridge setup --yes --local-node` to install pinned runtime dependencies,
+persist this server as the local node, and install the matching Agent configured
+to monitor sing-box, Xray, and V2Ray from its checksum-covered release installer.
+Pass `--no-local-node` to skip the local node and Agent. It needs `curl` or
+`wget`, `tar`, and `sha256sum` (or `shasum`).
+It does not require Git, Node.js, Bun, or a source checkout.
 
 For a mirror, air-gapped staging server, or non-default binary directory:
 
@@ -45,8 +48,9 @@ miobridge upgrade
 ```bash
 miobridge status --json
 miobridge update
-miobridge setup             # interactive
-miobridge setup --yes       # non-interactive
+miobridge setup                              # interactively choose the local node
+miobridge setup --yes --local-node           # non-interactive local-node profile
+miobridge nodes configure --no-local-node    # remove the local-node profile
 ```
 
 Fresh installs configure the current server as the local node by default. Pass

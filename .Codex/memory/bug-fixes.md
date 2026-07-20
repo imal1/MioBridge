@@ -7,6 +7,10 @@ metadata:
 
 # Bug Fixes
 
+- 2026-07-19: Local-node installation now bootstraps a verified Agent, reconciles
+  its observed state, and keeps it in deployment/Agent/runtime/subscription flows.
+  Multi-kernel collection uses each 233boy `url` command with per-config isolation;
+  Clash conversion preserves transport/Reality fields and uses safe LAN/CN rules.
 - 2026-07-16: Anchor the runtime `logs/` ignore rule and restore the Core log
   service it had hidden, including stable tail/filter and abortable follow.
 - 2026-07-15: Protocol-kernel deployment delegates installation and lifecycle

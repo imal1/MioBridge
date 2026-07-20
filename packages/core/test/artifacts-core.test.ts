@@ -36,7 +36,7 @@ describe('ArtifactService', () => {
     expect(await readFile(join(config.staticDir, 'clash.yaml'), 'utf8')).toContain('proxies:');
     expect(result.backupCreated).toBe(join(config.backupDir, 'subscription_2026-07-12T10-11-12.txt'));
     expect(await readFile(result.backupCreated, 'utf8')).toBe(encoded);
-    expect(result.warnings).toEqual(['远端: partial']);
+    expect(result.warnings).toEqual(['节点: partial']);
   });
 
   it('keeps raw artifacts on Clash failure and never replaces old files on total source failure', async () => {
@@ -59,6 +59,41 @@ describe('ArtifactService', () => {
     await expect(totalFailure.updateSubscription()).rejects.toThrow('没有找到有效的代理URL');
     expect(await readFile(join(config.staticDir, 'raw.txt'), 'utf8')).toBe('old-raw');
     expect(await readFile(join(config.staticDir, 'subscription.txt'), 'utf8')).toBe('old-subscription');
+  });
+
+  it('publishes every unique kernel source from multiple managed nodes into all three artifacts', async () => {
+    const { config } = await setup();
+    const sources = ['node-a', 'node-b'].flatMap((nodeId, nodeIndex) =>
+      (['sing-box', 'xray', 'v2ray'] as const).map((kernel, kernelIndex) => ({
+        url: `vless://${nodeIndex}${kernelIndex}@${kernel}.example:443#${nodeId}-${kernel}`,
+        kernel,
+        nodeId,
+        location: nodeIndex === 0 ? '香港' : '日本',
+      })),
+    );
+    let clashInput = '';
+    const service = new ArtifactService({
+      config, logger,
+      local: { isAvailable: async () => false, extractNodeUrls: async () => [] },
+      remote: { collectRemoteNodeSources: async () => ({ sources, errors: [] }) },
+      clash: {
+        checkHealth: async () => true,
+        convertToClashByContent: async content => { clashInput = content; return `proxies:\n${content}\n`; },
+      },
+    });
+
+    const result = await service.updateSubscription();
+    const raw = await readFile(join(config.staticDir, 'raw.txt'), 'utf8');
+    const encoded = await readFile(join(config.staticDir, 'subscription.txt'), 'utf8');
+    expect(result.nodesCount).toBe(6);
+    expect(raw.split('\n')).toHaveLength(6);
+    expect(Buffer.from(encoded, 'base64').toString('utf8')).toBe(raw);
+    for (const source of sources) {
+      expect(raw).toContain(source.url);
+      expect(decodeURIComponent(clashInput)).toContain(source.nodeId);
+      expect(decodeURIComponent(clashInput)).toContain(source.kernel);
+    }
+    expect(await readFile(join(config.staticDir, 'clash.yaml'), 'utf8')).toContain('proxies:');
   });
 });
 

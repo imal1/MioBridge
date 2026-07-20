@@ -34,7 +34,9 @@ describe('node core services', () => {
     await repository.configureLocalNode(true);
     expect(await repository.isLocalNodeConfigured()).toBe(true);
     expect(await repository.list()).toMatchObject([
-      { id: 'local', name: '本机节点', host: '127.0.0.1', kernels: [{ type: 'sing-box' }], location: '本机', enabled: true },
+      { id: 'local', name: '本机节点', host: '127.0.0.1', kernels: [
+        { type: 'sing-box' }, { type: 'xray' }, { type: 'v2ray' },
+      ], location: '本机', enabled: true },
       { id: 'node-a' },
     ]);
     // 重复启用是幂等的，且不会覆盖用户对档案的后续修改。
@@ -55,6 +57,37 @@ describe('node core services', () => {
     expect(result.sources).toEqual([{ kernel: 'xray', url: 'vless://id@example.com:443', nodeId: 'node-a', location: 'HK' }]);
     expect(result.errors).toEqual(['节点 Bad (bad): offline']);
     expect(JSON.stringify(result)).not.toContain('dont-print-me');
+  });
+
+  it('merges every kernel source from multiple enabled child nodes', async () => {
+    const repository = new NodeRepository(memoryStore(`nodes:\n  - id: one\n    name: One\n    host: one.example\n    secret: one\n    kernels: [{ type: sing-box }, { type: xray }, { type: v2ray }]\n    location: HK\n    enabled: true\n  - id: two\n    name: Two\n    host: two.example\n    secret: two\n    kernels: [{ type: sing-box }, { type: xray }, { type: v2ray }]\n    location: US\n    enabled: true\n`));
+    const client = new AgentClient({ fetch: (async (url: string | URL | Request) => {
+      const host = String(url).includes('one.example') ? 'one' : 'two';
+      const responseKernels = ['sing-box', 'xray', 'v2ray'].map(type => ({
+        type, detected: true, monitored: true, accessible: true, nodesCount: 1, configPaths: [`/etc/${type}/config.json`],
+      }));
+      const sources = ['sing-box', 'xray', 'v2ray'].map((kernel, index) => ({
+        kernel, url: `vless://id-${host}-${index}@${host}-${index}.example:443`,
+      }));
+      return new Response(JSON.stringify({ data: { kernels: responseKernels, sources } }), { status: 200 });
+    }) as typeof fetch });
+    const result = await new NodeAggregationService(repository, client).collectRemoteNodeSources();
+    expect(result.errors).toEqual([]);
+    expect(result.sources).toHaveLength(6);
+    expect(new Set(result.sources.map(source => `${source.nodeId}:${source.kernel}`))).toEqual(new Set([
+      'one:sing-box', 'one:xray', 'one:v2ray', 'two:sing-box', 'two:xray', 'two:v2ray',
+    ]));
+  });
+
+  it('reconciles a bootstrap-installed Agent when it becomes reachable', async () => {
+    const repository = new NodeRepository(memoryStore(`nodes:\n  - id: local\n    name: 本机节点\n    host: 127.0.0.1\n    secret: secret\n    kernels:\n      - type: xray\n    location: 本机\n    enabled: true\n    agent:\n      deployed: false\n      version: ""\n      status: not_deployed\n      lastDeploy: ""\n      port: 3001\n`));
+    const client = new AgentClient({ fetch: (async (url: string | URL | Request) => {
+      const sources = [{ kernel: 'xray', url: 'vless://id@example.com:443' }];
+      return new Response(JSON.stringify({ data: { version: '1.2.1', uptime: 10, kernels, sources } }), { status: 200 });
+    }) as typeof fetch });
+    const status = await new NodeAggregationService(repository, client).getClusterStatus();
+    expect(status.nodes[0]?.agent).toMatchObject({ deployed: true, status: 'running', version: '1.2.1' });
+    expect((await repository.list())[0]?.agent).toMatchObject({ deployed: true, status: 'running', version: '1.2.1' });
   });
 
   it.each([

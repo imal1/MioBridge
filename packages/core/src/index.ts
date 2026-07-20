@@ -38,7 +38,7 @@ export { V2rayAdapter, XrayAdapter } from './kernels/jsonOutboundAdapters.js';
 export { KERNEL_TYPES, type KernelAdapter, type KernelType } from './kernels/types.js';
 export type { KernelFileSystem, ProcessOptions, ProcessResult, ProcessRunner } from './kernels/ports.js';
 export { AgentClient, type AgentClientOptions } from './nodes/agentClient.js';
-export { NodeRepository, validateNodeKernels } from './nodes/nodeRepository.js';
+export { LOCAL_NODE_ID, NodeRepository, validateNodeKernels } from './nodes/nodeRepository.js';
 export { NodeAggregationService, type RemoteSourceCollection } from './nodes/nodeAggregationService.js';
 export type { ClusterStatus, KernelRuntimeStatus, LogsResult, NodeAgentInfo, NodeConfig, NodeKernelConfig, NodeSshConfig, NodeStatus } from './nodes/types.js';
 export { ArtifactService, type ArtifactServiceOptions, type ClashConverter, type LocalSourceCollector, type RemoteSourceCollector, type SourceCollection, type SubscriptionPreflight, type UpdateResult } from './artifacts/artifactService.js';

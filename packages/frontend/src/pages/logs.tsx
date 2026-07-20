@@ -17,7 +17,7 @@ type LogSource = 'control' | 'agent' | 'deployment' | 'subscription'
 
 const SOURCES: Array<{ value: LogSource; label: string; description: string }> = [
   { value: 'control', label: '控制面', description: '本机 Dashboard 与核心服务日志' },
-  { value: 'agent', label: 'Agent', description: '指定子节点 Agent 日志' },
+  { value: 'agent', label: 'Agent', description: '指定节点的 Agent 日志' },
   { value: 'deployment', label: '部署任务', description: '组件部署任务的持久化执行日志' },
   { value: 'subscription', label: '订阅任务', description: '订阅生成任务事件与步骤日志' },
 ]
@@ -86,7 +86,7 @@ function LogFilters(props: FiltersProps) {
     </div>
 
     {props.source === 'agent' ? <div className="grid gap-2">
-      <Label htmlFor={id('node')}>子节点</Label>
+      <Label htmlFor={id('node')}>节点</Label>
       <Select id={id('node')} value={props.nodeId} onChange={event => props.setNodeId(event.target.value)}>
         <option value="">选择节点</option>
         {props.nodes.map(node => <option key={node.nodeId} value={node.nodeId}>{node.name} · {node.location || node.nodeId}</option>)}
@@ -161,7 +161,7 @@ export default function LogsPage() {
 
   const loadLogs = useCallback(async (notify = true) => {
     if (source === 'agent' && !nodeId) {
-      setError('Agent 日志需要先选择一个子节点')
+      setError('Agent 日志需要先选择一个节点')
       return
     }
     if ((source === 'deployment' || source === 'subscription') && !taskId.trim()) {
@@ -193,9 +193,9 @@ export default function LogsPage() {
   useEffect(() => {
     apiService.getClusterStatus().then(result => {
       if (!result.success) return
-      const childNodes = (result.data as ClusterStatus).nodes || []
-      setNodes(childNodes)
-      if (!nodeId && childNodes[0]) setNodeId(childNodes[0].nodeId)
+      const availableNodes = (result.data as ClusterStatus).nodes || []
+      setNodes(availableNodes)
+      if (!nodeId && availableNodes[0]) setNodeId(availableNodes[0].nodeId)
     }).catch(() => {})
   }, [])
 

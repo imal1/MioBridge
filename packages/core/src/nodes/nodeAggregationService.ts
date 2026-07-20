@@ -94,7 +94,19 @@ export class NodeAggregationService {
       const kernelError = kernels.find(kernel => kernel.error)?.error;
       if (kernelError && kernelError !== previousError) await this.persistLastError(node.id, kernelError);
       const lastError = kernelError ?? previousError;
-      const status: NodeStatus = { ...base, online: true, kernels, nodesCount: kernels.reduce((sum,k) => sum+k.nodesCount, 0), ...(lastError ? { lastError } : {}), ...(node.agent ? { agent: node.agent } : {}), ...(typeof data.version === 'string' ? { version: data.version } : {}), ...(typeof data.uptime === 'number' ? { uptime: data.uptime } : {}), ...(typeof data.mihomoAvailable === 'boolean' ? { mihomoAvailable: data.mihomoAvailable } : {}), ...(typeof data.mihomoVersion === 'string' ? { mihomoVersion: data.mihomoVersion } : {}) };
+      const observedVersion = typeof data.version === 'string' ? data.version : undefined;
+      const observedAgent = node.agent ? {
+        ...node.agent,
+        deployed: true,
+        status: 'running' as const,
+        version: observedVersion ?? node.agent.version,
+      } : undefined;
+      // Manual/bootstrap installation can make Agent reachable before the control-plane
+      // snapshot is updated. Reconcile that fact so deployment and later pages agree.
+      if (observedAgent && (!node.agent?.deployed || node.agent.status !== 'running' || node.agent.version !== observedAgent.version)) {
+        await this.repository.update(node.id, current => ({ ...current, agent: observedAgent })).catch(() => undefined);
+      }
+      const status: NodeStatus = { ...base, online: true, kernels, nodesCount: kernels.reduce((sum,k) => sum+k.nodesCount, 0), ...(lastError ? { lastError } : {}), ...(observedAgent ? { agent: observedAgent } : {}), ...(observedVersion ? { version: observedVersion } : {}), ...(typeof data.uptime === 'number' ? { uptime: data.uptime } : {}), ...(typeof data.mihomoAvailable === 'boolean' ? { mihomoAvailable: data.mihomoAvailable } : {}), ...(typeof data.mihomoVersion === 'string' ? { mihomoVersion: data.mihomoVersion } : {}) };
       this.cache.set(node.id, status); return status;
     } catch (error) {
       const message = error instanceof Error && error.name === 'AbortError' ? '请求超时' : `连接失败: ${error instanceof Error ? error.message : String(error)}`;

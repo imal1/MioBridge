@@ -2,6 +2,19 @@
 
 本文档记录 MioBridge 的重要变更。版本号遵循语义化版本规范。
 
+## [1.2.2] — 2026-07-19
+
+### Fixed
+
+- 选择本机节点安装时，默认安装同版本、校验过的 Agent，并将 sing-box、Xray、
+  V2Ray 三种内核写入本机监控配置；旧的 sing-box-only 本机档案会自动补齐。
+- 本机节点不再从节点、部署、Agent、运行时、订阅、日志与总览流程中被过滤；
+  部署任务通过本机命令传输执行，不再要求回环 SSH 凭据。
+- Agent 按内核、按配置文件独立提取 233boy `url` 来源，单个损坏配置不再丢弃
+  同节点的其他内核；多子节点、多内核来源会整体进入三项正式订阅产物。
+- Clash 转换保留 VLESS Reality/flow、WebSocket/gRPC、SNI 与 VMess 传输字段；
+  默认规则补齐 LAN/IPv6/CN GEOIP 与 `no-resolve`，移除 Apple `17/8` 强制直连。
+
 ## [1.2.1] — 2026-07-19
 
 ### Added

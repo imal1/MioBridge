@@ -1,6 +1,7 @@
 import { Buffer } from 'node:buffer';
 import { CLI_VERSION } from '../../command.js';
 import { randomUUID } from 'node:crypto';
+import { spawn } from 'node:child_process';
 import { lookup } from 'node:dns/promises';
 import { createConnection, isIP } from 'node:net';
 import { posix } from 'node:path';
@@ -101,6 +102,7 @@ export interface ComponentDeployStatus {
 }
 
 interface SshTarget {
+  readonly local?: boolean;
   readonly nodeId: string;
   readonly nodeName: string;
   readonly secret: string;
@@ -117,10 +119,19 @@ interface SshTarget {
   };
 }
 
-interface ExecResult {
+export interface ExecResult {
   readonly stdout: string;
   readonly stderr: string;
   readonly code: number;
+}
+
+interface DeploymentConnection {
+  run(command: string, input?: string): Promise<ExecResult>;
+  end(): void;
+}
+
+export interface DeploymentServiceOptions {
+  readonly runLocal?: (command: string, input?: string) => Promise<ExecResult>;
 }
 
 function inputObject(value: unknown): Record<string, unknown> {
@@ -159,7 +170,10 @@ export class SshDeploymentService {
   readonly #eventCounters = new Map<string, number>();
   readonly #resumedTasks = new Set<string>();
 
-  constructor(private readonly composition: NodeCoreComposition) {}
+  constructor(
+    private readonly composition: NodeCoreComposition,
+    private readonly options: DeploymentServiceOptions = {},
+  ) {}
 
   async preflight(body: unknown): Promise<{
     hostKey: string;
@@ -170,7 +184,9 @@ export class SshDeploymentService {
     const target = typeof input.nodeId === 'string'
       ? await this.targetForNode(input.nodeId)
       : await this.targetFromSsh(inputObject(input.ssh));
-    const network = await networkPreflight(target.ssh.host, target.ssh.port);
+    const network = target.local
+      ? { dns: { ok: true, detail: '本机直接执行' }, tcp: { ok: true, detail: '无需 SSH' } }
+      : await networkPreflight(target.ssh.host, target.ssh.port);
     if (!network.dns.ok || !network.tcp.ok) {
       const skipped = (key: string, label: string) => ({ key, label, ok: false, detail: '网络预检未通过，未执行' });
       return {
@@ -199,7 +215,7 @@ export class SshDeploymentService {
       const checks = [
         { key: 'dns', label: 'DNS 解析', ok: network.dns.ok, detail: network.dns.detail },
         { key: 'tcp', label: 'TCP 连接', ok: network.tcp.ok, detail: network.tcp.detail },
-        { key: 'ssh', label: 'SSH 认证', ok: true, detail: '连接与认证成功' },
+        { key: 'ssh', label: target.local ? '本机执行' : 'SSH 认证', ok: true, detail: target.local ? '直接调用本机命令' : '连接与认证成功' },
         { key: 'system', label: 'Linux 系统', ok: system.code === 0 && system.stdout.trim() === 'Linux', detail: system.stdout.trim() || system.stderr.trim() },
         { key: 'architecture', label: 'CPU 架构', ok: /^(x86_64|amd64|aarch64|arm64)$/.test(architecture.stdout.trim()), detail: architecture.stdout.trim() || architecture.stderr.trim() },
         { key: 'disk', label: '磁盘空间', ok: Number.isFinite(freeKb) && freeKb >= 200 * 1024, detail: Number.isFinite(freeKb) ? `${Math.round(freeKb / 1024)} MiB 可用` : '无法读取' },
@@ -652,7 +668,7 @@ export class SshDeploymentService {
     }
   }
 
-  private async replaceAgentConfig(ssh: Client, target: SshTarget, content: string): Promise<boolean> {
+  private async replaceAgentConfig(ssh: DeploymentConnection, target: SshTarget, content: string): Promise<boolean> {
     const encoded = Buffer.from(content).toString('base64');
     const rollback = `${AGENT_CONFIG_PATH}.rollback`;
     const script = [
@@ -679,7 +695,7 @@ export class SshDeploymentService {
     startedAt: number,
   ): Promise<void> {
     let target: SshTarget | undefined;
-    let ssh: Client | undefined;
+    let ssh: DeploymentConnection | undefined;
     const emit = (step: DeployStatus['step'], status: DeployStatus['status'], message: string, progress: number) => {
       if (this.#progress.get(node.id)?.deploymentId === deploymentId) {
         this.setProgress({ nodeId: node.id, deploymentId, step, status, message, progress, startedAt });
@@ -756,6 +772,23 @@ export class SshDeploymentService {
 
   private async targetForNode(nodeId: string, kernels?: readonly NodeKernelConfig[]): Promise<SshTarget> {
     const node = await this.findNode(nodeId);
+    if (node.id === 'local') {
+      return {
+        local: true,
+        nodeId: node.id,
+        nodeName: node.name,
+        secret: node.secret,
+        agentPort: node.port ?? node.agent?.port ?? 3001,
+        kernels: kernels ?? node.kernels,
+        ssh: {
+          host: '127.0.0.1',
+          user: typeof process.getuid === 'function' && process.getuid() === 0 ? 'root' : process.env.USER ?? 'miobridge',
+          port: 0,
+          authMethod: 'password',
+          hostKey: '',
+        },
+      };
+    }
     if (!node.ssh?.credentialRef) throw new Error('节点未配置 SSH 凭据');
     const credential = await this.composition.core.state.get(node.ssh.credentialRef);
     if (!credential) throw new Error('节点 SSH 凭据不存在');
@@ -796,7 +829,13 @@ export class SshDeploymentService {
     };
   }
 
-  private connect(target: SshTarget): Promise<Client> {
+  private connect(target: SshTarget): Promise<DeploymentConnection> {
+    if (target.local) {
+      return Promise.resolve({
+        run: (command, input) => this.runLocal(command, input),
+        end() {},
+      });
+    }
     return new Promise((resolve, reject) => {
       const client = new Client();
       const authentication: Pick<ConnectConfig, 'password' | 'privateKey'> = target.ssh.authMethod === 'privateKey'
@@ -816,27 +855,44 @@ export class SshDeploymentService {
           return true;
         },
       };
-      client.once('ready', () => resolve(client));
+      client.once('ready', () => resolve({
+        run: (command, input) => new Promise((resolveCommand, rejectCommand) => {
+          client.exec(command, (error: Error | undefined, channel: ClientChannel) => {
+            if (error) { rejectCommand(error); return; }
+            let stdout = '';
+            let stderr = '';
+            channel.on('data', (data: Buffer) => { stdout += data.toString(); });
+            channel.stderr.on('data', (data: Buffer) => { stderr += data.toString(); });
+            channel.on('close', (code: number) => resolveCommand({ stdout, stderr, code: code ?? -1 }));
+            if (input === undefined) channel.end(); else channel.end(input);
+          });
+        }),
+        end: () => client.end(),
+      }));
       client.once('error', error => reject(new Error(`SSH 连接失败: ${error.message}`)));
       client.connect(options);
     });
   }
 
-  private exec(ssh: Client, command: string, input?: string): Promise<ExecResult> {
+  private exec(ssh: DeploymentConnection, command: string, input?: string): Promise<ExecResult> {
+    return ssh.run(command, input);
+  }
+
+  private runLocal(command: string, input?: string): Promise<ExecResult> {
+    if (this.options.runLocal) return this.options.runLocal(command, input);
     return new Promise((resolve, reject) => {
-      ssh.exec(command, (error: Error | undefined, channel: ClientChannel) => {
-        if (error) { reject(error); return; }
-        let stdout = '';
-        let stderr = '';
-        channel.on('data', (data: Buffer) => { stdout += data.toString(); });
-        channel.stderr.on('data', (data: Buffer) => { stderr += data.toString(); });
-        channel.on('close', (code: number) => resolve({ stdout, stderr, code: code ?? -1 }));
-        if (input === undefined) channel.end(); else channel.end(input);
-      });
+      const child = spawn('/bin/bash', ['-lc', command], { stdio: ['pipe', 'pipe', 'pipe'] });
+      let stdout = '';
+      let stderr = '';
+      child.stdout.on('data', data => { stdout += data.toString(); });
+      child.stderr.on('data', data => { stderr += data.toString(); });
+      child.once('error', reject);
+      child.once('close', code => resolve({ stdout, stderr, code: code ?? -1 }));
+      if (input === undefined) child.stdin.end(); else child.stdin.end(input);
     });
   }
 
-  private execRoot(ssh: Client, target: SshTarget, command: string): Promise<ExecResult> {
+  private execRoot(ssh: DeploymentConnection, target: SshTarget, command: string): Promise<ExecResult> {
     if (target.ssh.user === 'root') return this.exec(ssh, command);
     const elevated = target.ssh.password
       ? `sudo -S -p '' bash -lc ${shellQuote(command)}`
@@ -844,7 +900,7 @@ export class SshDeploymentService {
     return this.exec(ssh, elevated, target.ssh.password ? `${target.ssh.password}\n` : undefined);
   }
 
-  private async detectKernel(ssh: Client, type: KernelType): Promise<KernelDetection> {
+  private async detectKernel(ssh: DeploymentConnection, type: KernelType): Promise<KernelDetection> {
     try {
       const definition = KERNEL_SCRIPTS[type];
       const probe = [
@@ -868,7 +924,7 @@ export class SshDeploymentService {
     }
   }
 
-  private async detectMihomoOn(ssh: Client): Promise<MihomoDetection> {
+  private async detectMihomoOn(ssh: DeploymentConnection): Promise<MihomoDetection> {
     try {
       const result = await this.exec(ssh, '/usr/local/bin/mihomo -v 2>&1');
       const output = (result.stdout || result.stderr).trim();
@@ -880,7 +936,7 @@ export class SshDeploymentService {
     }
   }
 
-  private async ensureKernel(ssh: Client, target: SshTarget, kernel: NodeKernelConfig): Promise<void> {
+  private async ensureKernel(ssh: DeploymentConnection, target: SshTarget, kernel: NodeKernelConfig): Promise<void> {
     if ((await this.detectKernel(ssh, kernel.type)).installed) return;
     const installed = await this.execRoot(ssh, target, installCommand(kernel.type));
     if (installed.code !== 0 && !/installed|success|生成配置文件|链接 \(URL\)|使用协议/.test(installed.stdout)) {
@@ -889,7 +945,7 @@ export class SshDeploymentService {
     if (!(await this.detectKernel(ssh, kernel.type)).installed) throw new Error(`${kernel.type} 安装后检测失败`);
   }
 
-  private async installAgent(ssh: Client, target: SshTarget, kernels: readonly NodeKernelConfig[]): Promise<void> {
+  private async installAgent(ssh: DeploymentConnection, target: SshTarget, kernels: readonly NodeKernelConfig[]): Promise<void> {
     const detected = await this.exec(ssh, 'uname -m');
     if (detected.code !== 0) throw new Error(`Agent 架构检测失败: ${(detected.stderr || detected.stdout).trim()}`);
     const machine = detected.stdout.trim();
@@ -921,7 +977,7 @@ export class SshDeploymentService {
     await this.writeRemoteFile(ssh, target, AGENT_SERVICE_PATH, this.systemdUnit(), 0o644);
   }
 
-  private async writeRemoteFile(ssh: Client, target: SshTarget, file: string, content: string, mode: number): Promise<void> {
+  private async writeRemoteFile(ssh: DeploymentConnection, target: SshTarget, file: string, content: string, mode: number): Promise<void> {
     const template = posix.join(posix.dirname(file), `.${posix.basename(file)}.tmp.XXXXXX`);
     const encoded = Buffer.from(content).toString('base64');
     const script = [
@@ -950,12 +1006,12 @@ export class SshDeploymentService {
     return `[Unit]\nDescription=MioBridge Agent\nAfter=network.target\n\n[Service]\nType=simple\nExecStart=${AGENT_REMOTE_PATH} --config ${AGENT_CONFIG_PATH}\nWorkingDirectory=/etc/miobridge-agent\nRestart=always\nRestartSec=5\n\n[Install]\nWantedBy=multi-user.target\n`;
   }
 
-  private async startAgent(ssh: Client, target: SshTarget): Promise<void> {
+  private async startAgent(ssh: DeploymentConnection, target: SshTarget): Promise<void> {
     const started = await this.execRoot(ssh, target, 'systemctl daemon-reload && systemctl enable --now miobridge-agent && systemctl restart miobridge-agent');
     if (started.code !== 0) throw new Error(`Agent 启动失败: ${(started.stderr || started.stdout).trim()}`);
   }
 
-  private async verifyAgent(ssh: Client, target: SshTarget): Promise<void> {
+  private async verifyAgent(ssh: DeploymentConnection, target: SshTarget): Promise<void> {
     const checked = await this.exec(ssh, `for i in 1 2 3 4 5; do code=$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:${target.agentPort}/health || true); [ "$code" = 200 ] && exit 0; sleep 2; done; exit 1`);
     if (checked.code !== 0) throw new Error('Agent 健康检查失败');
   }

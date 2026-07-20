@@ -13,18 +13,17 @@
 curl -fsSL https://raw.githubusercontent.com/imal1/MioBridge/main/scripts/install.sh | bash
 ```
 
-The bootstrap installs the verified Linux CLI and its static dashboard, then
-the CLI installs pinned runtime dependencies. It does not clone or build the
-source tree. It configures this server as the local node by default; pass
-`--no-local-node` to the installer for child-only operation. Runtime files live
-under `~/.config/miobridge/`.
+The bootstrap installs the verified Linux CLI, static dashboard, and pinned
+runtime dependencies. By default it registers this server as the local node and
+installs the matching Agent configured to monitor sing-box, Xray, and V2Ray;
+pass `--no-local-node` to skip both. It does not clone or build the source tree.
+Runtime files live under `~/.config/miobridge/`.
 
 ## CLI
 
 ```bash
 miobridge update              # refresh subscription
 miobridge status --json       # print service status
-miobridge nodes configure     # choose whether to configure the local node
 miobridge dashboard start     # serve dashboard + API on :3000
 miobridge dashboard stop      # stop the dashboard server
 miobridge dashboard status    # check if dashboard is running

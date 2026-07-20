@@ -87,3 +87,16 @@ and Agent fallbacks, docs, tags, and Release assets must use that same version.
 Release packaging and `release.yml` syntax-check, checksum-check, and upload
 `install-agent.sh` beside the x64/arm64 Agent gzip files. The main CLI archive
 layout is unchanged.
+
+## 2026-07-19 — PR-first release sequence
+
+Every release starts from the latest `origin/main` on a `codex/` branch. The PR
+contains the implementation, changelog, workspace package versions, CLI fallback,
+and Agent fallback for the target version. Push a draft PR, let required CI finish,
+mark it ready, and merge it before publishing.
+
+Only the merged `main` commit may create the version tag/Release. Dispatch
+`release.yml` with the semantic version (or push the matching `v*` tag), wait for
+the release gate, then verify the tag, published Release, x64/arm64 CLI archives,
+Agent gzip files, `install-agent.sh`, and `SHA256SUMS`. Never publish a Release from
+the PR head.
