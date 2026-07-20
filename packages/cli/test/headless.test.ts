@@ -64,7 +64,7 @@ describe('headless CLI composition', () => {
     });
     expect(result.code).toBe(0);
     expect(result.stderr).toBe('');
-    expect(JSON.parse(result.stdout)).toMatchObject({ version: '1.2.9', subscriptionExists: false });
+    expect(JSON.parse(result.stdout)).toMatchObject({ version: '1.2.10', subscriptionExists: false });
     expect(await readdir(cwd)).toEqual(['.keep']);
     await rm(sandbox, { recursive: true, force: true });
   });
