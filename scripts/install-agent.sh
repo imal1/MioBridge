@@ -242,9 +242,9 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-ExecStart="$escaped_binary" --config "$escaped_config"
-WorkingDirectory="$escaped_config_dir"
-Environment="PATH=%h/.config/miobridge/bin:%h/.local/bin:/usr/local/bin:/usr/bin:/bin"
+ExecStart=$escaped_binary --config $escaped_config
+WorkingDirectory=$escaped_config_dir
+Environment=PATH=%h/.config/miobridge/bin:%h/.local/bin:/usr/local/bin:/usr/bin:/bin
 Restart=always
 RestartSec=5
 NoNewPrivileges=true
