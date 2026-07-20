@@ -273,7 +273,11 @@ function xrayInboundToUrls(inbound: any, host: string): string[] {
 }
 
 function urlsFromWrapper(executable: string, file: string): string[] {
-  const output = execFileSync(executable, ['url', file], {
+  // 233boy's `url [name]` resolves a config inside its own conf directory.
+  // Passing an absolute path makes the wrapper miss the config and forces the
+  // structured fallback to advertise the Agent request host (127.0.0.1 for the
+  // managed local node) instead of the server's public address.
+  const output = execFileSync(executable, ['url', path.basename(file)], {
     encoding: 'utf8', timeout: 10_000, maxBuffer: 4 * 1024 * 1024,
     stdio: ['ignore', 'pipe', 'pipe'],
   }).replace(/\u001b\[[0-9;]*m/g, '');

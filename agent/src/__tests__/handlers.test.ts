@@ -248,6 +248,37 @@ describe('handleStatus', () => {
 });
 
 describe('handleUrls', () => {
+  it('passes only the config filename to a 233boy wrapper so the local Agent exports its public URL', async () => {
+    const binDir = isolatedBinDir();
+    const wrapper = path.join(binDir, 'sing-box');
+    fs.writeFileSync(wrapper, [
+      '#!/bin/sh',
+      'if [ "$1" = "help" ]; then echo "url [name] URL information"; exit 0; fi',
+      'if [ "$1" = "url" ] && [ "$2" = "Hysteria2-55458.json" ]; then',
+      '  echo "hysteria2://secret@203.0.113.10:55458#public-hysteria2"',
+      '  exit 0',
+      'fi',
+      'exit 2',
+    ].join('\n'));
+    fs.chmodSync(wrapper, 0o755);
+    const configs = fixtureDirectory({
+      'Hysteria2-55458.json': { inbounds: [{ type: 'hysteria2', tag: 'fallback', listen_port: 55458, users: [{ password: 'secret' }] }] },
+    });
+    const config: AgentConfig = {
+      ...MOCK_CONFIG,
+      node: { ...MOCK_CONFIG.node, secret: '' },
+      kernels: [{ type: 'sing-box', configPath: configs }],
+    };
+
+    const body = await (handleUrls(mockReq({ headers: { host: '127.0.0.1:3001' } }), config)).json();
+
+    expect(body.data.sources).toEqual([{
+      kernel: 'sing-box',
+      url: 'hysteria2://secret@203.0.113.10:55458#public-hysteria2',
+    }]);
+    expect(body.data.sources[0].url).not.toContain('127.0.0.1');
+  });
+
   it('expands every configured core, every config file, and every client', async () => {
     isolatedBinDir();
     const singBoxConfigs = fixtureDirectory({

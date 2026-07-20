@@ -35,6 +35,28 @@ export interface ArtifactServiceOptions {
 
 const protocols = ['vless://', 'vmess://', 'ss://', 'ssr://', 'trojan://', 'hysteria2://', 'hy2://', 'tuic://', 'wireguard://'] as const;
 
+function proxyHost(value: string): string | undefined {
+  try {
+    if (value.startsWith('vmess://')) {
+      const decoded = JSON.parse(Buffer.from(value.slice(8), 'base64').toString('utf8')) as Record<string, unknown>;
+      return typeof decoded.add === 'string' ? decoded.add : undefined;
+    }
+    return new URL(value).hostname;
+  } catch { return undefined; }
+}
+
+function isNonRoutableProxySource(value: string): boolean {
+  const host = proxyHost(value)?.toLowerCase().replace(/^\[|\]$/g, '');
+  if (!host) return false;
+  return host === 'localhost'
+    || host.endsWith('.localhost')
+    || host === '0.0.0.0'
+    || host === '::'
+    || host === '::1'
+    || /^127(?:\.|$)/.test(host)
+    || /^::ffff:127(?:\.|$)/.test(host);
+}
+
 export class ArtifactService {
   private readonly now: () => Date;
   constructor(private readonly options: ArtifactServiceOptions) { this.now = options.now ?? (() => new Date()); }
@@ -49,7 +71,7 @@ export class ArtifactService {
     const warnings: string[] = [];
     await this.collectLocal(collected, warnings);
     await this.collectRemote(collected, warnings);
-    const sources = dedupeProxySources(this.extract(collected));
+    const sources = dedupeProxySources(this.extract(collected, warnings));
     const blockingErrors = sources.length === 0 ? ['零个可读代理来源'] : [];
     return {
       ready: blockingErrors.length === 0,
@@ -66,7 +88,7 @@ export class ArtifactService {
     const warnings: string[] = [];
     await this.collectLocal(collected, warnings);
     await this.collectRemote(collected, warnings);
-    const sources = dedupeProxySources(this.extract(collected));
+    const sources = dedupeProxySources(this.extract(collected, warnings));
     if (sources.length === 0) throw new Error(`没有找到有效的代理URL。来源错误: ${warnings.join('; ') || '无可用节点源'}`);
 
     await this.ensureDirectories();
@@ -157,11 +179,17 @@ export class ArtifactService {
     } catch (error) { errors.push(`节点来源收集失败: ${error instanceof Error ? error.message : String(error)}`); }
   }
 
-  private extract(sources: readonly CollectedProxySource[]): CollectedProxySource[] {
+  private extract(sources: readonly CollectedProxySource[], warnings: string[]): CollectedProxySource[] {
     const result: CollectedProxySource[] = [];
     for (const source of sources) for (const line of source.url.replace(/\u001b\[[0-9;]*m/g, '').split('\n')) {
       const value = line.trim(); const protocol = protocols.find(prefix => value.startsWith(prefix));
-      if (protocol && (protocol === 'vmess://' || (value.includes('@') && value.includes(':'))) && value.length > 20) result.push({ ...source, url: value });
+      if (protocol && (protocol === 'vmess://' || (value.includes('@') && value.includes(':'))) && value.length > 20) {
+        if (isNonRoutableProxySource(value)) {
+          warnings.push(`节点 ${source.nodeId} 内核 ${source.kernel} 返回了不可路由的回环或监听地址，已跳过`);
+          continue;
+        }
+        result.push({ ...source, url: value });
+      }
     }
     return result;
   }

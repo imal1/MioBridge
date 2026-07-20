@@ -7,6 +7,9 @@ metadata:
 
 # Bug Fixes
 
+- 2026-07-20: Per-config 233boy Agent collection passes config basenames to
+  `url [name]`, preserving public endpoints for the loopback-managed local node;
+  artifact publication also rejects loopback and unspecified proxy addresses.
 - 2026-07-20: Local privilege fallback decides whether it is already root from
   the Dashboard process UID, not the profile username. The local profile exposes
   and accepts only the actual Dashboard runtime user so its password matches sudo.

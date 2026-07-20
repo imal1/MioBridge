@@ -112,6 +112,29 @@ describe('ArtifactService', () => {
     expect(clashInput.split('\n')).toHaveLength(2);
     expect(clashInput).toContain('hy2://');
   });
+
+  it('never publishes loopback or unspecified proxy endpoints', async () => {
+    const { config } = await setup();
+    const usable = 'hysteria2://secret@public.example:443#usable';
+    const loopback = 'hysteria2://secret@127.0.0.1:443#loopback';
+    const unspecified = 'trojan://secret@0.0.0.0:443#unspecified';
+    const service = new ArtifactService({
+      config, logger,
+      local: { isAvailable: async () => true, extractNodeUrls: async () => [usable, loopback] },
+      remote: { collectRemoteNodeSources: async () => ({
+        sources: [{ url: unspecified, kernel: 'sing-box', nodeId: 'bad-agent', location: '本机' }], errors: [],
+      }) },
+      clash: { checkHealth: async () => true, convertToClashByContent: async content => `proxies:\n${content}\n` },
+    });
+
+    const result = await service.updateSubscription();
+    expect(result.nodesCount).toBe(1);
+    expect(await readFile(join(config.staticDir, 'raw.txt'), 'utf8')).toBe(usable);
+    expect(result.warnings).toEqual([
+      '节点 local 内核 sing-box 返回了不可路由的回环或监听地址，已跳过',
+      '节点 bad-agent 内核 sing-box 返回了不可路由的回环或监听地址，已跳过',
+    ]);
+  });
 });
 
 describe('MioBridgeCore', () => {
