@@ -117,7 +117,7 @@ function requestPath(request: RecordedRequest): string {
 
 function expectNoSensitiveFields(value: unknown): void {
   const serialized = JSON.stringify(value)
-  for (const key of ['secret', 'password', 'sshPassword', 'privateKey', 'sshPrivateKey', 'credentialRef']) {
+  for (const key of ['secret', 'password', 'sudoPassword', 'sshPassword', 'privateKey', 'sshPrivateKey', 'credentialRef', 'sudoCredentialRef']) {
     expect(serialized).not.toMatch(new RegExp(`"${key}"\\s*:`, 'i'))
   }
 }
@@ -132,8 +132,7 @@ async function fillPasswordNodeForm(page: Page, input: {
   await page.getByLabel('节点名称').fill(input.name)
   await page.getByLabel('主机地址').fill(input.host)
   await page.getByLabel('地域标签').fill(input.location ?? 'E2E')
-  await page.getByLabel('业务标签').fill(input.tags ?? 'e2e, isolated')
-  await page.getByLabel('SSH 密码').fill(input.password ?? 'fixture-password')
+  await page.getByLabel('密码', { exact: true }).fill(input.password ?? 'fixture-password')
 }
 
 async function expectCompletePreflight(page: Page): Promise<void> {
@@ -246,13 +245,13 @@ test.describe('E02 — 添加节点与 SSH 预检', () => {
     await dialog.getByLabel('主机地址').fill('private-key-node.e2e.invalid')
     await dialog.getByLabel('地域标签').fill('LAB-KEY')
     await dialog.getByRole('button', { name: '私钥' }).click()
-    await dialog.getByLabel('SSH 私钥文件').setInputFiles({
+    await dialog.getByLabel('私钥文件').setInputFiles({
       name: 'id_e2e_ed25519',
       mimeType: 'text/plain',
       buffer: Buffer.from(PRIVATE_KEY),
     })
     await expect(dialog.getByText('id_e2e_ed25519', { exact: true })).toBeVisible()
-    await expect(dialog.getByLabel('SSH 密码')).toHaveCount(0)
+    await expect(dialog.getByLabel('密码', { exact: true })).toHaveCount(0)
 
     const preflightRequest = page.waitForRequest(request =>
       request.method() === 'POST' && pathname(request.url()) === '/api/cluster/nodes/preflight')
@@ -397,8 +396,7 @@ test.describe('E03 — 节点档案管理', () => {
     const editor = page.getByRole('dialog', { name: '编辑节点档案' })
     await editor.getByLabel('名称', { exact: true }).fill('E2E 管理节点（已编辑）')
     await editor.getByLabel('主机', { exact: true }).fill('managed-node-updated.e2e.invalid')
-    await editor.getByLabel('地域', { exact: true }).fill('LAB-UPDATED')
-    await editor.getByLabel('标签', { exact: true }).fill('e2e, edited')
+    await editor.getByLabel('地域标签', { exact: true }).fill('LAB-UPDATED')
     const editRequest = page.waitForRequest(request =>
       request.method() === 'PATCH' && pathname(request.url()) === '/api/cluster/nodes')
     await editor.getByRole('button', { name: '保存档案' }).click()
@@ -408,7 +406,6 @@ test.describe('E03 — 节点档案管理', () => {
       name: 'E2E 管理节点（已编辑）',
       host: 'managed-node-updated.e2e.invalid',
       location: 'LAB-UPDATED',
-      tags: ['e2e', 'edited'],
     })
     await expect(editor).toBeHidden()
     await expect(page.getByText('E2E 管理节点（已编辑）', { exact: true })).toBeVisible()
@@ -453,13 +450,45 @@ test.describe('E03 — 节点档案管理', () => {
     await page.getByRole('button', { name: '编辑档案' }).click()
     const editor = page.getByRole('dialog', { name: '编辑节点档案' })
 
-    await expect.soft(editor.getByLabel('SSH 用户', { exact: true })).toHaveValue(target.sshUser ?? 'root')
+    await expect.soft(editor.getByLabel('用户名', { exact: true })).toHaveValue(target.sshUser ?? 'root')
     await expect.soft(editor.getByLabel(/^(SSH )?端口$/)).toHaveValue(String(target.sshPort ?? 22))
     await expect.soft(editor.getByRole('button', { name: '密码', exact: true })).toBeVisible()
     await expect.soft(editor.getByRole('button', { name: '私钥', exact: true })).toBeVisible()
-    const replacementCredential = editor.getByLabel('SSH 密码', { exact: true })
+    const replacementCredential = editor.getByLabel('密码', { exact: true })
     await expect.soft(replacementCredential).toBeVisible()
     await expect.soft(replacementCredential).toHaveValue('')
+  })
+
+  test('本机档案可填写用户名和密码', async ({ page, snapshot }) => {
+    const target = remoteNode(fixtureSnapshot(await snapshot()))
+    const local = { ...target, id: 'local', nodeId: 'local', name: '本机节点', host: '127.0.0.1' }
+    await page.route(url => url.pathname === '/api/cluster/status', route => route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        success: true,
+        data: { totalNodes: 1, onlineNodes: 1, totalProxies: 0, nodes: [local], lastUpdated: new Date().toISOString() },
+      }),
+    }))
+    await page.route(url => url.pathname === '/api/cluster/nodes', async route => {
+      if (route.request().method() !== 'PATCH') return route.continue()
+      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ success: true, data: local }) })
+    })
+
+    await page.goto('/nodes')
+    await page.getByLabel('搜索节点').fill(local.name)
+    await page.getByRole('button', { name: '编辑档案' }).click()
+    const editor = page.getByRole('dialog', { name: '编辑节点档案' })
+    await expect(editor.getByLabel('用户名', { exact: true })).toBeVisible()
+    const password = editor.getByLabel('密码', { exact: true })
+    await expect(password).toHaveValue('')
+    await expect(password).toHaveAttribute('placeholder', /root 密码仅供下一次部署使用，不保存/)
+    await password.fill('fixture-password')
+    const editRequest = page.waitForRequest(request =>
+      request.method() === 'PATCH' && pathname(request.url()) === '/api/cluster/nodes')
+    await editor.getByRole('button', { name: '保存档案' }).click()
+    expect((await editRequest).postDataJSON()).toMatchObject({ nodeId: 'local', sshUser: 'root', sshPassword: 'fixture-password' })
+    await expect(editor).toBeHidden()
   })
 
   test('编辑私钥认证节点且不更换凭据时不得把它翻成密码认证', async ({ page, request, snapshot }) => {
@@ -479,9 +508,9 @@ test.describe('E03 — 节点档案管理', () => {
     await page.getByRole('button', { name: '编辑档案' }).click()
     const editor = page.getByRole('dialog', { name: '编辑节点档案' })
     // 界面必须反映节点真实的认证方式，而不是一律显示密码。
-    await expect(editor.getByLabel('SSH 私钥', { exact: true })).toBeVisible()
+    await expect(editor.getByLabel('私钥', { exact: true })).toBeVisible()
 
-    await editor.getByLabel('地域', { exact: true }).fill('E2E-LAB-2')
+    await editor.getByLabel('地域标签', { exact: true }).fill('E2E-LAB-2')
     await editor.getByRole('button', { name: '保存档案' }).click()
     await expect(editor).toBeHidden()
 

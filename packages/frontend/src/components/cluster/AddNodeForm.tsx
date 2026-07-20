@@ -19,7 +19,6 @@ export interface NodeFormData {
   sshPassword: string
   sshPrivateKey: string
   sshPrivateKeyName: string
-  tags: string
 }
 
 interface AddNodeFormProps {
@@ -37,7 +36,6 @@ interface AddNodeFormProps {
 const EMPTY: NodeFormData = {
   name: '', host: '', location: '', sshUser: 'root', sshPort: '22',
   sshAuthMethod: 'password', sshPassword: '', sshPrivateKey: '', sshPrivateKeyName: '',
-  tags: '',
 }
 
 export function AddNodeForm({
@@ -83,7 +81,6 @@ export function AddNodeForm({
     try {
       const result = await createNode({
         name: form.name.trim(), host: form.host.trim(), location: form.location.trim(), kernels: [],
-        tags: form.tags.split(',').map(value => value.trim()).filter(Boolean),
         sshUser: form.sshUser.trim(), sshPort: Number(form.sshPort), sshHostKey: preflight.hostKey, sshAuthMethod: form.sshAuthMethod,
         ...(form.sshAuthMethod === 'password' ? { sshPassword: form.sshPassword } : { sshPrivateKey: form.sshPrivateKey, sshPrivateKeyName: form.sshPrivateKeyName }),
       })
@@ -115,11 +112,10 @@ export function AddNodeForm({
           <div className="grid gap-2"><Label htmlFor="node-name">节点名称</Label><Input id="node-name" value={form.name} onChange={event => update('name', event.target.value)} required /></div>
           <div className="grid gap-2"><Label htmlFor="node-host">主机地址</Label><Input id="node-host" value={form.host} onChange={event => update('host', event.target.value)} required /></div>
           <div className="grid gap-2"><Label htmlFor="node-location">地域标签</Label><Input id="node-location" value={form.location} onChange={event => update('location', event.target.value)} required /></div>
-          <div className="grid gap-2"><Label htmlFor="node-tags">业务标签</Label><Input id="node-tags" value={form.tags} onChange={event => update('tags', event.target.value)} placeholder="例如 production, asia（逗号分隔）" /></div>
           <h3 className="text-sm font-semibold text-muted-foreground">SSH 连接信息</h3>
-          <div className="grid grid-cols-[1fr_110px] gap-3"><div className="grid gap-2"><Label htmlFor="ssh-user">SSH 用户</Label><Input id="ssh-user" value={form.sshUser} onChange={event => update('sshUser', event.target.value)} required /></div><div className="grid gap-2"><Label htmlFor="ssh-port">端口</Label><Input id="ssh-port" inputMode="numeric" value={form.sshPort} onChange={event => update('sshPort', event.target.value)} required /></div></div>
+          <div className="grid grid-cols-[1fr_110px] gap-3"><div className="grid gap-2"><Label htmlFor="ssh-user">用户名</Label><Input id="ssh-user" value={form.sshUser} onChange={event => update('sshUser', event.target.value)} required /></div><div className="grid gap-2"><Label htmlFor="ssh-port">端口</Label><Input id="ssh-port" inputMode="numeric" value={form.sshPort} onChange={event => update('sshPort', event.target.value)} required /></div></div>
           <div className="grid gap-2"><Label>SSH 认证</Label><div className="flex gap-2"><Button type="button" size="sm" variant={form.sshAuthMethod === 'password' ? 'default' : 'outline'} onClick={() => update('sshAuthMethod', 'password')}>密码</Button><Button type="button" size="sm" variant={form.sshAuthMethod === 'privateKey' ? 'default' : 'outline'} onClick={() => update('sshAuthMethod', 'privateKey')}>私钥</Button></div></div>
-          {form.sshAuthMethod === 'password' ? <div className="grid gap-2"><Label htmlFor="ssh-password">SSH 密码</Label><Input id="ssh-password" type="password" value={form.sshPassword} onChange={event => update('sshPassword', event.target.value)} required /></div> : <div className="grid gap-2"><Label htmlFor="ssh-key">SSH 私钥文件</Label><Input id="ssh-key" type="file" onChange={event => uploadKey(event.target.files?.[0])} required /><span className="text-xs text-muted-foreground">{form.sshPrivateKeyName || '请选择未加密私钥'}</span></div>}
+          {form.sshAuthMethod === 'password' ? <div className="grid gap-2"><Label htmlFor="ssh-password">密码</Label><Input id="ssh-password" type="password" value={form.sshPassword} onChange={event => update('sshPassword', event.target.value)} placeholder={form.sshUser.trim() === 'root' ? 'root 密码仅供下一次部署使用，不保存' : '普通用户密码默认保存'} required /></div> : <div className="grid gap-2"><Label htmlFor="ssh-key">私钥文件</Label><Input id="ssh-key" type="file" onChange={event => uploadKey(event.target.files?.[0])} required /><span className="text-xs text-muted-foreground">{form.sshPrivateKeyName || (form.sshUser.trim() === 'root' ? 'root 私钥仅供下一次部署使用，不保存' : '普通用户私钥默认保存')}</span></div>}
 
           {preflight ? <div className="space-y-2 rounded-[20px] border border-[var(--border)] bg-[var(--surface-container)] p-4"><div className="flex items-center justify-between"><p className="font-medium">SSH 预检结果</p><Badge variant={preflight.checks.every(item => item.ok) ? 'secondary' : 'destructive'}>{preflight.checks.every(item => item.ok) ? '全部通过' : '存在阻塞'}</Badge></div>{preflight.checks.map(item => <div key={item.key} className="flex items-center justify-between gap-4 text-sm"><span className="flex items-center gap-2"><Icon icon={item.ok ? 'ph:check-circle-fill' : 'ph:x-circle-fill'} className={item.ok ? 'text-primary' : 'text-destructive'} />{item.label}</span><span className="text-right text-muted-foreground">{item.detail}</span></div>)}<div className="border-t border-[var(--border)] pt-2 text-xs text-muted-foreground">主机指纹：<code className="break-all">{preflight.hostKey}</code></div></div> : null}
         </div>

@@ -63,7 +63,9 @@ export function createNodeDashboardDependencies(composition: NodeCoreComposition
         if (typeof credential !== 'string' || credential.length === 0) throw new Error('缺少 SSH 凭据');
         const sshPort = input.sshPort === undefined ? 22 : Number(input.sshPort);
         if (!Number.isInteger(sshPort) || sshPort < 1 || sshPort > 65535) throw new Error('SSH 端口无效');
-        await composition.core.state.set(credentialRef, credential);
+        const rootUser = String(input.sshUser).trim() === 'root';
+        if (rootUser) deployment.setOneTimeCredential(id, credential);
+        else await composition.core.state.set(credentialRef, credential);
         const node: NodeConfig = {
           id,
           name: String(input.name),
@@ -78,7 +80,7 @@ export function createNodeDashboardDependencies(composition: NodeCoreComposition
             user: String(input.sshUser),
             ...(sshPort === 22 ? {} : { port: sshPort }),
             authMethod,
-            credentialRef,
+            ...(!rootUser ? { credentialRef } : {}),
             hostKey: typeof input.sshHostKey === 'string' ? input.sshHostKey : '',
           },
           agent: { deployed: false, version: '', status: 'not_deployed', lastDeploy: '' },
@@ -100,24 +102,42 @@ export function createNodeDashboardDependencies(composition: NodeCoreComposition
         if (!name || !host || !location) throw new Error('名称、主机和地域不能为空');
         if (nodes.some(node => node.id !== nodeId && node.host === host)) throw new Error('该主机已存在');
         const credential = input.sshPassword ?? input.sshPrivateKey;
+        const sshUser = input.sshUser === undefined
+          ? existing.ssh?.user ?? (nodeId === 'local' ? process.env.USER ?? 'root' : 'root')
+          : String(input.sshUser).trim();
+        if (!sshUser) throw new Error('用户名不能为空');
+        const authMethod = nodeId === 'local'
+          ? 'password' as const
+          : input.sshAuthMethod === undefined
+            ? existing.ssh?.authMethod ?? 'password'
+            : input.sshAuthMethod === 'privateKey' ? 'privateKey' as const : 'password' as const;
+        const credentialRef = existing.ssh?.credentialRef ?? `ssh-credentials/${nodeId}`;
         const sshPort = input.sshPort === undefined ? existing.ssh?.port : Number(input.sshPort);
         if (sshPort !== undefined && (!Number.isInteger(sshPort) || sshPort < 1 || sshPort > 65535)) throw new Error('SSH 端口无效');
         if (credential !== undefined) {
           if (typeof credential !== 'string' || !credential) throw new Error('SSH 凭据无效');
-          if (!existing.ssh?.credentialRef) throw new Error('节点缺少凭据引用');
-          await composition.core.state.set(existing.ssh.credentialRef, credential);
+          if (sshUser === 'root') {
+            deployment.setOneTimeCredential(nodeId, credential);
+            if (existing.ssh?.credentialRef) await composition.core.state.del(existing.ssh.credentialRef);
+          } else {
+            deployment.clearOneTimeCredential(nodeId);
+            await composition.core.state.set(credentialRef, credential);
+          }
+        } else if (sshUser === 'root' && existing.ssh?.credentialRef) {
+          await composition.core.state.del(existing.ssh.credentialRef);
         }
         const updated = await composition.repository.update(nodeId, current => ({
           ...current, name, host, location,
           ...(tags?.length ? { tags } : { tags: [] }),
           enabled: input.enabled === undefined ? current.enabled : Boolean(input.enabled),
-          ...(current.ssh ? { ssh: {
+          ssh: {
             ...current.ssh,
-            user: input.sshUser === undefined ? current.ssh.user : String(input.sshUser).trim(),
+            user: sshUser,
             ...(sshPort === undefined ? {} : { port: sshPort }),
-            authMethod: input.sshAuthMethod === undefined ? current.ssh.authMethod : input.sshAuthMethod === 'privateKey' ? 'privateKey' : 'password',
-            hostKey: host === current.host ? current.ssh.hostKey : '',
-          } } : {}),
+            authMethod,
+            hostKey: host === current.host ? current.ssh?.hostKey ?? '' : '',
+            ...(sshUser !== 'root' && (credential !== undefined || current.ssh?.credentialRef) ? { credentialRef } : {}),
+          },
         }));
         return result(publicNode(updated));
       },
@@ -128,6 +148,7 @@ export function createNodeDashboardDependencies(composition: NodeCoreComposition
         if (node.agent?.deployed && !force) throw new Error('节点仍安装 Agent，请先在部署中心卸载');
         await composition.repository.save(nodes.filter(item => item.id !== nodeId));
         if (node.ssh?.credentialRef) await composition.core.state.del(node.ssh.credentialRef);
+        deployment.clearOneTimeCredential(nodeId);
         return result({ nodeId, deleted: true });
       },
       async updateNodeKernels(nodeId, kernels) {

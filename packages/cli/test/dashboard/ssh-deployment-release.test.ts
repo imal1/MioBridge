@@ -119,22 +119,25 @@ describe('local deployment transport', () => {
     const node = {
       id: 'local', name: '本机节点', host: '127.0.0.1', secret: 'secret', location: '本机', enabled: true,
       kernels: [] as Array<{ type: 'sing-box' }>,
+      ssh: { user: 'imali', authMethod: 'password' as const, credentialRef: 'ssh-credentials/local', hostKey: '' },
     };
     const composition = {
       repository: { list: async () => [node] },
-      core: { state: { get: async () => null } },
+      core: { state: { get: async (key: string) => key === 'ssh-credentials/local' ? 'local-password' : null } },
     } as unknown as NodeCoreComposition;
     const commands: string[] = [];
+    const inputs: Array<string | undefined> = [];
     let detectionCount = 0;
-    const service = new SshDeploymentService(composition, { runLocal: async command => {
+    const service = new SshDeploymentService(composition, { runLocal: async (command, input) => {
       commands.push(command);
+      inputs.push(input);
       if (command.includes("'/usr/local/bin/sing-box' 'help'")) {
         detectionCount += 1;
         return detectionCount === 1
           ? { stdout: '', stderr: 'missing', code: 1 }
           : { stdout: 'sing-box script v1.18', stderr: '', code: 0 };
       }
-      if (command.startsWith('sudo -n')) return { stdout: 'success', stderr: '', code: 0 };
+      if (command.startsWith("sudo -S -p ''")) return { stdout: 'success', stderr: '', code: 0 };
       return { stdout: '', stderr: '当前非 ROOT用户', code: 1 };
     } });
 
@@ -142,7 +145,8 @@ describe('local deployment transport', () => {
     expect(commands).toHaveLength(5);
     expect(commands[1]).toContain('raw.githubusercontent.com/233boy/sing-box/main/install.sh');
     expect(commands[1]).toContain('bash "$workdir/install.sh"');
-    expect(commands[2]).toContain('sudo -n bash -lc');
+    expect(commands[2]).toContain("sudo -S -p '' bash -lc");
     expect(commands[2]).toContain('raw.githubusercontent.com/233boy/sing-box/main/install.sh');
+    expect(inputs[2]).toBe('local-password\n');
   });
 });
