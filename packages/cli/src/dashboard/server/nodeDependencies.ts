@@ -20,6 +20,12 @@ async function findNode(composition: NodeCoreComposition, nodeId: string): Promi
   return node;
 }
 
+function localRuntimeUser(): string {
+  return typeof process.getuid === 'function' && process.getuid() === 0
+    ? 'root'
+    : process.env.USER?.trim() || 'miobridge';
+}
+
 export function createNodeDashboardDependencies(composition: NodeCoreComposition): DashboardServerDependencies {
   const deployment = new SshDeploymentService(composition);
   const subscriptions = new SubscriptionJobService(composition);
@@ -40,7 +46,13 @@ export function createNodeDashboardDependencies(composition: NodeCoreComposition
     },
     operations: {
       async getClusterStatus() {
-        return result(await composition.aggregation.getClusterStatus());
+        const cluster = await composition.aggregation.getClusterStatus();
+        return result({
+          ...cluster,
+          nodes: cluster.nodes.map(node => node.nodeId === 'local'
+            ? { ...node, sshUser: localRuntimeUser(), sshAuthMethod: 'password' as const }
+            : node),
+        });
       },
       async getClusterHealth(nodeId) {
         const cluster = await composition.aggregation.getClusterStatus();
@@ -103,9 +115,12 @@ export function createNodeDashboardDependencies(composition: NodeCoreComposition
         if (nodes.some(node => node.id !== nodeId && node.host === host)) throw new Error('该主机已存在');
         const credential = input.sshPassword ?? input.sshPrivateKey;
         const sshUser = input.sshUser === undefined
-          ? existing.ssh?.user ?? (nodeId === 'local' ? process.env.USER ?? 'root' : 'root')
+          ? nodeId === 'local' ? localRuntimeUser() : existing.ssh?.user ?? 'root'
           : String(input.sshUser).trim();
         if (!sshUser) throw new Error('用户名不能为空');
+        if (nodeId === 'local' && sshUser !== localRuntimeUser()) {
+          throw new Error(`本机用户名必须是 Dashboard 运行用户 ${localRuntimeUser()}`);
+        }
         const authMethod = nodeId === 'local'
           ? 'password' as const
           : input.sshAuthMethod === undefined
