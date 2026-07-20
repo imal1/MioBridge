@@ -7,6 +7,12 @@ metadata:
 
 # Bug Fixes
 
+- 2026-07-20: Subscription aggregation expands every managed node, kernel,
+  config file, and configured client (including structured Hysteria2/TUIC/
+  Shadowsocks fallbacks and `hy2://`), and repairs empty legacy local-Agent
+  kernel lists before export. Clash conversion rejects partial node loss, allows
+  enough time for first-run validation, and emits the full DNS/group template
+  without replacing the existing routing rules.
 - 2026-07-19: Protocol-kernel install and maintenance are direct-only: upstream
   233boy installers and global wrappers run without MioBridge-generated sudo or
   privilege retries. Upgrade also rewrites the managed Dashboard user unit so

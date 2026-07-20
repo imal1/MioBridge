@@ -109,7 +109,7 @@ describe('CLI release distribution', () => {
       '',
     ].join('\n'));
     chmodSync(fakeBun, 0o755);
-    execFileSync('bash', [sandboxScript, '1.2.4'], {
+    execFileSync('bash', [sandboxScript, '1.2.5'], {
       env: { ...process.env, FAKE_BUN_LOG: log, MIOBRIDGE_BUN_CMD: fakeBun, MIOBRIDGE_RELEASE_DIR: release, MIOBRIDGE_DASHBOARD_PROVIDER_DIR: provider },
     });
     expect(readFileSync(log, 'utf8').trim().split('\n')).toEqual([

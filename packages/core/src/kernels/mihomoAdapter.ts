@@ -14,6 +14,15 @@ export interface MihomoAdapterOptions {
 }
 interface ProxyConfig { name: string; type: string; server: string; port: number; [key: string]: unknown }
 
+const DNS_CONFIG = {
+  enable: true,
+  listen: '0.0.0.0:53',
+  'default-nameserver': ['223.5.5.5', '119.29.29.29'],
+  'enhanced-mode': 'fake-ip',
+  'fake-ip-range': '198.18.0.1/16',
+  nameserver: ['https://doh.pub/dns-query', 'https://dns.alidns.com/dns-query'],
+} as const;
+
 const DEFAULT_RULES = [
   'DOMAIN-SUFFIX,local,DIRECT',
   'IP-CIDR,127.0.0.0/8,DIRECT,no-resolve',
@@ -91,14 +100,24 @@ export class MihomoAdapter {
     } catch (error) { this.options.logger.error('获取 mihomo 版本失败', { error: String(error) }); return null; }
   }
   async convertToClashByContent(content: string): Promise<string> {
-    const proxies = content.split('\n').map(line => line.trim()).filter(Boolean).map(line => this.parse(line)).filter((value): value is ProxyConfig => value !== null);
+    const lines = content.split('\n').map(line => line.trim()).filter(Boolean);
+    const parsed = lines.map(line => ({ line, proxy: this.parse(line) }));
+    const rejected = parsed.filter(item => item.proxy === null);
+    if (rejected.length > 0) {
+      const protocols = [...new Set(rejected.map(item => item.line.split('://')[0] || 'unknown'))];
+      throw new Error(`有 ${rejected.length}/${lines.length} 个代理节点无法转换（协议: ${protocols.join(', ')}）`);
+    }
+    const proxies = parsed.map(item => item.proxy).filter((value): value is ProxyConfig => value !== null);
     if (proxies.length === 0) throw new Error('未找到有效的代理节点');
     const names = proxies.map(proxy => proxy.name);
-   const yaml = YAML.stringify({ port: 7890, 'socks-port': 7891, 'allow-lan': false, mode: 'rule', 'log-level': 'info', 'external-controller': '127.0.0.1:9090', proxies, 'proxy-groups': [
+    const yaml = YAML.stringify({ port: 7890, 'socks-port': 7891, 'allow-lan': false, mode: 'rule', 'log-level': 'info', 'external-controller': '127.0.0.1:9090', dns: DNS_CONFIG, proxies, 'proxy-groups': [
+      { name: '🚀 节点选择', type: 'select', proxies: ['♻️ 自动选择', '🔯 故障转移', '🔮 负载均衡', '🎯 全球直连', ...names] },
       { name: '♻️ 自动选择', type: 'url-test', proxies: names, url: 'http://www.gstatic.com/generate_204', interval: 300 },
       { name: '🔯 故障转移', type: 'fallback', proxies: names, url: 'http://www.gstatic.com/generate_204', interval: 300 },
       { name: '🔮 负载均衡', type: 'load-balance', proxies: names, url: 'http://www.gstatic.com/generate_204', interval: 300 },
-  ], rules: DEFAULT_RULES }, { lineWidth: 0 });
+      { name: '🎯 全球直连', type: 'select', proxies: ['DIRECT'] },
+      { name: '🐟 漏网之鱼', type: 'select', proxies: ['🚀 节点选择', '🎯 全球直连', '♻️ 自动选择'] },
+    ], rules: DEFAULT_RULES }, { lineWidth: 0 });
     const output = `# Clash 配置文件\n# 由 miobridge 生成，mihomo 可用时自动验证\n# 生成时间: ${new Date().toISOString()}\n# 节点数量: ${proxies.length}\n\n${yaml}`;
     await this.validate(output);
     return output;
@@ -132,6 +151,16 @@ export class MihomoAdapter {
       else if (type === 'ss') { const [cipher, password] = Buffer.from(url.username, 'base64').toString().split(':'); Object.assign(proxy, { cipher, password }); }
       else Object.assign(proxy, { password: decodeURIComponent(url.username), ...(type === 'trojan' ? { network } : {}), 'skip-cert-verify': url.searchParams.get('insecure') === '1' });
       const sni = url.searchParams.get('sni'); if (sni) proxy[type === 'vless' ? 'servername' : 'sni'] = sni;
+      const alpn = url.searchParams.get('alpn'); if (alpn) proxy.alpn = alpn.split(',').filter(Boolean);
+      if (type === 'hysteria2') {
+        const obfs = url.searchParams.get('obfs'); if (obfs) proxy.obfs = obfs;
+        const obfsPassword = url.searchParams.get('obfs-password') || url.searchParams.get('obfs_password'); if (obfsPassword) proxy['obfs-password'] = obfsPassword;
+        const up = url.searchParams.get('up') || url.searchParams.get('upmbps'); if (up) proxy.up = up;
+        const down = url.searchParams.get('down') || url.searchParams.get('downmbps'); if (down) proxy.down = down;
+      }
+      if (type === 'tuic') {
+        const congestion = url.searchParams.get('congestion_control') || url.searchParams.get('congestion-controller'); if (congestion) proxy['congestion-controller'] = congestion;
+      }
       if (network === 'ws') proxy['ws-opts'] = { path: url.searchParams.get('path') || '/', ...(url.searchParams.get('host') ? { headers: { Host: url.searchParams.get('host')! } } : {}) };
       if (network === 'grpc') proxy['grpc-opts'] = { 'grpc-service-name': url.searchParams.get('serviceName') || url.searchParams.get('service_name') || '' };
       return proxy;
@@ -144,7 +173,7 @@ export class MihomoAdapter {
     const temp = join(configDir, 'temp-config.yaml');
     await this.options.fs.mkdir(configDir);
     await this.options.fs.writeFile(temp, config);
-    try { await this.options.process.run(executable, ['-d', this.options.runtimeDir, '-t', '-f', temp], this.processOptions(10000)); }
+    try { await this.options.process.run(executable, ['-d', this.options.runtimeDir, '-t', '-f', temp], this.processOptions(30_000)); }
     catch (error) { throw new Error(`配置验证失败: ${error instanceof Error ? error.message : String(error)}`); }
     finally { await this.options.fs.remove(temp); }
   }

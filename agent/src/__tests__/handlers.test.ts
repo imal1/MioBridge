@@ -29,6 +29,15 @@ function fixture(contents: unknown, raw = false): string {
   return file;
 }
 
+function fixtureDirectory(files: Record<string, unknown>): string {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'miobridge-handler-configs-test-'));
+  TEMP_DIRS.push(dir);
+  for (const [name, contents] of Object.entries(files)) {
+    fs.writeFileSync(path.join(dir, name), JSON.stringify(contents));
+  }
+  return dir;
+}
+
 function isolatedBinDir(): string {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'miobridge-handler-bin-test-'));
   TEMP_DIRS.push(dir);
@@ -239,6 +248,53 @@ describe('handleStatus', () => {
 });
 
 describe('handleUrls', () => {
+  it('expands every configured core, every config file, and every client', async () => {
+    isolatedBinDir();
+    const singBoxConfigs = fixtureDirectory({
+      '01-hysteria2.json': { inbounds: [{ type: 'hysteria2', tag: 'hy2', listen_port: 2443, users: [{ password: 'hy-one' }, { password: 'hy-two' }], tls: { server_name: 'hy.example' } }] },
+      '02-trojan.json': { inbounds: [{ type: 'trojan', tag: 'trojan', listen_port: 3443, users: [{ password: 'trojan-one' }] }] },
+      'ignored.txt': { inbounds: [] },
+    });
+    const xray = fixture({ inbounds: [{
+      protocol: 'vless', tag: 'xray', port: 4443,
+      settings: { clients: [{ id: 'xray-one' }, { id: 'xray-two' }] },
+    }, {
+      protocol: 'shadowsocks', tag: 'xray-ss', port: 4444,
+      settings: { method: 'aes-128-gcm', password: 'xray-ss-password', network: 'tcp,udp' },
+    }] });
+    const v2ray = fixture({ inbounds: [{
+      protocol: 'trojan', tag: 'v2ray', port: 5443,
+      settings: { clients: [{ password: 'v2ray-one' }, { password: 'v2ray-two' }] },
+    }] });
+    const config: AgentConfig = {
+      ...MOCK_CONFIG,
+      node: { ...MOCK_CONFIG.node, secret: '' },
+      kernels: [
+        { type: 'sing-box', configPath: singBoxConfigs },
+        { type: 'xray', configPath: xray },
+        { type: 'v2ray', configPath: v2ray },
+      ],
+    };
+
+    const body = await (handleUrls(mockReq({ headers: { host: 'all.example' } }), config)).json();
+
+    expect(body.data.sources).toHaveLength(8);
+    expect(body.data.sources.filter((item: any) => item.kernel === 'sing-box')).toHaveLength(3);
+    expect(body.data.sources.filter((item: any) => item.kernel === 'xray')).toHaveLength(3);
+    expect(body.data.sources.filter((item: any) => item.kernel === 'v2ray')).toHaveLength(2);
+    expect(body.data.kernels.find((item: any) => item.type === 'sing-box')).toMatchObject({
+      accessible: true,
+      nodesCount: 3,
+      configPaths: [path.join(singBoxConfigs, '01-hysteria2.json'), path.join(singBoxConfigs, '02-trojan.json')],
+    });
+    expect(body.data.sources.map((item: any) => item.url)).toEqual(expect.arrayContaining([
+      expect.stringContaining('hysteria2://hy-one@all.example:2443'),
+      expect.stringContaining('hysteria2://hy-two@all.example:2443'),
+      expect.stringContaining('trojan://trojan-one@all.example:3443'),
+      expect.stringContaining('ss://'),
+    ]));
+  });
+
   it('returns structured sources for all kernels in stable order and removes exact duplicates', async () => {
     const config: AgentConfig = {
       ...MOCK_CONFIG,
@@ -304,7 +360,7 @@ describe('handleHealth', () => {
     const body = await res.json();
     expect(body.uptime).toBeDefined();
     expect(body.memory).toBeDefined();
-    expect(body.version).toBe('1.2.4');
+    expect(body.version).toBe('1.2.5');
   });
 });
 

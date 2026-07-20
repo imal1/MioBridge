@@ -62,6 +62,21 @@ describe('local node configuration', () => {
     ]);
   });
 
+  it('repairs a legacy empty local profile before exporting Agent config', async () => {
+    const repository = new NodeRepository(memoryStore());
+    await repository.save([{
+      id: 'local', name: '本机节点', host: '127.0.0.1', secret: 'secret',
+      kernels: [], location: '本机', enabled: true,
+    }]);
+
+    const config = await new LocalNodeConfigurationService(repository, { confirm: async () => true }).agentConfig();
+
+    expect(config).toContain('type: sing-box');
+    expect(config).toContain('type: xray');
+    expect(config).toContain('type: v2ray');
+    expect((await repository.list())[0]?.kernels).toHaveLength(3);
+  });
+
   it('supports explicit disable without prompting and keeps child nodes', async () => {
     const repository = new NodeRepository(memoryStore());
     await repository.configureLocalNode(true);
