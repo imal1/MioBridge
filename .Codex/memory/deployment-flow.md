@@ -36,10 +36,10 @@ metadata:
 - The persisted `local` node uses the same user-level deployment tasks and later
   UI flows as child nodes, but its command transport executes locally instead of
   requiring loopback SSH credentials.
-- 233boy installation always runs the corresponding upstream installer directly,
-  and maintenance always runs the global wrapper directly. MioBridge never adds
-  sudo or retries with elevated privileges; upstream permission errors remain
-  visible. User-level Agent and mihomo operations also never request sudo.
+- 233boy installation and maintenance run the upstream installer/global wrapper
+  directly first, then retry the identical command with elevation only when the
+  output explicitly reports insufficient/root permission. Protocol kernels keep
+  one system layout; Agent and mihomo remain user-level and never request sudo.
 - Self-upgrade rewrites the managed Dashboard user unit before daemon reload and
   restart, so legacy unit-template settings do not survive a binary upgrade.
 - Dashboard daemon start waits for `/health`; stop, uninstall, and process

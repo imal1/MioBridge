@@ -105,9 +105,9 @@ Setup redacts credentials and query secrets from errors.
 
 Explicit protocol-kernel installation invokes the corresponding upstream 233boy
 `install.sh` directly. Maintenance actions always use the installed
-`/usr/local/bin/<kernel>` wrapper directly. MioBridge never adds sudo or retries
-with elevated privileges; permission errors from the upstream script are returned
-unchanged.
+`/usr/local/bin/<kernel>` wrapper directly first. When the installer or wrapper
+explicitly reports insufficient/root permission, MioBridge retries the same
+command with elevation. Protocol kernels have no separate rootless layout.
 
 Remote Agent deployment follows the same layering: the CLI selects the
 same-version x64/arm64 compressed Agent asset, verifies `SHA256SUMS`, and installs

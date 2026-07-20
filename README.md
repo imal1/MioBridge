@@ -122,8 +122,9 @@ the script-managed configuration under `/etc/<kernel>`; a bare upstream core
 binary is not treated as a compatible source provider because it has no
 `url [name]` command. First installation always invokes the corresponding
 upstream `install.sh` directly, while maintenance always calls the global
-wrapper directly. MioBridge never adds sudo or retries with elevated privileges;
-any permission error from the upstream script is returned unchanged.
+wrapper directly first. If the upstream installer or wrapper explicitly reports
+that root permission is required, MioBridge retries the same command with
+elevation; there is no separate rootless kernel layout.
 
 The CLI selects a same-version x64/arm64 Agent Release asset for the child,
 verifies it against `SHA256SUMS`, and installs it under the SSH user's home with
