@@ -7,6 +7,10 @@ metadata:
 
 # Bug Fixes
 
+- 2026-07-20: 233boy kernels keep one system installation layout: direct script
+  execution retries with elevation only after an explicit permission/root error.
+  The Dashboard unit omits `PrivateTmp` so host root ownership is not remapped to
+  overflow UID 65534 when the controlled elevation path is required.
 - 2026-07-20: Agent release installer writes unquoted systemd directive values;
   quoted `WorkingDirectory=` values are interpreted literally and prevent service
   activation, so the installer correctly rolls back instead of leaving an Agent down.

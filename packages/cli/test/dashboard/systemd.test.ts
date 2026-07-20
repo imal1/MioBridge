@@ -61,6 +61,7 @@ describe('dashboard systemd user lifecycle', () => {
     expect(unit).toContain('Restart=on-failure');
     expect(unit).toContain('Environment="PATH=/managed/bin:/usr/bin"');
     expect(unit).not.toContain('NoNewPrivileges=');
+    expect(unit).not.toContain('PrivateTmp=');
     expect(unit).not.toContain('PIDFile');
   });
 

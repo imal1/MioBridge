@@ -55,7 +55,7 @@ export function renderDashboardUserUnit(input: {
   readonly port: number;
   readonly effectivePath: string;
 }): string {
-  return `[Unit]\nDescription=MioBridge dashboard\nAfter=network-online.target\nWants=network-online.target\n\n[Service]\nType=simple\nExecStart=${quote(input.cliPath)} dashboard foreground\nRestart=on-failure\nRestartSec=5s\nTimeoutStopSec=30s\nPrivateTmp=true\nEnvironment=${quote(`MIOBRIDGE_CONFIG_DIR=${input.baseDir}`)}\nEnvironment=${quote(`MIOBRIDGE_DASHBOARD_HOST=${input.host}`)}\nEnvironment=${quote(`MIOBRIDGE_DASHBOARD_PORT=${input.port}`)}\nEnvironment=${quote(`PATH=${input.effectivePath}`)}\n\n[Install]\nWantedBy=default.target\n`;
+  return `[Unit]\nDescription=MioBridge dashboard\nAfter=network-online.target\nWants=network-online.target\n\n[Service]\nType=simple\nExecStart=${quote(input.cliPath)} dashboard foreground\nRestart=on-failure\nRestartSec=5s\nTimeoutStopSec=30s\nEnvironment=${quote(`MIOBRIDGE_CONFIG_DIR=${input.baseDir}`)}\nEnvironment=${quote(`MIOBRIDGE_DASHBOARD_HOST=${input.host}`)}\nEnvironment=${quote(`MIOBRIDGE_DASHBOARD_PORT=${input.port}`)}\nEnvironment=${quote(`PATH=${input.effectivePath}`)}\n\n[Install]\nWantedBy=default.target\n`;
 }
 
 function output(result: CommandResult): string { return `${result.stdout}\n${result.stderr}`.trim(); }

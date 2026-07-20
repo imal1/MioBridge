@@ -100,6 +100,6 @@ Dashboard Agent deployment has the same boundary: it includes only kernels that
 are already installed and readable, and never installs a selected-but-missing
 kernel. Protocol-kernel install and maintenance remain explicit operations.
 233boy installation runs the corresponding upstream `install.sh` directly, and
-lifecycle commands run their global wrapper directly. MioBridge never adds sudo
-or retries with elevated privileges; upstream permission errors are returned
-unchanged.
+lifecycle commands run their global wrapper directly first. An explicit
+permission/root error retries the same command with elevation; protocol kernels
+do not have a separate rootless installation layout.
