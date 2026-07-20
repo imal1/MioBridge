@@ -17,12 +17,18 @@ const output = {
 
 const composition = createNodeCore({ metadata: { version: CLI_VERSION } });
 const dashboardConfig = composition.core.config.getFullConfig().app;
+const dashboardOptions = {
+  ...(process.env.MIOBRIDGE_DASHBOARD_HOST ? { host: process.env.MIOBRIDGE_DASHBOARD_HOST } : {}),
+  ...(process.env.MIOBRIDGE_DASHBOARD_PORT
+    ? { port: Number(process.env.MIOBRIDGE_DASHBOARD_PORT) }
+    : dashboardConfig?.port ? { port: dashboardConfig.port } : {}),
+};
 const setupAdapters = createNodeSetupAdapters();
 const localNode = new LocalNodeConfigurationService(composition.repository, {
   ...setupAdapters,
   mihomoPath: composition.paths.managedPath('mihomo'),
 });
-const dashboardDaemon = new DashboardSystemdService(composition.paths, createNodeSystemdAdapters());
+const dashboardDaemon = new DashboardSystemdService(composition.paths, createNodeSystemdAdapters(), dashboardOptions);
 const maintenance = new SelfMaintenanceService({
   currentVersion: CLI_VERSION,
   executablePath: process.execPath,
@@ -42,6 +48,7 @@ const maintenance = new SelfMaintenanceService({
         return 'none';
       }
     },
+    refreshUnit: () => dashboardDaemon.refreshUnit(),
     restart: () => dashboardDaemon.restart(),
   },
   ...(process.env.MIOBRIDGE_REPOSITORY ? { repository: process.env.MIOBRIDGE_REPOSITORY } : {}),
@@ -68,12 +75,7 @@ const exitCode = await runCli(process.argv.slice(2), {
     },
   },
   dashboard: {
-    foreground: () => new DashboardForegroundService(composition.paths, createNodeForegroundAdapters(composition)).run({
-      ...(process.env.MIOBRIDGE_DASHBOARD_HOST ? { host: process.env.MIOBRIDGE_DASHBOARD_HOST } : {}),
-      ...(process.env.MIOBRIDGE_DASHBOARD_PORT
-        ? { port: Number(process.env.MIOBRIDGE_DASHBOARD_PORT) }
-        : dashboardConfig?.port ? { port: dashboardConfig.port } : {}),
-    }),
+    foreground: () => new DashboardForegroundService(composition.paths, createNodeForegroundAdapters(composition)).run(dashboardOptions),
     daemon: action => dashboardDaemon[action](),
   },
   output,

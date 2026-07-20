@@ -84,6 +84,24 @@ export class DashboardSystemdService {
     return result.exitCode === 0 && result.stdout.trim() === 'yes';
   }
 
+  private daemonOptions(): Required<DashboardDaemonOptions> {
+    const host = this.options.host ?? '0.0.0.0';
+    const port = this.options.port ?? 3000;
+    if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error(`Invalid dashboard port: ${port}`);
+    return { host, port };
+  }
+
+  private managedUnit(): string {
+    const { host, port } = this.daemonOptions();
+    return renderDashboardUserUnit({
+      cliPath: this.adapters.cliPath,
+      baseDir: this.paths.baseDir,
+      host,
+      port,
+      effectivePath: this.adapters.effectivePath,
+    });
+  }
+
   async status(): Promise<DashboardDaemonStatus> {
     const base = { unitPath: this.unitPath, journalCommand: this.journalCommand() };
     if (!(await this.supported())) return { ...base, state: 'unsupported', active: false, enabled: false, linger: false, message: 'systemd user manager is unavailable; daemon mode requires Linux with a working user systemd session.' };
@@ -113,9 +131,7 @@ export class DashboardSystemdService {
       if (current.state === 'broken') throw new Error(current.message);
     }
     if (current.active) return current;
-    const host = this.options.host ?? '0.0.0.0';
-    const port = this.options.port ?? 3000;
-    if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error(`Invalid dashboard port: ${port}`);
+    const { host, port } = this.daemonOptions();
     if (!(await this.adapters.isPortAvailable(host, port))) throw new Error(`Dashboard port ${port} is already occupied. Stop the conflicting process or choose another port.`);
     try {
       await loadDashboardProvider(dashboardManifestPath(this.paths));
@@ -129,7 +145,7 @@ export class DashboardSystemdService {
       const enabled = await this.adapters.run('loginctl', ['enable-linger', this.adapters.username]);
       if (enabled.exitCode !== 0) throw new Error(`Could not enable lingering. Run "sudo loginctl enable-linger ${this.adapters.username}" manually. ${output(enabled)}`.trim());
     }
-    await this.adapters.writeAtomic(this.unitPath, renderDashboardUserUnit({ cliPath: this.adapters.cliPath, baseDir: this.paths.baseDir, host, port, effectivePath: this.adapters.effectivePath }));
+    await this.adapters.writeAtomic(this.unitPath, this.managedUnit());
     for (const args of [['--user', 'daemon-reload'], ['--user', 'enable', '--now', DASHBOARD_UNIT_NAME]] as const) {
       const result = await this.adapters.run('systemctl', args);
       if (result.exitCode !== 0) throw new Error(`systemctl ${args.slice(1).join(' ')} failed: ${output(result) || 'unknown error'}`);
@@ -143,16 +159,22 @@ export class DashboardSystemdService {
   }
 
   /**
-   * 原地重启已在运行的服务。刻意不走 stop()+start()：start() 会用当前进程的
-   * 路径重写单元文件，如果调用方（比如 upgrade）是从别的位置运行的，会把
-   * ExecStart 劫持过去，服务直接进入 203/EXEC 崩溃循环。升级场景里二进制是
-   * 在原路径上原子替换的，单元定义一个字都不需要动。
+   * 用当前版本的受管模板刷新 unit。升级流程只会在确认该服务正在运行后调用，
+   * 因而不会创建或启动用户没有启用过的服务。ExecStart 使用安装中的 CLI 路径，
+   * 配置目录和监听选项也来自当前 composition，而不是 release 的临时目录。
    */
+  async refreshUnit(): Promise<void> {
+    if (!(await this.supported())) throw new Error('Could not refresh dashboard unit: user systemd is unavailable');
+    await this.adapters.writeAtomic(this.unitPath, this.managedUnit());
+    const result = await this.adapters.run('systemctl', ['--user', 'daemon-reload']);
+    if (result.exitCode !== 0) throw new Error(`Could not reload dashboard unit: ${output(result) || 'systemctl failed'}`);
+  }
+
+  /** 原地重启已在运行的服务，不改变 enable 状态。 */
   async restart(): Promise<void> {
     const result = await this.adapters.run('systemctl', ['--user', 'restart', DASHBOARD_UNIT_NAME]);
     if (result.exitCode !== 0) throw new Error(`Could not restart dashboard: ${output(result) || 'systemctl failed'}`);
-    const host = this.options.host ?? '0.0.0.0';
-    const port = this.options.port ?? 3000;
+    const { host, port } = this.daemonOptions();
     if (!(await this.adapters.waitForReady(host, port))) {
       throw new Error(`Dashboard service did not become ready at http://${host}:${port}/health. Inspect logs with: ${this.journalCommand()}`);
     }

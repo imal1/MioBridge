@@ -39,6 +39,7 @@ export interface SelfMaintenanceOptions {
    */
   readonly serviceControl?: {
     detect(): Promise<RunningDashboard>;
+    refreshUnit(): Promise<void>;
     restart(): Promise<void>;
   };
 }
@@ -130,13 +131,15 @@ export class SelfMaintenanceService {
       return ` A running dashboard not managed by systemd still serves the old version; restart it manually to apply ${version}.`;
     }
     if (running !== 'systemd') return '';
-    progress('Restarting dashboard service...');
+    progress('Refreshing dashboard service definition...');
     try {
+      await control.refreshUnit();
+      progress('Restarting dashboard service...');
       await control.restart();
-      return ' Dashboard service restarted.';
+      return ' Dashboard service definition refreshed and restarted.';
     } catch (error) {
       const reason = error instanceof Error ? error.message : String(error);
-      return ` Dashboard restart failed: ${reason} Run "miobridge dashboard start" manually.`;
+      return ` Dashboard refresh/restart failed: ${reason} Run "miobridge dashboard stop" and "miobridge dashboard start" manually.`;
     }
   }
 

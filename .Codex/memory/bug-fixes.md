@@ -7,6 +7,10 @@ metadata:
 
 # Bug Fixes
 
+- 2026-07-19: Protocol-kernel install and maintenance are direct-only: upstream
+  233boy installers and global wrappers run without MioBridge-generated sudo or
+  privilege retries. Upgrade also rewrites the managed Dashboard user unit so
+  legacy `NoNewPrivileges` template state cannot survive a binary upgrade.
 - 2026-07-19: Agent deployment no longer installs selected missing protocol
   kernels. Agent and mihomo use user paths and user systemd without sudo; 233boy
   wrappers run directly and elevate only after an explicit permission failure.

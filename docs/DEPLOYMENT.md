@@ -99,5 +99,7 @@ the shell script remains a bootstrap and repair entrypoint only.
 Dashboard Agent deployment has the same boundary: it includes only kernels that
 are already installed and readable, and never installs a selected-but-missing
 kernel. Protocol-kernel install and maintenance remain explicit operations.
-233boy lifecycle commands run their global wrapper directly; MioBridge attempts
-sudo only if that wrapper explicitly reports a permissions error.
+233boy installation runs the corresponding upstream `install.sh` directly, and
+lifecycle commands run their global wrapper directly. MioBridge never adds sudo
+or retries with elevated privileges; upstream permission errors are returned
+unchanged.

@@ -120,9 +120,10 @@ management scripts (`233boy/sing-box`, `233boy/Xray`, and `233boy/v2ray`).
 MioBridge detects the management wrapper at `/usr/local/bin/<kernel>` and uses
 the script-managed configuration under `/etc/<kernel>`; a bare upstream core
 binary is not treated as a compatible source provider because it has no
-`url [name]` command. Lifecycle commands call the global wrapper directly and
-fall back to sudo only when the wrapper explicitly reports insufficient
-permissions.
+`url [name]` command. First installation always invokes the corresponding
+upstream `install.sh` directly, while maintenance always calls the global
+wrapper directly. MioBridge never adds sudo or retries with elevated privileges;
+any permission error from the upstream script is returned unchanged.
 
 The CLI selects a same-version x64/arm64 Agent Release asset for the child,
 verifies it against `SHA256SUMS`, and installs it under the SSH user's home with

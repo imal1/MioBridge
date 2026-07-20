@@ -2,6 +2,17 @@
 
 本文档记录 MioBridge 的重要变更。版本号遵循语义化版本规范。
 
+## [1.2.4] — 2026-07-19
+
+### Fixed
+
+- 233boy 协议内核操作改为 direct-only：首次安装始终直接执行对应官方
+  `install.sh`，维护始终直接执行 `/usr/local/bin/{sing-box,xray,v2ray}`，
+  MioBridge 不再生成或尝试任何 sudo/提权回退；上游脚本自身的权限错误会原样返回。
+- `miobridge upgrade` 会重新写入托管的 Dashboard 用户级 systemd unit，再执行
+  daemon-reload 与重启，自动清除 v1.2.2 遗留的 `NoNewPrivileges` 等旧模板配置。
+- Release assets 继续同时发布并校验 `install.sh` 与 `install-agent.sh`。
+
 ## [1.2.3] — 2026-07-19
 
 ### Fixed

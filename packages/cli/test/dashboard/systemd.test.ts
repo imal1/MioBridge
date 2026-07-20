@@ -48,7 +48,7 @@ async function fixture(overrides: Partial<SystemdAdapters> = {}, state: { active
     async confirmEnableLinger() { return true; },
     ...overrides,
   };
-  return { service: new DashboardSystemdService({ baseDir: root, configFile: join(root, 'config.yaml'), distDir: join(root, 'dist') }, adapters), calls, files, removed, state };
+  return { root, service: new DashboardSystemdService({ baseDir: root, configFile: join(root, 'config.yaml'), distDir: join(root, 'dist') }, adapters), calls, files, removed, state };
 }
 
 describe('dashboard systemd user lifecycle', () => {
@@ -144,6 +144,23 @@ describe('dashboard systemd user lifecycle', () => {
     expect(calls.some(([, args]) => args.includes('restart'))).toBe(true);
     // 不得重写单元文件：如果 upgrade 是从别的路径运行的，重写会把
     // ExecStart 劫持到那个路径，服务立刻进入 203/EXEC 崩溃循环。
+    expect(files.size).toBe(0);
+  });
+
+  it('refreshes the managed unit before an upgrade restart without changing enable state', async () => {
+    const { root, service, calls, files, state } = await fixture({}, { active: true, enabled: true });
+    await service.refreshUnit();
+    expect(files.get(service.unitPath)).toContain('ExecStart="/home/alice/.local/bin/miobridge" dashboard foreground');
+    expect(files.get(service.unitPath)).toContain(`Environment="MIOBRIDGE_CONFIG_DIR=${root}"`);
+    expect(files.get(service.unitPath)).not.toContain('NoNewPrivileges=');
+    expect(calls.some(([, args]) => args.includes('daemon-reload'))).toBe(true);
+    expect(calls.some(([, args]) => args.includes('enable') || args.includes('disable'))).toBe(false);
+    expect(state).toMatchObject({ active: true, enabled: true });
+  });
+
+  it('does not rewrite a unit when user systemd is unavailable', async () => {
+    const { service, files } = await fixture({ platform: 'darwin' }, { active: true, enabled: true });
+    await expect(service.refreshUnit()).rejects.toThrow('user systemd is unavailable');
     expect(files.size).toBe(0);
   });
 

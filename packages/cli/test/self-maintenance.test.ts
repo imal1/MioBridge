@@ -111,34 +111,51 @@ describe('CLI self maintenance', () => {
   });
 
   it('restarts a running systemd dashboard after the upgrade', async () => {
+    const refreshUnit = vi.fn(async () => undefined);
     const restart = vi.fn(async () => undefined);
-    const { service } = harness({}, { serviceControl: { detect: async () => 'systemd', restart } });
-    await expect(service.upgrade()).resolves.toContain('Dashboard service restarted');
+    const { service } = harness({}, { serviceControl: { detect: async () => 'systemd', refreshUnit, restart } });
+    await expect(service.upgrade()).resolves.toContain('definition refreshed and restarted');
+    expect(refreshUnit).toHaveBeenCalledOnce();
     expect(restart).toHaveBeenCalledOnce();
+    expect(refreshUnit.mock.invocationCallOrder[0]).toBeLessThan(restart.mock.invocationCallOrder[0]!);
   });
 
   it('leaves stopped dashboards alone', async () => {
+    const refreshUnit = vi.fn(async () => undefined);
     const restart = vi.fn(async () => undefined);
-    const { service } = harness({}, { serviceControl: { detect: async () => 'none', restart } });
+    const { service } = harness({}, { serviceControl: { detect: async () => 'none', refreshUnit, restart } });
     await expect(service.upgrade()).resolves.toBe('MioBridge and dashboard upgraded from 1.0.0 to 1.2.3.');
+    expect(refreshUnit).not.toHaveBeenCalled();
     expect(restart).not.toHaveBeenCalled();
   });
 
   it('warns about an unmanaged running dashboard instead of touching it', async () => {
+    const refreshUnit = vi.fn(async () => undefined);
     const restart = vi.fn(async () => undefined);
-    const { service } = harness({}, { serviceControl: { detect: async () => 'external', restart } });
+    const { service } = harness({}, { serviceControl: { detect: async () => 'external', refreshUnit, restart } });
     // 前台进程挂在用户自己的终端上，杀掉它无法原地重启，只能明确警告。
     await expect(service.upgrade()).resolves.toContain('restart it manually');
+    expect(refreshUnit).not.toHaveBeenCalled();
     expect(restart).not.toHaveBeenCalled();
   });
 
   it('does not fail the finished upgrade when the restart fails', async () => {
+    const refreshUnit = vi.fn(async () => undefined);
     const restart = vi.fn(async () => { throw new Error('systemctl busy'); });
-    const { service } = harness({}, { serviceControl: { detect: async () => 'systemd', restart } });
+    const { service } = harness({}, { serviceControl: { detect: async () => 'systemd', refreshUnit, restart } });
     // 二进制和 dashboard 已经装好了，重启失败只能降级为带指引的警告。
     const message = await service.upgrade();
     expect(message).toContain('upgraded from 1.0.0 to 1.2.3');
     expect(message).toContain('miobridge dashboard start');
+  });
+
+  it('does not restart when refreshing the managed unit fails', async () => {
+    const refreshUnit = vi.fn(async () => { throw new Error('daemon-reload failed'); });
+    const restart = vi.fn(async () => undefined);
+    const { service } = harness({}, { serviceControl: { detect: async () => 'systemd', refreshUnit, restart } });
+    const message = await service.upgrade();
+    expect(message).toContain('refresh/restart failed: daemon-reload failed');
+    expect(restart).not.toHaveBeenCalled();
   });
 
   it('extracts the executable from the release tarball', async () => {
