@@ -127,6 +127,39 @@ describe('kernel adapters', () => {
     expect(output.rules).not.toContain('IP-CIDR,17.0.0.0/8,DIRECT');
   });
 
+  it('renders every input node into the complete Clash template without replacing routing rules', async () => {
+    const paths = createRuntimePaths({ env: { MIOBRIDGE_CONFIG_DIR: '/state', PATH: '' }, applicationRoot: '/app' });
+    const fs = new MemoryFs();
+    fs.files.set('/state/bin/mihomo', 'binary');
+    const process = new FakeProcess();
+    const adapter = new MihomoAdapter({ paths, process, fs, logger, runtimeDir: '/runtime' });
+    const output = YAML.parse(await adapter.convertToClashByContent([
+      'hysteria2://password@hy.example:443?sni=hy.example&alpn=h3#hy2',
+      'trojan://password@trojan.example:443?sni=trojan.example#trojan',
+    ].join('\n')));
+
+    expect(output.proxies).toHaveLength(2);
+    expect(output.dns).toMatchObject({ enable: true, 'enhanced-mode': 'fake-ip' });
+    expect(output['proxy-groups'].map((group: any) => group.name)).toEqual([
+      '🚀 节点选择', '♻️ 自动选择', '🔯 故障转移', '🔮 负载均衡', '🎯 全球直连', '🐟 漏网之鱼',
+    ]);
+    expect(output['proxy-groups'][0].proxies).toEqual(expect.arrayContaining(['hy2', 'trojan']));
+    expect(output.rules).toContain('DOMAIN-SUFFIX,openai.com,♻️ 自动选择');
+    expect(output.rules.at(-1)).toBe('MATCH,♻️ 自动选择');
+    expect(process.calls.at(-1)?.options.timeout).toBe(30_000);
+  });
+
+  it('rejects a partial conversion instead of publishing fewer proxies than the input', async () => {
+    const paths = createRuntimePaths({ env: { MIOBRIDGE_CONFIG_DIR: '/state', PATH: '' }, applicationRoot: '/app' });
+    const fs = new MemoryFs();
+    fs.files.set('/state/bin/mihomo', 'binary');
+    const adapter = new MihomoAdapter({ paths, process: new FakeProcess(), fs, logger, runtimeDir: '/runtime' });
+    await expect(adapter.convertToClashByContent([
+      'trojan://password@ok.example:443#ok',
+      'wireguard://unsupported@example:443#not-silently-dropped',
+    ].join('\n'))).rejects.toThrow('1/2 个代理节点无法转换');
+  });
+
   it('falls back to PATH discovery and reports mihomo availability', async () => {
     const paths = createRuntimePaths({ env: { MIOBRIDGE_CONFIG_DIR: '/state', PATH: '' } });
     const process = new FakeProcess('/usr/bin/mihomo');

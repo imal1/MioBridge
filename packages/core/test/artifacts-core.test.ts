@@ -95,6 +95,23 @@ describe('ArtifactService', () => {
     }
     expect(await readFile(join(config.staticDir, 'clash.yaml'), 'utf8')).toContain('proxies:');
   });
+
+  it('keeps the hy2 alias when aggregating multiple local config outputs', async () => {
+    const { config } = await setup();
+    const hy2 = 'hy2://secret@hy.example:443#hy2';
+    const trojan = 'trojan://secret@trojan.example:443#trojan';
+    let clashInput = '';
+    const service = new ArtifactService({
+      config, logger,
+      local: { isAvailable: async () => true, extractNodeUrls: async () => [hy2, trojan] },
+      remote: { collectRemoteNodeSources: async () => ({ sources: [], errors: [] }) },
+      clash: { checkHealth: async () => true, convertToClashByContent: async content => { clashInput = content; return `proxies:\n${content}\n`; } },
+    });
+
+    expect((await service.updateSubscription()).nodesCount).toBe(2);
+    expect(clashInput.split('\n')).toHaveLength(2);
+    expect(clashInput).toContain('hy2://');
+  });
 });
 
 describe('MioBridgeCore', () => {

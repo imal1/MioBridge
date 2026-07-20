@@ -40,8 +40,9 @@ export class LocalNodeConfigurationService {
   }
 
   async agentConfig(): Promise<string> {
-    const node = (await this.repository.list({ enabledOnly: false })).find(item => item.id === LOCAL_NODE_ID);
+    let node = (await this.repository.list({ enabledOnly: false })).find(item => item.id === LOCAL_NODE_ID);
     if (!node) throw new Error('Local node is not configured');
+    if (node.kernels.length === 0) node = await this.repository.configureLocalNode(true) ?? node;
     return stringify({
       node: { id: node.id, name: node.name, secret: node.secret },
       kernels: node.kernels.map(kernel => ({

@@ -33,7 +33,7 @@ export interface ArtifactServiceOptions {
   readonly now?: () => Date;
 }
 
-const protocols = ['vless://', 'vmess://', 'ss://', 'ssr://', 'trojan://', 'hysteria2://', 'tuic://', 'wireguard://'] as const;
+const protocols = ['vless://', 'vmess://', 'ss://', 'ssr://', 'trojan://', 'hysteria2://', 'hy2://', 'tuic://', 'wireguard://'] as const;
 
 export class ArtifactService {
   private readonly now: () => Date;

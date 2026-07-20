@@ -86,7 +86,20 @@ function findKernelBinary(type: KernelType): string | undefined {
 
 export function discoverKernelConfigFiles(kernel: AgentKernelConfig): string[] {
   const files = new Set<string>();
-  if (kernel.configPath) files.add(kernel.configPath);
+
+  const addPath = (candidate: string) => {
+    if (!fs.existsSync(candidate)) return;
+    const stat = fs.statSync(candidate);
+    if (stat.isFile()) {
+      if (candidate.endsWith('.json')) files.add(candidate);
+      return;
+    }
+    if (!stat.isDirectory()) return;
+    for (const name of fs.readdirSync(candidate).sort()) {
+      const file = path.join(candidate, name);
+      if (name.endsWith('.json') && fs.statSync(file).isFile()) files.add(file);
+    }
+  };
 
   const pathGroups = kernel.type === 'xray'
     ? { files: XRAY_CONFIG_PATHS, dirs: XRAY_CONF_DIRS }
@@ -94,15 +107,14 @@ export function discoverKernelConfigFiles(kernel: AgentKernelConfig): string[] {
       ? { files: V2RAY_CONFIG_PATHS, dirs: V2RAY_CONF_DIRS }
       : { files: SING_BOX_CONFIG_PATHS, dirs: SING_BOX_CONF_DIRS };
 
-  for (const file of pathGroups.files) files.add(file);
-  for (const dir of pathGroups.dirs) {
-      if (!fs.existsSync(dir)) continue;
-      for (const name of fs.readdirSync(dir)) {
-        if (name.endsWith('.json')) files.add(path.join(dir, name));
-      }
+  if (kernel.configPath && !pathGroups.files.includes(kernel.configPath)) {
+    addPath(kernel.configPath);
+  } else {
+    for (const file of pathGroups.files) addPath(file);
+    for (const dir of pathGroups.dirs) addPath(dir);
   }
 
-  return Array.from(files).filter(file => fs.existsSync(file));
+  return Array.from(files);
 }
 
 function requestHost(req: IncomingRequest): string {
@@ -121,81 +133,129 @@ function publicKeyFromOutbounds(outbounds: any[] | undefined): string {
   return '';
 }
 
-function inboundToUrl(inbound: any, host: string, publicKey: string): string | null {
+function sourceName(tag: string, index: number, count: number): string {
+  return encodeURIComponent(count > 1 ? `${tag}-${index + 1}` : tag);
+}
+
+function inboundToUrls(inbound: any, host: string, publicKey: string): string[] {
   const type = inbound?.type;
   const port = inbound?.listen_port;
   const tag = inbound?.tag || type;
-  if (!host || !port) return null;
+  if (!host || !port) return [];
+  const users = Array.isArray(inbound.users) ? inbound.users : [];
 
   if (type === 'vless') {
-    const user = inbound.users?.[0];
-    const uuid = user?.uuid;
-    if (!uuid) return null;
-
-    const params = new URLSearchParams();
-    params.set('type', 'tcp');
-    if (inbound.tls?.enabled) {
-      params.set('security', inbound.tls.reality?.enabled ? 'reality' : 'tls');
-      params.set('sni', inbound.tls.server_name || inbound.tls.reality?.handshake?.server || host);
-    }
-    if (user.flow) params.set('flow', user.flow);
-    if (publicKey) params.set('pbk', publicKey);
-    const shortId = inbound.tls?.reality?.short_id?.[0];
-    if (shortId) params.set('sid', shortId);
-    return `vless://${uuid}@${host}:${port}?${params.toString()}#${encodeURIComponent(tag)}`;
+    return users.flatMap((user: any, index: number) => {
+      const uuid = user?.uuid;
+      if (!uuid) return [];
+      const params = new URLSearchParams();
+      params.set('type', 'tcp');
+      if (inbound.tls?.enabled) {
+        params.set('security', inbound.tls.reality?.enabled ? 'reality' : 'tls');
+        params.set('sni', inbound.tls.server_name || inbound.tls.reality?.handshake?.server || host);
+      }
+      if (user.flow) params.set('flow', user.flow);
+      if (publicKey) params.set('pbk', publicKey);
+      const shortId = inbound.tls?.reality?.short_id?.[0];
+      if (shortId) params.set('sid', shortId);
+      return [`vless://${encodeURIComponent(uuid)}@${host}:${port}?${params.toString()}#${sourceName(tag, index, users.length)}`];
+    });
   }
 
   if (type === 'trojan') {
-    const password = inbound.users?.[0]?.password;
-    if (!password) return null;
     const params = new URLSearchParams();
     if (inbound.tls?.enabled) {
       params.set('security', 'tls');
       params.set('sni', inbound.tls.server_name || host);
     }
-    return `trojan://${password}@${host}:${port}?${params.toString()}#${encodeURIComponent(tag)}`;
+    return users.flatMap((user: any, index: number) => user?.password
+      ? [`trojan://${encodeURIComponent(user.password)}@${host}:${port}?${params.toString()}#${sourceName(tag, index, users.length)}`]
+      : []);
   }
 
-  return null;
+  if (type === 'hysteria2') {
+    const params = new URLSearchParams();
+    params.set('sni', inbound.tls?.server_name || host);
+    if (inbound.tls?.insecure) params.set('insecure', '1');
+    if (inbound.obfs?.type) params.set('obfs', inbound.obfs.type);
+    if (inbound.obfs?.password) params.set('obfs-password', inbound.obfs.password);
+    return users.flatMap((user: any, index: number) => user?.password
+      ? [`hysteria2://${encodeURIComponent(user.password)}@${host}:${port}?${params.toString()}#${sourceName(tag, index, users.length)}`]
+      : []);
+  }
+
+  if (type === 'tuic') {
+    return users.flatMap((user: any, index: number) => {
+      if (!user?.uuid || !user?.password) return [];
+      const params = new URLSearchParams();
+      params.set('sni', inbound.tls?.server_name || host);
+      if (inbound.tls?.insecure) params.set('allow_insecure', '1');
+      return [`tuic://${encodeURIComponent(user.uuid)}:${encodeURIComponent(user.password)}@${host}:${port}?${params.toString()}#${sourceName(tag, index, users.length)}`];
+    });
+  }
+
+  if (type === 'shadowsocks') {
+    const method = inbound.method;
+    const credentials = [
+      ...(inbound.password ? [{ password: inbound.password }] : []),
+      ...users.filter((user: any) => user?.password),
+    ];
+    if (!method) return [];
+    return credentials.map((user: any, index: number) => {
+      const userInfo = Buffer.from(`${method}:${user.password}`).toString('base64url');
+      return `ss://${userInfo}@${host}:${port}#${sourceName(tag, index, credentials.length)}`;
+    });
+  }
+
+  return [];
 }
 
-function xrayInboundToUrl(inbound: any, host: string): string | null {
+function xrayInboundToUrls(inbound: any, host: string): string[] {
   const protocol = inbound?.protocol;
   const port = inbound?.port;
   const tag = inbound?.tag || protocol;
-  const client = inbound?.settings?.clients?.[0];
-  if (!host || !port || !client) return null;
+  const clients = Array.isArray(inbound?.settings?.clients) ? inbound.settings.clients : [];
+  if (!host || !port) return [];
+
+  if (protocol === 'shadowsocks') {
+    const method = inbound?.settings?.method;
+    const password = inbound?.settings?.password;
+    if (!method || !password) return [];
+    const userInfo = Buffer.from(`${method}:${password}`).toString('base64url');
+    return [`ss://${userInfo}@${host}:${port}#${encodeURIComponent(tag)}`];
+  }
+
+  if (clients.length === 0) return [];
 
   const stream = inbound.streamSettings || {};
   if (protocol === 'vless') {
-    const params = new URLSearchParams();
-    params.set('type', stream.network || 'tcp');
-    if (stream.security && stream.security !== 'none') params.set('security', stream.security);
-    const sni = stream.tlsSettings?.serverName || stream.realitySettings?.serverName || host;
-    params.set('sni', sni);
-    if (client.flow) params.set('flow', client.flow);
-    if (stream.realitySettings?.publicKey) params.set('pbk', stream.realitySettings.publicKey);
-    if (stream.realitySettings?.shortId) params.set('sid', stream.realitySettings.shortId);
-    if (stream.wsSettings?.path) params.set('path', stream.wsSettings.path);
-    return `vless://${client.id}@${host}:${port}?${params.toString()}#${encodeURIComponent(tag)}`;
+    return clients.flatMap((client: any, index: number) => {
+      if (!client?.id) return [];
+      const params = new URLSearchParams();
+      params.set('type', stream.network || 'tcp');
+      if (stream.security && stream.security !== 'none') params.set('security', stream.security);
+      const sni = stream.tlsSettings?.serverName || stream.realitySettings?.serverName || host;
+      params.set('sni', sni);
+      if (client.flow) params.set('flow', client.flow);
+      if (stream.realitySettings?.publicKey) params.set('pbk', stream.realitySettings.publicKey);
+      if (stream.realitySettings?.shortId) params.set('sid', stream.realitySettings.shortId);
+      if (stream.wsSettings?.path) params.set('path', stream.wsSettings.path);
+      return [`vless://${encodeURIComponent(client.id)}@${host}:${port}?${params.toString()}#${sourceName(tag, index, clients.length)}`];
+    });
   }
 
   if (protocol === 'vmess') {
-    const vmess = {
-      v: '2',
-      ps: tag,
-      add: host,
-      port: String(port),
-      id: client.id,
-      aid: String(client.alterId || 0),
-      scy: client.security || 'auto',
-      net: stream.network || 'tcp',
-      type: 'none',
-      host: stream.wsSettings?.headers?.Host || '',
-      path: stream.wsSettings?.path || '/',
-      tls: stream.security === 'tls' ? 'tls' : '',
-    };
-    return `vmess://${Buffer.from(JSON.stringify(vmess)).toString('base64')}`;
+    return clients.flatMap((client: any, index: number) => {
+      if (!client?.id) return [];
+      const vmess = {
+        v: '2', ps: clients.length > 1 ? `${tag}-${index + 1}` : tag, add: host,
+        port: String(port), id: client.id, aid: String(client.alterId || 0),
+        scy: client.security || 'auto', net: stream.network || 'tcp', type: 'none',
+        host: stream.wsSettings?.headers?.Host || '', path: stream.wsSettings?.path || '/',
+        tls: stream.security === 'tls' ? 'tls' : '',
+      };
+      return [`vmess://${Buffer.from(JSON.stringify(vmess)).toString('base64')}`];
+    });
   }
 
   if (protocol === 'trojan') {
@@ -204,10 +264,12 @@ function xrayInboundToUrl(inbound: any, host: string): string | null {
     params.set('security', stream.security === 'reality' ? 'reality' : 'tls');
     params.set('sni', sni);
     if (stream.wsSettings?.path) params.set('path', stream.wsSettings.path);
-    return `trojan://${client.password}@${host}:${port}?${params.toString()}#${encodeURIComponent(tag)}`;
+    return clients.flatMap((client: any, index: number) => client?.password
+      ? [`trojan://${encodeURIComponent(client.password)}@${host}:${port}?${params.toString()}#${sourceName(tag, index, clients.length)}`]
+      : []);
   }
 
-  return null;
+  return [];
 }
 
 function urlsFromWrapper(executable: string, file: string): string[] {
@@ -242,10 +304,10 @@ function extractKernelNodeUrls(kernel: AgentKernelConfig, configPaths: string[],
       const parsed = JSON.parse(fs.readFileSync(file, 'utf8'));
       const publicKey = publicKeyFromOutbounds(parsed.outbounds);
       for (const inbound of parsed.inbounds || []) {
-        const url = kernel.type === 'sing-box'
-          ? inboundToUrl(inbound, host, publicKey)
-          : xrayInboundToUrl(inbound, host);
-        if (url) urls.push(url);
+        const inboundUrls = kernel.type === 'sing-box'
+          ? inboundToUrls(inbound, host, publicKey)
+          : xrayInboundToUrls(inbound, host);
+        urls.push(...inboundUrls);
       }
       readableFiles += 1;
     } catch (error) {
