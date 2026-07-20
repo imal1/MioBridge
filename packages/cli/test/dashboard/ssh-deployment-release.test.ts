@@ -115,11 +115,11 @@ describe('local deployment transport', () => {
     expect(fallbackCommands[1]).toContain('sudo -n bash -lc');
   });
 
-  it('runs the 233boy installer directly and elevates its explicit non-root result', async () => {
+  it('elevates a local installer based on the process uid even when a legacy profile says root', async () => {
     const node = {
       id: 'local', name: '本机节点', host: '127.0.0.1', secret: 'secret', location: '本机', enabled: true,
       kernels: [] as Array<{ type: 'sing-box' }>,
-      ssh: { user: 'imali', authMethod: 'password' as const, credentialRef: 'ssh-credentials/local', hostKey: '' },
+      ssh: { user: 'root', authMethod: 'password' as const, credentialRef: 'ssh-credentials/local', hostKey: '' },
     };
     const composition = {
       repository: { list: async () => [node] },

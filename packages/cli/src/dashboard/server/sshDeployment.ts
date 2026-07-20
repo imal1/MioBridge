@@ -834,7 +834,9 @@ export class SshDeploymentService {
         kernels: kernels ?? node.kernels,
         ssh: {
           host: '127.0.0.1',
-          user: node.ssh?.user ?? (typeof process.getuid === 'function' && process.getuid() === 0 ? 'root' : process.env.USER ?? 'miobridge'),
+          user: typeof process.getuid === 'function' && process.getuid() === 0
+            ? 'root'
+            : process.env.USER?.trim() || 'miobridge',
           port: 0,
           authMethod: 'password',
           hostKey: '',
@@ -957,7 +959,10 @@ export class SshDeploymentService {
 
   private async execWithPrivilegeFallback(ssh: DeploymentConnection, target: SshTarget, command: string): Promise<ExecResult> {
     const direct = await this.exec(ssh, command);
-    if (direct.code === 0 || target.ssh.user === 'root') return direct;
+    const alreadyRoot = target.local
+      ? typeof process.getuid === 'function' && process.getuid() === 0
+      : target.ssh.user === 'root';
+    if (direct.code === 0 || alreadyRoot) return direct;
     const output = `${direct.stdout}\n${direct.stderr}`;
     if (!/permission denied|operation not permitted|must (?:be run|run) as root|requires? root|(?:当前)?非.*root.*用户|需要.*(?:root|管理员)|请.*root/iu.test(output)) {
       return direct;
