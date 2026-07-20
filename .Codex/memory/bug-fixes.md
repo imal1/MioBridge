@@ -7,6 +7,9 @@ metadata:
 
 # Bug Fixes
 
+- 2026-07-20: Agent release installer writes unquoted systemd directive values;
+  quoted `WorkingDirectory=` values are interpreted literally and prevent service
+  activation, so the installer correctly rolls back instead of leaving an Agent down.
 - 2026-07-20: Subscription aggregation expands every managed node, kernel,
   config file, and configured client (including structured Hysteria2/TUIC/
   Shadowsocks fallbacks and `hy2://`), and repairs empty legacy local-Agent

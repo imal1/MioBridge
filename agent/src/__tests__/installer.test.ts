@@ -146,8 +146,11 @@ describe('install-agent.sh', () => {
       const binary = join(context.installDir, 'miobridge-agent');
       expect(output).toContain('MioBridge Agent 1.2.3 installed');
       expect(execFileSync(binary, ['--marker'], { encoding: 'utf8' }).trim()).toBe('initial');
-      expect(readFileSync(context.unitPath, 'utf8')).toContain(`ExecStart="${binary}" --config "${join(context.configDir, 'agent.yaml')}"`);
-      expect(readFileSync(context.unitPath, 'utf8')).toContain('WantedBy=default.target');
+      const unit = readFileSync(context.unitPath, 'utf8');
+      expect(unit).toContain(`ExecStart=${binary} --config ${join(context.configDir, 'agent.yaml')}`);
+      expect(unit).toContain(`WorkingDirectory=${context.configDir}`);
+      expect(unit).not.toContain('WorkingDirectory="');
+      expect(unit).toContain('WantedBy=default.target');
       expect(readFileSync(context.systemctlLog, 'utf8')).toContain('--user daemon-reload');
       expect(readFileSync(context.systemctlLog, 'utf8')).toContain('--user restart miobridge-agent');
     },
