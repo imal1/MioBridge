@@ -19,7 +19,7 @@ function fillPasswordForm() {
   fireEvent.change(screen.getByLabelText('节点名称'), { target: { value: '新加坡' } })
   fireEvent.change(screen.getByLabelText('主机地址'), { target: { value: 'sg.example.com' } })
   fireEvent.change(screen.getByLabelText('地域标签'), { target: { value: 'SG' } })
-  fireEvent.change(screen.getByLabelText('SSH 密码'), { target: { value: 'secret' } })
+  fireEvent.change(screen.getByLabelText('密码'), { target: { value: 'secret' } })
 }
 
 describe('AddNodeForm', () => {
@@ -34,9 +34,9 @@ describe('AddNodeForm', () => {
     render(<AddNodeForm isOpen onClose={() => {}} onComplete={() => {}} />)
     fireEvent.click(screen.getByRole('button', { name: '私钥' }))
     const file = new File(['private-key-content'], 'id_ed25519')
-    fireEvent.change(screen.getByLabelText('SSH 私钥文件'), { target: { files: [file] } })
+    fireEvent.change(screen.getByLabelText('私钥文件'), { target: { files: [file] } })
     await screen.findByText('id_ed25519')
-    expect(screen.queryByLabelText('SSH 密码')).toBeNull()
+    expect(screen.queryByLabelText('密码')).toBeNull()
   })
 
   it('runs SSH preflight, confirms host key, and creates only the node record', async () => {

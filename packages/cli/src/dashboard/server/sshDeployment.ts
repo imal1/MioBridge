@@ -173,6 +173,7 @@ export function agentRelease(
 }
 
 export class SshDeploymentService {
+  readonly #oneTimeCredentials = new Map<string, string>();
   readonly #progress = new Map<string, DeployStatus>();
   readonly #componentProgress = new Map<string, ComponentDeployStatus>();
   readonly #eventCounters = new Map<string, number>();
@@ -182,6 +183,14 @@ export class SshDeploymentService {
     private readonly composition: NodeCoreComposition,
     private readonly options: DeploymentServiceOptions = {},
   ) {}
+
+  setOneTimeCredential(nodeId: string, credential: string): void {
+    this.#oneTimeCredentials.set(nodeId, credential);
+  }
+
+  clearOneTimeCredential(nodeId: string): void {
+    this.#oneTimeCredentials.delete(nodeId);
+  }
 
   async preflight(body: unknown): Promise<{
     hostKey: string;
@@ -611,6 +620,8 @@ export class SshDeploymentService {
     } catch (error) {
       if ((await this.requireComponentDeployment(taskId)).status === 'cancelled') return;
       await emit('done', 'error', error instanceof Error ? error.message : '部署任务失败', 100, { errorCode: 'DEPLOYMENT_FAILED' });
+    } finally {
+      this.clearOneTimeCredential(nodeId);
     }
   }
 
@@ -792,6 +803,7 @@ export class SshDeploymentService {
       emit(current?.step ?? 'connect', 'error', message, current?.progress ?? 0);
     } finally {
       ssh?.end();
+      this.clearOneTimeCredential(node.id);
     }
   }
 
@@ -807,7 +819,12 @@ export class SshDeploymentService {
 
   private async targetForNode(nodeId: string, kernels?: readonly NodeKernelConfig[]): Promise<SshTarget> {
     const node = await this.findNode(nodeId);
+    const oneTimeCredential = this.#oneTimeCredentials.get(nodeId);
     if (node.id === 'local') {
+      const persistedCredential = node.ssh?.credentialRef
+        ? await this.composition.core.state.get(node.ssh.credentialRef)
+        : null;
+      const password = oneTimeCredential ?? persistedCredential;
       return {
         local: true,
         nodeId: node.id,
@@ -817,15 +834,18 @@ export class SshDeploymentService {
         kernels: kernels ?? node.kernels,
         ssh: {
           host: '127.0.0.1',
-          user: typeof process.getuid === 'function' && process.getuid() === 0 ? 'root' : process.env.USER ?? 'miobridge',
+          user: node.ssh?.user ?? (typeof process.getuid === 'function' && process.getuid() === 0 ? 'root' : process.env.USER ?? 'miobridge'),
           port: 0,
           authMethod: 'password',
           hostKey: '',
+          ...(password ? { password } : {}),
         },
       };
     }
-    if (!node.ssh?.credentialRef) throw new Error('节点未配置 SSH 凭据');
-    const credential = await this.composition.core.state.get(node.ssh.credentialRef);
+    if (!node.ssh) throw new Error('节点未配置 SSH 连接信息');
+    const credential = oneTimeCredential ?? (node.ssh.credentialRef
+      ? await this.composition.core.state.get(node.ssh.credentialRef)
+      : null);
     if (!credential) throw new Error('节点 SSH 凭据不存在');
     if (node.ssh.authMethod === 'privateKey') validatePrivateKey(credential);
     return {
@@ -928,7 +948,7 @@ export class SshDeploymentService {
   }
 
   private execRoot(ssh: DeploymentConnection, target: SshTarget, command: string): Promise<ExecResult> {
-    if (target.ssh.user === 'root') return this.exec(ssh, command);
+    if ((!target.local && target.ssh.user === 'root') || (target.local && typeof process.getuid === 'function' && process.getuid() === 0)) return this.exec(ssh, command);
     const elevated = target.ssh.password
       ? `sudo -S -p '' bash -lc ${shellQuote(command)}`
       : `sudo -n bash -lc ${shellQuote(command)}`;

@@ -7,6 +7,9 @@ metadata:
 
 # Bug Fixes
 
+- 2026-07-20: Local protocol-kernel privilege fallback accepts the local profile's
+  username/password. Non-root credentials may be persisted; root credentials are
+  held only for the next deployment task and cleared when it finishes.
 - 2026-07-20: 233boy kernels keep one system installation layout: direct script
   execution retries with elevation only after an explicit permission/root error.
   The Dashboard unit omits `PrivateTmp` so host root ownership is not remapped to

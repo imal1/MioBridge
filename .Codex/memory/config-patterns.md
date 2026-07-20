@@ -24,6 +24,8 @@ metadata:
 - SSH passwords and uploaded private keys use StateStore keys
   `ssh-credentials/<nodeId>`; nodes.yaml stores only `authMethod` and
   `credentialRef`. Password and private-key authentication are mutually exclusive.
+- Non-root local and SSH credentials use StateStore references. Root passwords
+  and private keys remain in memory for one deployment task and are then cleared.
 - Agent configs use a non-empty, duplicate-free `kernels` list of sing-box,
   Xray, and/or V2Ray entries, each with an optional config path. A node config
   may use the exact `kernels: []` draft form until its first successful deploy.

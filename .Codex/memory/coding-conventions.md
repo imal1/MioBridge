@@ -14,3 +14,4 @@ metadata:
 - Keep Markdown short. Move only durable, current facts into memory files.
 - Run `bun run lint`, workspace typechecks, and relevant core/CLI/frontend/Agent
   tests before handoff when code changes warrant it.
+- Do not run Dashboard E2E automatically; run it only when the user explicitly asks.
