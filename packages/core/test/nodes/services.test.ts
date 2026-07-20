@@ -34,7 +34,9 @@ describe('node core services', () => {
     await repository.configureLocalNode(true);
     expect(await repository.isLocalNodeConfigured()).toBe(true);
     expect(await repository.list()).toMatchObject([
-      { id: 'local', name: '本机节点', host: '127.0.0.1', kernels: [{ type: 'sing-box' }], location: '本机', enabled: true },
+      { id: 'local', name: '本机节点', host: '127.0.0.1', kernels: [
+        { type: 'sing-box' }, { type: 'xray' }, { type: 'v2ray' },
+      ], location: '本机', enabled: true },
       { id: 'node-a' },
     ]);
     // 重复启用是幂等的，且不会覆盖用户对档案的后续修改。
