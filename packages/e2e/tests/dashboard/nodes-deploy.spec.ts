@@ -962,10 +962,10 @@ test.describe('E05 — 部署 UI、取消与重试', () => {
 })
 
 test.describe('E06 — 手动 Agent 配置与敏感字段边界', () => {
-  test('没有远端节点时禁用任务创建与手动 Agent 部署', async ({ page, control }) => {
+  test('没有节点时禁用任务创建与手动 Agent 部署', async ({ page, control }) => {
     await control({ nodesEmpty: true })
     await page.goto('/deploy?component=agent&operation=install')
-    await expect(page.getByText('请先在节点页添加远端节点', { exact: true })).toBeVisible()
+    await expect(page.getByText('请先在节点页添加节点', { exact: true })).toBeVisible()
     await expect(page.getByRole('button', { name: '创建部署任务' })).toBeDisabled()
     await expect(page.getByRole('button', { name: '手动 Shell 部署' })).toBeDisabled()
   })

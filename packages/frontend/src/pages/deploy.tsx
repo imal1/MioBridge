@@ -130,7 +130,7 @@ export default function DeployPage() {
     return () => window.clearInterval(timer)
   }, [refresh])
 
-  const nodes = useMemo(() => (cluster?.nodes || []).filter(node => node.nodeId !== 'local'), [cluster?.nodes])
+  const nodes = useMemo(() => cluster?.nodes || [], [cluster?.nodes])
   const taskList = useMemo(() => Object.values(tasks).sort((a, b) => b.startedAt - a.startedAt), [tasks])
   const activeTasks = useMemo(() => taskList.filter(task => task.status === 'running' || task.status === 'pending'), [taskList])
   const currentState = states.find(item => item.nodeId === selectedNode && item.component === component)
@@ -168,15 +168,15 @@ export default function DeployPage() {
       const response = await apiService.preflightDeployment(selectedNode)
       if (!response.success) throw new Error(errorMessage(response.error, 'SSH 预检失败'))
       const failed = response.data?.checks.filter(check => !check.ok) ?? []
-      // 预检结论必须成为创建任务的 gate：明知 SSH 不通还允许下发，只会制造注定失败的任务。
+      // 预检结论必须成为创建任务的 gate；本机节点由后端改为直接执行检查。
       setBlockedNodes(previous => ({ ...previous, [selectedNode]: failed.map(item => item.label) }))
       if (failed.length) toast.warning('预检完成，存在阻断项', { description: failed.map(item => item.label).join('、') })
-      else toast.success('SSH 预检通过', { description: `${response.data?.architecture || '未知架构'} · systemd 可用` })
+      else toast.success(node?.nodeId === 'local' ? '本机预检通过' : 'SSH 预检通过', { description: `${response.data?.architecture || '未知架构'} · systemd 可用` })
     } catch (caught) {
       const message = caught instanceof Error ? caught.message : 'SSH 预检失败'
       setError(message)
     } finally { setPreflighting(false) }
-  }, [selectedNode])
+  }, [node?.nodeId, selectedNode])
 
   const blocking = blockedNodes[selectedNode] ?? []
 
@@ -251,8 +251,8 @@ export default function DeployPage() {
                 <span className="flex items-center gap-2"><Badge variant={installed(item, component) ? 'secondary' : 'outline'}>{installed(item, component) ? '已安装' : '未安装/未知'}</Badge><Icon icon={selectedNode === item.nodeId ? 'ph:check-circle-fill' : 'ph:circle-light'} /></span>
               </button>
             ))}
-            {nodes.length === 0 ? <div className="rounded-2xl bg-[var(--surface-container)] p-6 text-center text-muted-foreground">请先在节点页添加远端节点</div> : null}
-            <Button className="w-full" variant="outline" onClick={preflight} disabled={!selectedNode || preflighting}><Icon icon={preflighting ? 'ph:spinner-bold' : 'ph:shield-check-light'} className={preflighting ? 'animate-spin' : ''} />{preflighting ? '正在预检' : '执行 SSH 预检'}</Button>
+            {nodes.length === 0 ? <div className="rounded-2xl bg-[var(--surface-container)] p-6 text-center text-muted-foreground">请先在节点页添加节点</div> : null}
+            <Button className="w-full" variant="outline" onClick={preflight} disabled={!selectedNode || preflighting}><Icon icon={preflighting ? 'ph:spinner-bold' : 'ph:shield-check-light'} className={preflighting ? 'animate-spin' : ''} />{preflighting ? '正在预检' : node?.nodeId === 'local' ? '执行本机预检' : '执行 SSH 预检'}</Button>
           </CardContent>
         </Card>
 

@@ -33,9 +33,10 @@ export interface CliDependencies {
   readonly output: CliOutput;
   readonly version?: string;
   readonly readTextFile?: (path: string) => Promise<string>;
+  readonly writeTextFile?: (path: string, content: string) => Promise<void>;
   readonly signal?: AbortSignal;
   readonly setup?: Pick<DependencySetupService, 'run'>;
-  readonly localNode?: Pick<LocalNodeConfigurationService, 'configure'>;
+  readonly localNode?: Pick<LocalNodeConfigurationService, 'configure' | 'agentConfig'>;
   readonly maintenance?: {
     upgrade(): Promise<string>;
     uninstall(purge: boolean): Promise<string>;
@@ -52,6 +53,7 @@ type ParsedCommand =
   | { readonly kind: 'update'; readonly json: boolean }
   | { readonly kind: 'setup'; readonly assumeYes: boolean; readonly localNode?: boolean }
   | { readonly kind: 'nodes-configure'; readonly localNode?: boolean }
+  | { readonly kind: 'nodes-agent-config'; readonly output: string }
   | { readonly kind: 'upgrade' }
   | { readonly kind: 'uninstall'; readonly purge: boolean }
   | { readonly kind: 'dashboard-foreground' }
@@ -71,9 +73,11 @@ Usage: miobridge <command> [options]
 
 Commands:
   setup [--yes] [--local-node|--no-local-node]
-                  Install dependencies and choose whether this server is a local node
+                  Install dependencies and configure this server's node role
   nodes configure [--local-node|--no-local-node]
-                  Configure this server's local-node role
+                  Enable or remove the persisted local-node profile
+  nodes agent-config --output <agent.yaml>
+                  Write the local Agent bootstrap configuration with mode 0600
   upgrade         Upgrade this CLI to the latest verified release
   uninstall [--purge]
                   Remove this CLI; --purge also removes configuration and data
@@ -132,9 +136,14 @@ export function parseCommand(args: readonly string[]): ParsedCommand {
   }
   if (args[0] === 'nodes' && args[1] === 'configure') {
     if (args.length === 2) return { kind: 'nodes-configure' };
-    if (args.length === 3 && args[2] === '--local-node') return { kind: 'nodes-configure', localNode: true };
-    if (args.length === 3 && args[2] === '--no-local-node') return { kind: 'nodes-configure', localNode: false };
+    if (args.length === 3 && (args[2] === '--local-node' || args[2] === '--no-local-node')) {
+      return { kind: 'nodes-configure', localNode: args[2] === '--local-node' };
+    }
     throw new Error(`Unexpected argument: ${args[2]}`);
+  }
+  if (args[0] === 'nodes' && args[1] === 'agent-config') {
+    if (args.length === 4 && args[2] === '--output' && args[3]) return { kind: 'nodes-agent-config', output: args[3] };
+    throw new Error('Usage: miobridge nodes agent-config --output <agent.yaml>');
   }
   if (args[0] === 'nodes') {
     throw new Error(args.length === 1 ? 'Missing nodes action' : `Unknown nodes action: ${args[1]}`);
@@ -294,6 +303,12 @@ export async function runCli(args: readonly string[], dependencies: CliDependenc
       dependencies.output.stdout(formatLocalNodeConfiguration(await dependencies.localNode.configure(
         command.localNode === undefined ? {} : { enabled: command.localNode },
       )));
+      return 0;
+    }
+    if (command.kind === 'nodes-agent-config') {
+      if (!dependencies.localNode || !dependencies.writeTextFile) throw new Error('Local Agent configuration adapters are unavailable');
+      await dependencies.writeTextFile(command.output, await dependencies.localNode.agentConfig());
+      dependencies.output.stdout(`Agent configuration written to ${command.output}`);
       return 0;
     }
     if (command.kind === 'upgrade') {

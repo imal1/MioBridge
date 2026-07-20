@@ -29,7 +29,7 @@ describe('artifact behavior contract', () => {
     expect(await readFile(join(config.staticDir, 'raw.txt'), 'utf8')).toBe(fixture.artifacts.raw);
     expect(Buffer.from(await readFile(join(config.staticDir, 'subscription.txt'), 'utf8'), 'base64').toString()).toBe(fixture.artifacts.subscriptionDecoded);
     expect(await readFile(join(config.staticDir, 'clash.yaml'), 'utf8')).toBe(fixture.artifacts.clash);
-    expect(result).toMatchObject({ success: true, clashGenerated: true, nodesCount: 2, warnings: ['远端: partial'] });
+    expect(result).toMatchObject({ success: true, clashGenerated: true, nodesCount: 2, warnings: ['节点: partial'] });
   });
 
   it('freezes partial/total failure, status, offline-node, and HMAC error shapes', async () => {

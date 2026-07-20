@@ -8,7 +8,7 @@ import { DashboardSystemdService, createNodeSystemdAdapters } from './dashboard/
 import { SelfMaintenanceService } from './self/service.js';
 import { createNodeSelfMaintenanceAdapters } from './self/nodeAdapters.js';
 import { LocalNodeConfigurationService } from './nodes/localConfiguration.js';
-import { readFile } from 'node:fs/promises';
+import { chmod, readFile, writeFile } from 'node:fs/promises';
 
 const output = {
   stdout(message: string) { process.stdout.write(`${message}\n`); },
@@ -18,7 +18,10 @@ const output = {
 const composition = createNodeCore({ metadata: { version: CLI_VERSION } });
 const dashboardConfig = composition.core.config.getFullConfig().app;
 const setupAdapters = createNodeSetupAdapters();
-const localNode = new LocalNodeConfigurationService(composition.repository, setupAdapters);
+const localNode = new LocalNodeConfigurationService(composition.repository, {
+  ...setupAdapters,
+  mihomoPath: composition.paths.managedPath('mihomo'),
+});
 const dashboardDaemon = new DashboardSystemdService(composition.paths, createNodeSystemdAdapters());
 const maintenance = new SelfMaintenanceService({
   currentVersion: CLI_VERSION,
@@ -75,6 +78,10 @@ const exitCode = await runCli(process.argv.slice(2), {
   },
   output,
   readTextFile: path => readFile(path, 'utf8'),
+  async writeTextFile(path, content) {
+    await writeFile(path, content, { encoding: 'utf8', mode: 0o600 });
+    await chmod(path, 0o600);
+  },
   signal: commandAbort.signal,
   version: CLI_VERSION,
 });

@@ -31,7 +31,7 @@ export default function AgentsPage() {
   }, [])
 
   useEffect(() => { refresh().catch(caught => setError(caught instanceof Error ? caught.message : 'Agent 状态加载失败')) }, [refresh])
-  const nodes = useMemo(() => (cluster?.nodes || []).filter(node => node.nodeId !== 'local').sort((a, b) => Number(b.nodeId === focusNode) - Number(a.nodeId === focusNode)), [cluster?.nodes, focusNode])
+  const nodes = useMemo(() => [...(cluster?.nodes || [])].sort((a, b) => Number(b.nodeId === focusNode) - Number(a.nodeId === focusNode)), [cluster?.nodes, focusNode])
 
   const run = useCallback(async (node: NodeStatus, action: 'start' | 'stop' | 'restart' | 'health') => {
     setBusy(`${node.nodeId}:${action}`)
@@ -88,7 +88,7 @@ export default function AgentsPage() {
             </Card>
           )
         })}
-        {nodes.length === 0 ? <Card><CardContent className="p-10 text-center text-muted-foreground">暂无远端节点。请先在节点页创建节点档案。</CardContent></Card> : null}
+        {nodes.length === 0 ? <Card><CardContent className="p-10 text-center text-muted-foreground">暂无节点。请先在节点页创建节点档案。</CardContent></Card> : null}
       </div>
     </SignalPage>
   )

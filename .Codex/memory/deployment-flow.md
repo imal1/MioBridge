@@ -12,8 +12,9 @@ metadata:
 - GitHub Actions is a CI gate only; it does not deploy and does not install or
   run Vercel CLI.
 - Self-hosted Linux starts with the checksum-verifying `scripts/install.sh` and
-  installs the CLI plus dashboard provider; thereafter it uses only `miobridge`
-  lifecycle commands, with no source checkout or management script tree.
+  installs the CLI plus dashboard provider. Unless `--no-local-node` is selected,
+  it also creates the all-kernel local profile and bootstraps its
+  checksum-covered Agent; thereafter it uses only `miobridge` lifecycle commands.
 - The CLI is the management layer; `mihomo` and the optional `sing-box` runtime
   remain separately discovered or checksum-verified managed binaries.
 - Child Agent deployment selects a checksum-covered x64/arm64 binary from the
@@ -30,5 +31,8 @@ metadata:
   temporary files and atomic moves; sudo passwords travel through SSH stdin.
 - SSH detection, deployment, Agent lifecycle, and kernel actions are CLI runtime
   adapters behind the dashboard API; they do not invoke a local management script.
+- The persisted `local` node uses the same deployment tasks and later UI flows as
+  child nodes, but its command transport executes locally with root/sudo checks
+  instead of requiring loopback SSH credentials.
 - Dashboard daemon start waits for `/health`; stop, uninstall, and process
   shutdown clean up the user unit and open SSE connections before exit.

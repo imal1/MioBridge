@@ -54,6 +54,7 @@ export interface KernelRuntimeStatus {
   nodesCount: number;
   version?: string;
   configPaths: string[];
+  binaryPath?: string;
   error?: string;
 }
 
@@ -62,7 +63,7 @@ export interface KernelNodeSource {
   url: string;
 }
 
-function isKernelBinaryDetected(type: KernelType): boolean {
+function findKernelBinary(type: KernelType): string | undefined {
   for (const dir of (process.env.PATH || '').split(path.delimiter)) {
     if (!dir) continue;
     try {
@@ -75,12 +76,12 @@ function isKernelBinaryDetected(type: KernelType): boolean {
         maxBuffer: 1024 * 1024,
         stdio: ['ignore', 'pipe', 'pipe'],
       });
-      if (help.includes('url [name]')) return true;
+      if (help.includes('url [name]')) return candidate;
     } catch {
       // Continue searching the remaining PATH entries.
     }
   }
-  return false;
+  return undefined;
 }
 
 export function discoverKernelConfigFiles(kernel: AgentKernelConfig): string[] {
@@ -209,19 +210,49 @@ function xrayInboundToUrl(inbound: any, host: string): string | null {
   return null;
 }
 
-function extractKernelNodeUrls(kernel: AgentKernelConfig, configPaths: string[], host: string): string[] {
+function urlsFromWrapper(executable: string, file: string): string[] {
+  const output = execFileSync(executable, ['url', file], {
+    encoding: 'utf8', timeout: 10_000, maxBuffer: 4 * 1024 * 1024,
+    stdio: ['ignore', 'pipe', 'pipe'],
+  }).replace(/\u001b\[[0-9;]*m/g, '');
+  return output.split(/\r?\n/).map(line => line.trim()).filter(line =>
+    /^(?:vless|vmess|ss|ssr|trojan|hysteria2|hy2|tuic|wireguard):\/\//.test(line));
+}
+
+function extractKernelNodeUrls(kernel: AgentKernelConfig, configPaths: string[], host: string, executable?: string): {
+  urls: string[];
+  readableFiles: number;
+  errors: string[];
+} {
   const urls: string[] = [];
+  const errors: string[] = [];
+  let readableFiles = 0;
   for (const file of configPaths) {
-    const parsed = JSON.parse(fs.readFileSync(file, 'utf8'));
-    const publicKey = publicKeyFromOutbounds(parsed.outbounds);
-    for (const inbound of parsed.inbounds || []) {
-      const url = kernel.type === 'sing-box'
-        ? inboundToUrl(inbound, host, publicKey)
-        : xrayInboundToUrl(inbound, host);
-      if (url) urls.push(url);
+    try {
+      if (executable) {
+        try {
+          const generated = urlsFromWrapper(executable, file);
+          if (generated.length > 0) {
+            urls.push(...generated);
+            readableFiles += 1;
+            continue;
+          }
+        } catch { /* Fall back to the structured parser for older wrappers. */ }
+      }
+      const parsed = JSON.parse(fs.readFileSync(file, 'utf8'));
+      const publicKey = publicKeyFromOutbounds(parsed.outbounds);
+      for (const inbound of parsed.inbounds || []) {
+        const url = kernel.type === 'sing-box'
+          ? inboundToUrl(inbound, host, publicKey)
+          : xrayInboundToUrl(inbound, host);
+        if (url) urls.push(url);
+      }
+      readableFiles += 1;
+    } catch (error) {
+      errors.push(`${file}: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
-  return Array.from(new Set(urls));
+  return { urls: Array.from(new Set(urls)), readableFiles, errors };
 }
 
 export function collectKernelSources(config: AgentConfig, host: string): {
@@ -234,13 +265,15 @@ export function collectKernelSources(config: AgentConfig, host: string): {
 
   for (const type of SUPPORTED_KERNELS) {
     const kernel = config.kernels.find(item => item.type === type);
+    const binaryPath = findKernelBinary(type);
     const status: KernelRuntimeStatus = {
       type,
-      detected: isKernelBinaryDetected(type),
+      detected: Boolean(binaryPath),
       monitored: Boolean(kernel),
       accessible: false,
       nodesCount: 0,
       configPaths: [],
+      ...(binaryPath ? { binaryPath } : {}),
     };
 
     if (!kernel) {
@@ -251,14 +284,15 @@ export function collectKernelSources(config: AgentConfig, host: string): {
     try {
       status.configPaths = discoverKernelConfigFiles(kernel);
       if (status.configPaths.length > 0) {
-        const urls = extractKernelNodeUrls(kernel, status.configPaths, host);
-        for (const url of urls) {
+        const extracted = extractKernelNodeUrls(kernel, status.configPaths, host, binaryPath);
+        for (const url of extracted.urls) {
           if (seenUrls.has(url)) continue;
           seenUrls.add(url);
           sources.push({ kernel: type, url });
           status.nodesCount += 1;
         }
-        status.accessible = true;
+        status.accessible = extracted.readableFiles > 0;
+        if (extracted.errors.length > 0) status.error = extracted.errors.join('; ');
       }
     } catch (error) {
       status.error = error instanceof Error ? error.message : String(error);

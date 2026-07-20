@@ -109,6 +109,24 @@ describe('kernel adapters', () => {
     expect(fs.files.has('/state/mihomo/temp-config.yaml')).toBe(false);
   });
 
+  it('preserves Reality and WebSocket parameters and uses safe default routing rules', async () => {
+    const paths = createRuntimePaths({ env: { MIOBRIDGE_CONFIG_DIR: '/state', PATH: '' }, applicationRoot: '/app' });
+    const fs = new MemoryFs();
+    fs.files.set('/state/bin/mihomo', 'binary');
+    const adapter = new MihomoAdapter({ paths, process: new FakeProcess(), fs, logger, runtimeDir: '/runtime' });
+    const output = YAML.parse(await adapter.convertToClashByContent(
+      'vless://id@example.com:443?type=ws&security=reality&sni=ai.example&pbk=public&sid=abcd&flow=xtls-rprx-vision&path=%2Fws&host=cdn.example#reality',
+    ));
+    expect(output.proxies[0]).toMatchObject({
+      type: 'vless', tls: true, flow: 'xtls-rprx-vision',
+      'reality-opts': { 'public-key': 'public', 'short-id': 'abcd' },
+      'ws-opts': { path: '/ws', headers: { Host: 'cdn.example' } },
+    });
+    expect(output.rules).toContain('GEOIP,CN,DIRECT,no-resolve');
+    expect(output.rules).toContain('IP-CIDR6,fc00::/7,DIRECT,no-resolve');
+    expect(output.rules).not.toContain('IP-CIDR,17.0.0.0/8,DIRECT');
+  });
+
   it('falls back to PATH discovery and reports mihomo availability', async () => {
     const paths = createRuntimePaths({ env: { MIOBRIDGE_CONFIG_DIR: '/state', PATH: '' } });
     const process = new FakeProcess('/usr/bin/mihomo');

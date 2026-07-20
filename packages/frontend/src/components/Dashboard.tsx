@@ -95,17 +95,17 @@ export default function Dashboard({ initialCluster = null, initialStatus = null,
   }, [initialCluster, initialStatus, runRefresh])
 
   const missingFiles = status ? FILES.filter(file => !status[file.key]) : FILES
-  const remoteNodes = cluster?.nodes.filter(node => node.nodeId !== 'local') || []
-  const undeployedNodes = remoteNodes.filter(node => !node.agent?.deployed)
-  const configuredKernels = remoteNodes.flatMap(node => node.configuredKernels.map(config => ({ node, config })))
+  const managedNodes = cluster?.nodes || []
+  const undeployedNodes = managedNodes.filter(node => !node.agent?.deployed)
+  const configuredKernels = managedNodes.flatMap(node => node.configuredKernels.map(config => ({ node, config })))
   const healthyKernels = configuredKernels.filter(({ node, config }) => {
     const runtime = node.kernels.find(kernel => kernel.type === config.type)
     return node.online && runtime?.monitored && runtime.accessible
   })
-  const remoteAgentReady = remoteNodes.length > 0 && undeployedNodes.length === 0
+  const agentReady = managedNodes.length > 0 && undeployedNodes.length === 0
   const readiness = [
-    { label: '远端 Agent', ok: remoteAgentReady, desc: remoteNodes.length === 0 ? '尚未添加子节点' : undeployedNodes.length ? `${undeployedNodes.length} 个节点待部署` : '子节点 Agent 已部署' },
-    { label: '子节点内核', ok: configuredKernels.length > 0 && healthyKernels.length === configuredKernels.length, desc: configuredKernels.length === 0 ? '等待子节点上报' : `${healthyKernels.length}/${configuredKernels.length} 可用` },
+    { label: '节点 Agent', ok: agentReady, desc: managedNodes.length === 0 ? '尚未添加节点' : undeployedNodes.length ? `${undeployedNodes.length} 个节点待部署` : '所有节点 Agent 已部署' },
+    { label: '节点内核', ok: configuredKernels.length > 0 && healthyKernels.length === configuredKernels.length, desc: configuredKernels.length === 0 ? '等待节点上报' : `${healthyKernels.length}/${configuredKernels.length} 可用` },
     { label: 'mihomo 转换', ok: Boolean(status?.mihomoAvailable), desc: status?.mihomoAvailable ? status.mihomoVersion || '版本未知' : '服务器未安装；运行 miobridge setup --yes' },
     { label: '文件写入', ok: missingFiles.length === 0, desc: missingFiles.length ? `缺少 ${missingFiles.map(file => file.name).join('、')}` : '输出产物可用' },
   ]
@@ -182,7 +182,7 @@ export default function Dashboard({ initialCluster = null, initialStatus = null,
             </CardHeader>
             <CardContent className="space-y-5 text-sm text-muted-foreground">
               <p>raw.txt / clash.yaml {missingFiles.length === 0 ? '已生成' : '待生成'}</p>
-              <p>子节点在线 <span className="signal-mono text-foreground">{cluster ? `${cluster.onlineNodes}/${cluster.totalNodes}` : '-'}</span></p>
+              <p>节点在线 <span className="signal-mono text-foreground">{cluster ? `${cluster.onlineNodes}/${cluster.totalNodes}` : '-'}</span></p>
             </CardContent>
           </Card>
 

@@ -105,7 +105,7 @@ test.describe('E00–E01 · 全局壳层与总览', () => {
     await expect(page.getByText('1/1 可用', { exact: true })).toBeVisible();
     await expect(page.getByText('v1.19.0-e2e', { exact: true })).toBeVisible();
     await expect(page.getByText('输出产物可用', { exact: true })).toBeVisible();
-    await expect(page.getByText('子节点在线').locator('..')).toContainText('1/2');
+    await expect(page.getByText('节点在线').locator('..')).toContainText('1/2');
 
     const artifacts = page.getByRole('table');
     for (const name of ['raw.txt', 'subscription.txt', 'clash.yaml']) {

@@ -1,4 +1,11 @@
-import type { NodeRepository } from '@miobridge/core';
+import { stringify } from 'yaml';
+import { LOCAL_NODE_ID, type NodeRepository } from '@miobridge/core';
+
+const DEFAULT_CONFIG_PATHS = {
+  'sing-box': '/etc/sing-box/config.json',
+  xray: '/etc/xray/config.json',
+  v2ray: '/etc/v2ray/config.json',
+} as const;
 
 export interface LocalNodeConfigurationResult {
   readonly enabled: boolean;
@@ -8,6 +15,7 @@ export interface LocalNodeConfigurationResult {
 
 export interface LocalNodeConfigurationAdapters {
   confirm(message: string): Promise<boolean>;
+  readonly mihomoPath?: string;
 }
 
 export class LocalNodeConfigurationService {
@@ -26,9 +34,23 @@ export class LocalNodeConfigurationService {
       enabled,
       changed: previous !== enabled,
       message: enabled
-        ? 'Local node enabled and included in dashboard monitoring.'
+        ? 'Local node enabled; Agent installation is required for all-kernel monitoring.'
         : 'Local node disabled; child nodes are unchanged.',
     };
+  }
+
+  async agentConfig(): Promise<string> {
+    const node = (await this.repository.list({ enabledOnly: false })).find(item => item.id === LOCAL_NODE_ID);
+    if (!node) throw new Error('Local node is not configured');
+    return stringify({
+      node: { id: node.id, name: node.name, secret: node.secret },
+      kernels: node.kernels.map(kernel => ({
+        type: kernel.type,
+        configPath: kernel.configPath ?? DEFAULT_CONFIG_PATHS[kernel.type],
+      })),
+      mihomo: { path: this.adapters.mihomoPath ?? '/usr/local/bin/mihomo' },
+      port: node.port ?? node.agent?.port ?? 3001,
+    }, { lineWidth: 0 });
   }
 }
 

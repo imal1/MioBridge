@@ -38,7 +38,7 @@ export class NodeRepository {
     await this.store.set(this.key, stringify({ nodes: nodes.map(node => this.normalize(node)) }, { lineWidth: 0 }));
   }
 
-  /** 本机节点只是一个默认档案：除了安装时可以自动创建，其余行为与普通子节点一致。 */
+  /** The local node is persisted like every child node so every later workflow can manage it. */
   async configureLocalNode(enabled: boolean): Promise<NodeConfig | null> {
     return this.store.withLock(this.key, async () => {
       const nodes = await this.list({ enabledOnly: false });
@@ -55,9 +55,12 @@ export class NodeRepository {
         name: existing?.name ?? '本机节点',
         host: existing?.host ?? '127.0.0.1',
         secret: existing?.secret ?? randomBytes(32).toString('hex'),
-        kernels: existing?.kernels.length ? existing.kernels : [{ type: 'sing-box' }],
+        // Local Agent discovery is intentionally all-kernel. Preserve explicit paths
+        // while filling legacy profiles that only contained sing-box.
+        kernels: KERNEL_TYPES.map(type => existing?.kernels.find(kernel => kernel.type === type) ?? { type }),
         location: existing?.location ?? '本机',
         enabled: existing?.enabled ?? true,
+        agent: existing?.agent ?? { deployed: false, version: '', status: 'not_deployed', lastDeploy: '', port: 3001 },
       });
       await this.save([local, ...others]);
       return local;

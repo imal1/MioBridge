@@ -54,7 +54,7 @@ describe('SubscriptionJobService', () => {
     const partialFixture = await fixture({ remoteErrors: ['node offline'] });
     const partial = await terminal(partialFixture.service, (await partialFixture.service.start()).jobId);
     expect(partial.status).toBe('partial');
-    expect(partial.warnings.join(' ')).toContain('远端');
+    expect(partial.warnings.join(' ')).toContain('节点');
 
     const emptyFixture = await fixture({ sources: [] });
     await expect(emptyFixture.service.start()).rejects.toThrow('零个可读代理来源');

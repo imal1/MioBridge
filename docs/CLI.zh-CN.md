@@ -19,7 +19,9 @@ miobridge --version
 `linux-arm64`；从同一 GitHub Release 下载版本化压缩包和 `SHA256SUMS`，校验
 SHA-256 后原子安装 `~/.local/bin/miobridge` 与
 `~/.config/miobridge/dist/dashboard` 下的静态仪表盘，再执行
-`miobridge setup --yes` 安装固定版本的运行依赖。需要 `curl` 或 `wget`、
+`miobridge setup --yes --local-node` 安装固定版本的运行依赖、保存本机节点档案，
+并通过校验过的 `install-agent.sh` 安装监控 sing-box、Xray、V2Ray 的同版本
+Agent。传入 `--no-local-node` 可跳过本机节点与 Agent。需要 `curl` 或 `wget`、
 `tar` 以及 `sha256sum`（或 `shasum`）；不需要 Git、Node.js、Bun 或源码仓库。
 
 镜像、隔离网络或非默认安装目录：
@@ -42,8 +44,9 @@ miobridge upgrade
 ```bash
 miobridge status --json
 miobridge update
-miobridge setup             # 交互式
-miobridge setup --yes       # 非交互式
+miobridge setup                              # 交互式选择本机节点
+miobridge setup --yes --local-node           # 非交互式保存本机节点档案
+miobridge nodes configure --no-local-node    # 移除本机节点档案
 ```
 
 首次安装默认把当前服务器配置为本机节点。可以在安装时使用

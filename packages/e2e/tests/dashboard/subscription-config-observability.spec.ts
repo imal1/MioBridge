@@ -666,7 +666,7 @@ test.describe('E15 · 四来源日志', () => {
     await visibleLogField(page, 'source').selectOption('agent');
     await visibleLogField(page, 'node').selectOption('');
     await page.getByRole('button', { name: '应用过滤' }).filter({ visible: true }).click();
-    await expect(page.getByText('Agent 日志需要先选择一个子节点')).toBeVisible();
+    await expect(page.getByText('Agent 日志需要先选择一个节点')).toBeVisible();
 
     await visibleLogField(page, 'source').selectOption('deployment');
     await visibleLogField(page, 'task').fill('');

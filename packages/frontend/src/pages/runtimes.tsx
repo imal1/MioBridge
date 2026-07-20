@@ -22,7 +22,7 @@ export default function RuntimesPage() {
   const [editorOpen, setEditorOpen] = useState(false)
   const [busy, setBusy] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
-  const nodes = useMemo(() => (cluster?.nodes || []).filter(item => item.nodeId !== 'local'), [cluster?.nodes])
+  const nodes = useMemo(() => cluster?.nodes || [], [cluster?.nodes])
   const nodeId = params.get('node') || nodes[0]?.nodeId || ''
   const node = nodes.find(item => item.nodeId === nodeId)
 

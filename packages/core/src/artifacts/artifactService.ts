@@ -153,8 +153,8 @@ export class ArtifactService {
   private async collectRemote(target: CollectedProxySource[], errors: string[]): Promise<void> {
     try {
       const result = await this.options.remote.collectRemoteNodeSources();
-      target.push(...result.sources); errors.push(...result.errors.map(error => `远端: ${error}`));
-    } catch (error) { errors.push(`远端来源收集失败: ${error instanceof Error ? error.message : String(error)}`); }
+      target.push(...result.sources); errors.push(...result.errors.map(error => `节点: ${error}`));
+    } catch (error) { errors.push(`节点来源收集失败: ${error instanceof Error ? error.message : String(error)}`); }
   }
 
   private extract(sources: readonly CollectedProxySource[]): CollectedProxySource[] {

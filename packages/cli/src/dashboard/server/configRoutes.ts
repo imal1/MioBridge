@@ -86,7 +86,7 @@ export function registerConfigRoutes(
             ? { success: true, data: taskLogResult('subscription', taskId, lines.join('\n'), level, query, component, from, to), timestamp: NOW() }
             : events;
         } else {
-          if (!nodeId || nodeId === 'local') throw new Error('Agent 日志需要子节点');
+          if (!nodeId) throw new Error('Agent 日志需要节点');
           result = await deps.config.getRemoteLogs(nodeId, {
             ...(file ? { file } : {}), ...(level ? { level } : {}),
             query: [query, component, taskId].filter(Boolean).join(' '),

@@ -21,6 +21,8 @@ Usage: install.sh [--version VERSION] [--repository OWNER/REPO]
 With no version, the latest GitHub release is installed. Environment equivalents:
 MIOBRIDGE_VERSION, MIOBRIDGE_REPOSITORY, MIOBRIDGE_INSTALL_DIR,
 MIOBRIDGE_CONFIG_DIR, MIOBRIDGE_RELEASE_BASE_URL.
+The current server is configured as a local node and receives Agent by default;
+use --no-local-node to skip both.
 EOF
 }
 
@@ -31,9 +33,9 @@ while [ "$#" -gt 0 ]; do
     --install-dir) INSTALL_DIR=${2:?missing install directory}; shift 2 ;;
     --config-dir) CONFIG_DIR=${2:?missing config directory}; shift 2 ;;
     --base-url) BASE_URL=${2:?missing base URL}; shift 2 ;;
+    --skip-setup) RUN_SETUP=0; shift ;;
     --local-node) LOCAL_NODE=1; shift ;;
     --no-local-node) LOCAL_NODE=0; shift ;;
-    --skip-setup) RUN_SETUP=0; shift ;;
     -h|--help) usage; exit 0 ;;
     *) echo "unknown option: $1" >&2; usage >&2; exit 2 ;;
   esac
@@ -144,9 +146,30 @@ echo "Dashboard provider installed at $dashboard"
 if [ "$RUN_SETUP" -eq 1 ]; then
   echo "Installing required runtime dependencies through the CLI..."
   if [ "$LOCAL_NODE" -eq 1 ]; then local_node_flag="--local-node"; else local_node_flag="--no-local-node"; fi
-  if ! "$binary" setup --yes "$local_node_flag"; then
+  if ! MIOBRIDGE_CONFIG_DIR="$CONFIG_DIR" "$binary" setup --yes "$local_node_flag"; then
     echo "MioBridge CLI $VERSION is installed, but runtime dependency setup failed." >&2
     echo "Retry with: $binary setup --yes $local_node_flag" >&2
+    exit 1
+  fi
+fi
+
+if [ "$RUN_SETUP" -eq 1 ] && [ "$LOCAL_NODE" -eq 1 ]; then
+  echo "Installing the local-node Agent..."
+  MIOBRIDGE_CONFIG_DIR="$CONFIG_DIR" "$binary" nodes agent-config --output "$tmp/local-agent.yaml"
+  download "$BASE_URL/install-agent.sh" "$tmp/install-agent.sh"
+  expected_agent_installer="$(awk '$2 == "install-agent.sh" || $2 == "*install-agent.sh" { print $1; exit }' "$tmp/SHA256SUMS")"
+  [ -n "$expected_agent_installer" ] || { echo "checksum entry missing for install-agent.sh" >&2; exit 1; }
+  if command -v sha256sum >/dev/null 2>&1; then actual_agent_installer="$(sha256sum "$tmp/install-agent.sh" | awk '{print $1}')"
+  else actual_agent_installer="$(shasum -a 256 "$tmp/install-agent.sh" | awk '{print $1}')"
+  fi
+  [ "$actual_agent_installer" = "$expected_agent_installer" ] || { echo "checksum verification failed for install-agent.sh" >&2; exit 1; }
+  chmod 0600 "$tmp/local-agent.yaml"
+  if [ "$(id -u)" -eq 0 ]; then
+    sh "$tmp/install-agent.sh" --config "$tmp/local-agent.yaml" --version "$VERSION" --base-url "$BASE_URL"
+  elif command -v sudo >/dev/null 2>&1; then
+    sudo sh "$tmp/install-agent.sh" --config "$tmp/local-agent.yaml" --version "$VERSION" --base-url "$BASE_URL"
+  else
+    echo "sudo is required to install the local-node Agent" >&2
     exit 1
   fi
 fi

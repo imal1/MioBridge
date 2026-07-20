@@ -72,7 +72,7 @@ export default function SubscriptionPage() {
     return () => controllers.forEach(controller => controller.abort())
   }, [activeJobs.map(job => job.id).join(','), refresh, streamAttempt])
 
-  const sourceNodes = useMemo(() => (cluster?.nodes || []).filter(node => node.nodeId !== 'local'), [cluster?.nodes])
+  const sourceNodes = useMemo(() => cluster?.nodes || [], [cluster?.nodes])
 
   const generate = useCallback(async () => {
     setLoading(true); setError(null)

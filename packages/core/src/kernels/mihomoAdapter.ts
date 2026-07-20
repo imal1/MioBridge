@@ -14,6 +14,37 @@ export interface MihomoAdapterOptions {
 }
 interface ProxyConfig { name: string; type: string; server: string; port: number; [key: string]: unknown }
 
+const DEFAULT_RULES = [
+  'DOMAIN-SUFFIX,local,DIRECT',
+  'IP-CIDR,127.0.0.0/8,DIRECT,no-resolve',
+  'IP-CIDR,169.254.0.0/16,DIRECT,no-resolve',
+  'IP-CIDR,172.16.0.0/12,DIRECT,no-resolve',
+  'IP-CIDR,192.168.0.0/16,DIRECT,no-resolve',
+  'IP-CIDR,10.0.0.0/8,DIRECT,no-resolve',
+  'IP-CIDR,100.64.0.0/10,DIRECT,no-resolve',
+  'IP-CIDR6,::1/128,DIRECT,no-resolve',
+  'IP-CIDR6,fc00::/7,DIRECT,no-resolve',
+  'IP-CIDR6,fe80::/10,DIRECT,no-resolve',
+  'DOMAIN-SUFFIX,cn,DIRECT',
+  'GEOIP,CN,DIRECT,no-resolve',
+  'DOMAIN-SUFFIX,openai.com,♻️ 自动选择',
+  'DOMAIN-SUFFIX,chatgpt.com,♻️ 自动选择',
+  'DOMAIN-SUFFIX,oaistatic.com,♻️ 自动选择',
+  'DOMAIN-SUFFIX,oaiusercontent.com,♻️ 自动选择',
+  'DOMAIN-SUFFIX,anthropic.com,♻️ 自动选择',
+  'DOMAIN-SUFFIX,claude.ai,♻️ 自动选择',
+  'DOMAIN-SUFFIX,gemini.google.com,♻️ 自动选择',
+  'DOMAIN-SUFFIX,ai.google.dev,♻️ 自动选择',
+  'DOMAIN-SUFFIX,generativeai.google.com,♻️ 自动选择',
+  'DOMAIN-SUFFIX,githubcopilot.com,♻️ 自动选择',
+  'DOMAIN-SUFFIX,copilot.github.com,♻️ 自动选择',
+  'DOMAIN-SUFFIX,deepseek.com,♻️ 自动选择',
+  'DOMAIN-SUFFIX,groq.com,♻️ 自动选择',
+  'DOMAIN-SUFFIX,perplexity.ai,♻️ 自动选择',
+  'DOMAIN-SUFFIX,mistral.ai,♻️ 自动选择',
+  'MATCH,♻️ 自动选择',
+] as const;
+
 function normalizedBinary(value: string | undefined): string | undefined {
   const trimmed = value?.trim();
   if (!trimmed) return undefined;
@@ -67,40 +98,7 @@ export class MihomoAdapter {
       { name: '♻️ 自动选择', type: 'url-test', proxies: names, url: 'http://www.gstatic.com/generate_204', interval: 300 },
       { name: '🔯 故障转移', type: 'fallback', proxies: names, url: 'http://www.gstatic.com/generate_204', interval: 300 },
       { name: '🔮 负载均衡', type: 'load-balance', proxies: names, url: 'http://www.gstatic.com/generate_204', interval: 300 },
-  ], rules: [
-    'DOMAIN-SUFFIX,local,DIRECT',
-    'IP-CIDR,127.0.0.0/8,DIRECT',
-    'IP-CIDR,172.16.0.0/12,DIRECT',
-    'IP-CIDR,192.168.0.0/16,DIRECT',
-    'IP-CIDR,10.0.0.0/8,DIRECT',
-    'IP-CIDR,17.0.0.0/8,DIRECT',
-    'IP-CIDR,100.64.0.0/10,DIRECT',
-    'DOMAIN-SUFFIX,cn,DIRECT',
-    // OpenAI
-    'DOMAIN-SUFFIX,openai.com,♻️ 自动选择',
-    'DOMAIN-SUFFIX,chatgpt.com,♻️ 自动选择',
-    'DOMAIN-SUFFIX,oaistatic.com,♻️ 自动选择',
-    'DOMAIN-SUFFIX,oaiusercontent.com,♻️ 自动选择',
-    // Anthropic
-    'DOMAIN-SUFFIX,anthropic.com,♻️ 自动选择',
-    'DOMAIN-SUFFIX,claude.ai,♻️ 自动选择',
-    // Google AI
-    'DOMAIN-SUFFIX,gemini.google.com,♻️ 自动选择',
-    'DOMAIN-SUFFIX,ai.google.dev,♻️ 自动选择',
-    'DOMAIN-SUFFIX,generativeai.google.com,♻️ 自动选择',
-    // GitHub Copilot
-    'DOMAIN-SUFFIX,githubcopilot.com,♻️ 自动选择',
-    'DOMAIN-SUFFIX,copilot.github.com,♻️ 自动选择',
-    // DeepSeek
-    'DOMAIN-SUFFIX,deepseek.com,♻️ 自动选择',
-    // Groq
-    'DOMAIN-SUFFIX,groq.com,♻️ 自动选择',
-    // Perplexity
-    'DOMAIN-SUFFIX,perplexity.ai,♻️ 自动选择',
-    // Mistral
-    'DOMAIN-SUFFIX,mistral.ai,♻️ 自动选择',
-    'MATCH,♻️ 自动选择'
-  ] }, { lineWidth: 0 });
+  ], rules: DEFAULT_RULES }, { lineWidth: 0 });
     const output = `# Clash 配置文件\n# 由 miobridge 生成，mihomo 可用时自动验证\n# 生成时间: ${new Date().toISOString()}\n# 节点数量: ${proxies.length}\n\n${yaml}`;
     await this.validate(output);
     return output;
@@ -109,18 +107,33 @@ export class MihomoAdapter {
     try {
       if (line.startsWith('vmess://')) {
         const v = JSON.parse(Buffer.from(line.slice(8), 'base64').toString()) as Record<string, string>;
-        return { name: v.ps || `vmess-${v.add}`, type: 'vmess', server: v.add!, port: Number(v.port), uuid: v.id, alterId: Number(v.aid) || 0, cipher: v.scy || 'auto', network: v.net || 'tcp', tls: v.tls === 'tls', 'skip-cert-verify': true };
+        const network = v.net || 'tcp';
+        const proxy: ProxyConfig = { name: v.ps || `vmess-${v.add}`, type: 'vmess', server: v.add!, port: Number(v.port), uuid: v.id, alterId: Number(v.aid) || 0, cipher: v.scy || 'auto', network, tls: v.tls === 'tls', 'skip-cert-verify': true };
+        if (v.sni) proxy.servername = v.sni;
+        if (network === 'ws') proxy['ws-opts'] = { path: v.path || '/', ...(v.host ? { headers: { Host: v.host } } : {}) };
+        return proxy;
       }
       const protocol = line.split('://')[0];
       if (!['vless', 'trojan', 'hysteria2', 'hy2', 'tuic', 'ss'].includes(protocol!)) return null;
       const url = new URL(protocol === 'hy2' ? line.replace(/^hy2:/, 'hysteria2:') : line);
       const type = protocol === 'hy2' ? 'hysteria2' : protocol!;
       const proxy: ProxyConfig = { name: decodeURIComponent(url.hash.slice(1)) || `${type}-${url.hostname}`, type, server: url.hostname, port: Number(url.port) || 443 };
-      if (type === 'vless') Object.assign(proxy, { uuid: url.username, network: url.searchParams.get('type') || 'tcp', 'skip-cert-verify': true });
+      const network = url.searchParams.get('type') || 'tcp';
+      if (type === 'vless') {
+        const security = url.searchParams.get('security') || 'none';
+        Object.assign(proxy, { uuid: decodeURIComponent(url.username), network, tls: security === 'tls' || security === 'reality', 'skip-cert-verify': url.searchParams.get('insecure') === '1' });
+        const flow = url.searchParams.get('flow'); if (flow) proxy.flow = flow;
+        if (security === 'reality') {
+          proxy['client-fingerprint'] = url.searchParams.get('fp') || 'chrome';
+          proxy['reality-opts'] = { 'public-key': url.searchParams.get('pbk') || '', 'short-id': url.searchParams.get('sid') || '' };
+        }
+      }
       else if (type === 'tuic') Object.assign(proxy, { uuid: url.username, password: url.password, 'skip-cert-verify': url.searchParams.get('allow_insecure') === '1' });
       else if (type === 'ss') { const [cipher, password] = Buffer.from(url.username, 'base64').toString().split(':'); Object.assign(proxy, { cipher, password }); }
-      else Object.assign(proxy, { password: url.username, 'skip-cert-verify': url.searchParams.get('insecure') === '1' });
-      const sni = url.searchParams.get('sni'); if (sni) proxy.sni = sni;
+      else Object.assign(proxy, { password: decodeURIComponent(url.username), ...(type === 'trojan' ? { network } : {}), 'skip-cert-verify': url.searchParams.get('insecure') === '1' });
+      const sni = url.searchParams.get('sni'); if (sni) proxy[type === 'vless' ? 'servername' : 'sni'] = sni;
+      if (network === 'ws') proxy['ws-opts'] = { path: url.searchParams.get('path') || '/', ...(url.searchParams.get('host') ? { headers: { Host: url.searchParams.get('host')! } } : {}) };
+      if (network === 'grpc') proxy['grpc-opts'] = { 'grpc-service-name': url.searchParams.get('serviceName') || url.searchParams.get('service_name') || '' };
       return proxy;
     } catch { return null; }
   }
