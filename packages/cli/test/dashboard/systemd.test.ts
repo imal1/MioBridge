@@ -60,7 +60,7 @@ describe('dashboard systemd user lifecycle', () => {
     expect(unit).toContain('Environment="MIOBRIDGE_DASHBOARD_PORT=3000"');
     expect(unit).toContain('Restart=on-failure');
     expect(unit).toContain('Environment="PATH=/managed/bin:/usr/bin"');
-    expect(unit).toContain('NoNewPrivileges=true');
+    expect(unit).not.toContain('NoNewPrivileges=');
     expect(unit).not.toContain('PIDFile');
   });
 

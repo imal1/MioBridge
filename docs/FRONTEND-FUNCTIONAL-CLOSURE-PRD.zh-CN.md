@@ -389,13 +389,13 @@ GET /api/deployments/agent/manual-config?nodeId=<id>
 使用方式：
 
 ```bash
-scp agent.yaml root@child:/tmp/miobridge-agent.yaml
+scp agent.yaml <ssh-user>@child:/tmp/miobridge-agent.yaml
 
 curl -fsSL \
   https://github.com/imal1/miobridge/releases/latest/download/install-agent.sh \
   -o /tmp/install-agent.sh
 
-sudo sh /tmp/install-agent.sh \
+sh /tmp/install-agent.sh \
   --config /tmp/miobridge-agent.yaml
 ```
 
@@ -414,7 +414,7 @@ install-agent.sh \
 以及独立参数模式：
 
 ```bash
-sudo sh install-agent.sh \
+sh install-agent.sh \
   --node-id <id> \
   --node-name <name> \
   --secret-file <file> \
@@ -430,7 +430,7 @@ sudo sh install-agent.sh \
 - x86_64/amd64 映射 x64，aarch64/arm64 映射 arm64。
 - 下载 Agent gzip 和 `SHA256SUMS`，执行 checksum、`--version`、`--check-config`。
 - 原子替换二进制、配置和 systemd unit；失败恢复旧文件。
-- unit 显式使用 `--config /etc/miobridge-agent/agent.yaml`。
+- user unit 显式使用 `--config ~/.config/miobridge-agent/agent.yaml`。
 - 验证 systemd active 与本机 `/health`。
 - 只安装 Agent，不安装 CLI、Dashboard、Bun、mihomo 或协议核心。
 

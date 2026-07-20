@@ -234,7 +234,7 @@ export function createNodeDashboardDependencies(composition: NodeCoreComposition
           const mihomo = {
             nodeId: node.nodeId, component: 'mihomo',
             ...taskState(node.nodeId, 'mihomo', node.mihomoAvailable ? 'installed' : node.online ? 'not_installed' : 'unknown'),
-            runtimeState: 'not_applicable', monitorState: 'not_applicable', path: '/usr/local/bin/mihomo',
+            runtimeState: 'not_applicable', monitorState: 'not_applicable', path: '~/.config/miobridge/bin/mihomo',
             ...(node.mihomoVersion ? { version: node.mihomoVersion } : {}),
           };
           const kernels = node.kernels.map(kernel => ({

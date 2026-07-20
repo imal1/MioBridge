@@ -119,6 +119,10 @@ jobs:
           gzip -dc dist/cli-release/miobridge-agent-0.0.0-ci-linux-x64.gz > "$RUNNER_TEMP/miobridge-agent"
           chmod 0755 "$RUNNER_TEMP/miobridge-agent"
           test "$("$RUNNER_TEMP/miobridge-agent" --version)" = 0.0.0-ci
+          sh -n dist/cli-release/install.sh
+          grep -F 'install.sh' dist/cli-release/SHA256SUMS
+          sh -n dist/cli-release/install-agent.sh
+          grep -F 'install-agent.sh' dist/cli-release/SHA256SUMS
 
   build:
     name: Build (Vite SPA)

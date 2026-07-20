@@ -15,9 +15,11 @@ curl -fsSL https://raw.githubusercontent.com/imal1/MioBridge/main/scripts/instal
 
 The bootstrap installs the verified Linux CLI, static dashboard, and pinned
 runtime dependencies. By default it registers this server as the local node and
-installs the matching Agent configured to monitor sing-box, Xray, and V2Ray;
-pass `--no-local-node` to skip both. It does not clone or build the source tree.
-Runtime files live under `~/.config/miobridge/`.
+installs the matching user-level Agent. The Agent monitors only protocol kernels
+that are already installed and readable; deploying it never installs sing-box,
+Xray, or V2Ray. Pass `--no-local-node` to skip the local node and Agent. It does
+not clone or build the source tree. Runtime files live under
+`~/.config/miobridge/`.
 
 ## CLI
 
@@ -108,18 +110,23 @@ clients. The CLI binary owns the API and static-file server.
 When adding or editing a child node, MioBridge first detects sing-box, Xray,
 and V2Ray over SSH. The selection dialog shows the installed version and
 default configuration path for each kernel. Select at least one kernel;
-selected missing kernels are installed during deployment, while installed but
-unselected kernels remain visible as unmonitored.
+Agent deployment keeps only installed kernels whose configuration is readable.
+Missing kernels are never installed as a side effect; install one explicitly
+from its kernel action when needed. Installed but unselected kernels remain
+visible as unmonitored.
 
 Protocol-kernel lifecycle operations delegate to the upstream 233boy
 management scripts (`233boy/sing-box`, `233boy/Xray`, and `233boy/v2ray`).
 MioBridge detects the management wrapper at `/usr/local/bin/<kernel>` and uses
 the script-managed configuration under `/etc/<kernel>`; a bare upstream core
 binary is not treated as a compatible source provider because it has no
-`url [name]` command.
+`url [name]` command. Lifecycle commands call the global wrapper directly and
+fall back to sudo only when the wrapper explicitly reports insufficient
+permissions.
 
 The CLI selects a same-version x64/arm64 Agent Release asset for the child,
-verifies it against `SHA256SUMS`, and installs it without Git, Bun, or a source build.
+verifies it against `SHA256SUMS`, and installs it under the SSH user's home with
+a `systemctl --user` service. This requires no sudo, Git, Bun, or source build.
 
 The Agent config uses an ordered `kernels` list, so one child can publish
 structured sources from several runtimes:

@@ -20,8 +20,9 @@ miobridge --version
 SHA-256 后原子安装 `~/.local/bin/miobridge` 与
 `~/.config/miobridge/dist/dashboard` 下的静态仪表盘，再执行
 `miobridge setup --yes --local-node` 安装固定版本的运行依赖、保存本机节点档案，
-并通过校验过的 `install-agent.sh` 安装监控 sing-box、Xray、V2Ray 的同版本
-Agent。传入 `--no-local-node` 可跳过本机节点与 Agent。需要 `curl` 或 `wget`、
+并安装同版本的用户态 Agent。Agent 只监听已经安装且配置可读的协议内核，部署
+Agent 不会顺带安装 sing-box、Xray 或 V2Ray。传入 `--no-local-node` 可跳过本机
+节点与 Agent。需要 `curl` 或 `wget`、
 `tar` 以及 `sha256sum`（或 `shasum`）；不需要 Git、Node.js、Bun 或源码仓库。
 
 镜像、隔离网络或非默认安装目录：
@@ -95,20 +96,25 @@ miobridge uninstall --purge
 [`packages/cli/src/setup/catalog.ts`](../packages/cli/src/setup/catalog.ts) 中。
 Setup 错误会隐藏凭据和查询参数中的密钥。
 
+明确触发协议内核操作时，MioBridge 会先直接调用已经安装的 233boy
+`/usr/local/bin/<内核>` wrapper；只有命令明确报告权限不足时才通过 sudo 重试。
+检测及可直接成功的日常启停、升级等操作不会请求 sudo。
+
 远端 Agent 也遵循同一分层：CLI 选择同版本的 x64/arm64 压缩 Agent 制品，
-校验 `SHA256SUMS` 后安装到子节点，不安装 Bun，也不编译源码。
+校验 `SHA256SUMS` 后安装到 SSH 用户目录并由 `systemctl --user` 管理。该流程
+不需要 sudo，不安装 Bun、不编译源码，也不安装任何协议内核。
 
 子节点也可以从部署中心下载 `agent.yaml`，再使用同一个 Release 内的独立安装器：
 
 ```bash
-scp agent.yaml root@child:/tmp/miobridge-agent.yaml
+scp agent.yaml child:/tmp/miobridge-agent.yaml
 curl -fsSL https://github.com/imal1/miobridge/releases/latest/download/install-agent.sh \
   -o /tmp/install-agent.sh
-sudo sh /tmp/install-agent.sh --config /tmp/miobridge-agent.yaml
+sh /tmp/install-agent.sh --config /tmp/miobridge-agent.yaml
 ```
 
-该脚本只管理 `/usr/local/bin/miobridge-agent`、
-`/etc/miobridge-agent/agent.yaml` 和 systemd unit。它会依次校验 checksum、
+该脚本只管理 `~/.local/bin/miobridge-agent`、
+`~/.config/miobridge-agent/agent.yaml` 和用户级 systemd unit。它会依次校验 checksum、
 执行 `--version`、执行 `--check-config`、原子替换文件、重启服务并检查本机
 `/health`；启动或健康检查失败会恢复原二进制、配置与 unit。它不安装主 CLI、
 Dashboard、Bun、mihomo 或任何协议核心。镜像与独立参数模式见

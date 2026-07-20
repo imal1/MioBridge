@@ -7,6 +7,12 @@ metadata:
 
 # CI/CD Pipeline
 
+## 2026-07-19 — Installer release assets
+
+Release packaging copies both `scripts/install.sh` and `scripts/install-agent.sh`
+to `dist/cli-release`, includes both in `SHA256SUMS`, and publishes both as
+GitHub Release assets.
+
 ## 2026-07-02 — Production deploys to Vercel
 
 Production deploys now use Vercel Git Integration, not GitHub Actions deploy

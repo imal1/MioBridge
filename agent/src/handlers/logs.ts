@@ -34,21 +34,28 @@ function filterLines(lines: string[], level: string, query: string): string[] {
 }
 
 function readJournalLines(): string[] {
-  try {
-    const output = execSync('journalctl -u miobridge-agent -n 800 --no-pager --output=short-iso', {
-      encoding: 'utf8',
-      timeout: 5000,
-      stdio: ['ignore', 'pipe', 'pipe'],
-    });
-    return output.split(/\r?\n/).filter(Boolean);
-  } catch (error: any) {
-    const message = error?.stderr || error?.message || 'journalctl unavailable';
-    return [`journalctl 暂不可用: ${String(message).trim()}`];
+  let lastError = 'journalctl unavailable';
+  for (const command of [
+    'journalctl --user -u miobridge-agent.service -n 800 --no-pager --output=short-iso',
+    'journalctl -u miobridge-agent.service -n 800 --no-pager --output=short-iso',
+  ]) {
+    try {
+      const output = execSync(command, {
+        encoding: 'utf8', timeout: 5000, stdio: ['ignore', 'pipe', 'pipe'],
+      });
+      const lines = output.split(/\r?\n/).filter(Boolean);
+      if (lines.length > 0) return lines;
+    } catch (error: any) {
+      lastError = String(error?.stderr || error?.message || lastError).trim();
+    }
   }
+  return [`journalctl 暂不可用: ${lastError}`];
 }
 
 function readAgentLogLines(): string[] {
   const candidates = [
+    `${process.env.HOME || ''}/.local/share/miobridge-agent/agent.log`,
+    `${process.env.HOME || ''}/.config/miobridge-agent/agent.log`,
     '/var/log/miobridge-agent.log',
     '/etc/miobridge-agent/agent.log',
   ];

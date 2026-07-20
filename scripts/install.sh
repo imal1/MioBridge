@@ -164,14 +164,7 @@ if [ "$RUN_SETUP" -eq 1 ] && [ "$LOCAL_NODE" -eq 1 ]; then
   fi
   [ "$actual_agent_installer" = "$expected_agent_installer" ] || { echo "checksum verification failed for install-agent.sh" >&2; exit 1; }
   chmod 0600 "$tmp/local-agent.yaml"
-  if [ "$(id -u)" -eq 0 ]; then
-    sh "$tmp/install-agent.sh" --config "$tmp/local-agent.yaml" --version "$VERSION" --base-url "$BASE_URL"
-  elif command -v sudo >/dev/null 2>&1; then
-    sudo sh "$tmp/install-agent.sh" --config "$tmp/local-agent.yaml" --version "$VERSION" --base-url "$BASE_URL"
-  else
-    echo "sudo is required to install the local-node Agent" >&2
-    exit 1
-  fi
+  sh "$tmp/install-agent.sh" --config "$tmp/local-agent.yaml" --version "$VERSION" --base-url "$BASE_URL"
 fi
 
 case ":${PATH:-}:" in
