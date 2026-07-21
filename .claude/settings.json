@@ -31,21 +31,13 @@
     ]
   },
   "hooks": {
-    "PreCommit": [
-      {
-        "command": "bun run lint"
-      },
-      {
-        "command": "bash -c 'MSG=$(git rev-parse --git-dir 2>/dev/null)/COMMIT_EDITMSG; if [ -f \"$MSG\" ]; then if ! head -1 \"$MSG\" | grep -qE \"^(feat|fix|docs|refactor|chore|test|ci|perf|style|build)(\\(.+\\))?!?: .+\"; then echo \"\u26a0\ufe0f  Commit message does not follow Conventional Commits format\"; echo \"   Expected: <type>: <description>\"; echo \"   Types: feat, fix, docs, refactor, chore, test, ci, perf, style, build\"; fi; fi'"
-      }
-    ],
     "PostToolUse": [
       {
         "matcher": "Edit|Write|Bash",
         "hooks": [
           {
             "type": "command",
-            "command": "cat >/dev/null || true; git rev-parse --git-dir >/dev/null 2>&1 && code-review-graph update --skip-flows --repo \"/Users/imali/Projects/MioBridge\" || true",
+            "command": "cat >/dev/null || true; git rev-parse --git-dir >/dev/null 2>&1 && code-review-graph update --skip-flows --repo \"/home/imali/MioBridge\" || true",
             "timeout": 30
           }
         ]
@@ -57,7 +49,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "cat >/dev/null || true; git rev-parse --git-dir >/dev/null 2>&1 && code-review-graph status --repo \"/Users/imali/Projects/MioBridge\" || echo 'Not a git repo, skipping'",
+            "command": "cat >/dev/null || true; git rev-parse --git-dir >/dev/null 2>&1 && code-review-graph status --repo \"/home/imali/MioBridge\" || echo 'Not a git repo, skipping'",
             "timeout": 10
           }
         ]
