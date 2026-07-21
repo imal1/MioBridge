@@ -2,6 +2,25 @@
 
 本文档记录 MioBridge 的重要变更。版本号遵循语义化版本规范。
 
+## [1.2.12] — 2026-07-21
+
+### Changed
+
+- Clash 默认生成配置改用 GeoData/GEOSITE 分流：启用 `geodata-mode` 与
+  MetaCubeX/meta-rules-dat 的 `geox-url`（支持自动更新），规则由手写
+  DOMAIN-SUFFIX 表迁移为 `GEOSITE` 类目（`category-ai-!cn`、`google`、
+  `cloudflare`、`github`、`docker`、流媒体、`category-social-media-!cn`、
+  `category-cryptocurrency`、`category-porn`、`category-scholar-!cn`、
+  `category-dev` 等）。内网/本机保留 IP-CIDR 直连，保证冷启动可 bootstrap
+  下载 geodata。
+- 新增 `🤖 AI 服务` 策略组：AI 流量（Gemini/AI Studio 精确入口与
+  `category-ai-!cn`）独立出口，便于钉到干净节点。
+- 健康检查地址统一为 `http://cp.cloudflare.com/generate_204`；`url-test`
+  增加 `tolerance`/`lazy`，`fallback`/`load-balance` 增加 `lazy`，
+  `load-balance` 改用 `round-robin`。
+- `MATCH` 兜底指向 `🐟 漏网之鱼`（默认代理，可一键切直连）；`category-dev`
+  置于 Apple 直连规则之后，避免其内含的 `apple.com` 覆盖 Apple 直连。
+
 ## [1.2.11] — 2026-07-21
 
 ### Added
