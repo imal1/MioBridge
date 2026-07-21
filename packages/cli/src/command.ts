@@ -8,7 +8,7 @@ import { formatLocalNodeConfiguration, type LocalNodeConfigurationService } from
 import { formatDashboardDaemonStatus, type DashboardDaemonAction } from './dashboard/commands.js';
 import type { DashboardDaemonStatus } from './dashboard/systemd.js';
 
-export const CLI_VERSION = process.env.MIOBRIDGE_BUILD_VERSION ?? '1.2.11';
+export const CLI_VERSION = process.env.MIOBRIDGE_BUILD_VERSION ?? '1.2.12';
 
 export interface CliCore {
   updateSubscription(): Promise<UpdateResult>;

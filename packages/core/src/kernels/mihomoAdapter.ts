@@ -23,6 +23,7 @@ const DNS_CONFIG = {
   nameserver: ['https://doh.pub/dns-query', 'https://dns.alidns.com/dns-query'],
 } as const;
 
+// 内网 / 本机：非 GEOSITE 规则，geodata 未加载时仍可用，保证冷启动可 bootstrap 下载 geodata
 const DEFAULT_RULES = [
   'DOMAIN-SUFFIX,local,DIRECT',
   'IP-CIDR,127.0.0.0/8,DIRECT,no-resolve',
@@ -34,72 +35,64 @@ const DEFAULT_RULES = [
   'IP-CIDR6,::1/128,DIRECT,no-resolve',
   'IP-CIDR6,fc00::/7,DIRECT,no-resolve',
   'IP-CIDR6,fe80::/10,DIRECT,no-resolve',
-  'DOMAIN-SUFFIX,cn,DIRECT',
+  // 广告拦截
+  'GEOSITE,category-ads-all,REJECT',
+  // Google AI Studio / Gemini 精确入口（放 category-ai / google 之前）
+  'DOMAIN,aistudio.google.com,🤖 AI 服务',
+  'DOMAIN,gemini.google.com,🤖 AI 服务',
+  'DOMAIN,alkalimakersuite-pa.clients6.google.com,🤖 AI 服务',
+  'DOMAIN,generativelanguage.googleapis.com,🤖 AI 服务',
+  'DOMAIN,ai.google.dev,🤖 AI 服务',
+  // 海外 AI（Claude / OpenAI / Gemini / Perplexity / Mistral 等非中国大陆）
+  'GEOSITE,category-ai-!cn,🤖 AI 服务',
+  // Google 兜底（登录 / OAuth / APIs / gstatic 等）
+  'GEOSITE,google,🚀 节点选择',
+  // Cloudflare
+  'GEOSITE,cloudflare,🚀 节点选择',
+  // 开发服务
+  'GEOSITE,github,🚀 节点选择',
+  'GEOSITE,docker,🚀 节点选择',
+  // 常见海外服务
+  'GEOSITE,microsoft,🚀 节点选择',
+  'GEOSITE,telegram,🚀 节点选择',
+  'GEOSITE,discord,🚀 节点选择',
+  // 流媒体
+  'GEOSITE,youtube,🚀 节点选择',
+  'GEOSITE,netflix,🚀 节点选择',
+  'GEOSITE,spotify,🚀 节点选择',
+  // 境外社媒（含 twitter / tiktok / reddit 等）
+  'GEOSITE,category-social-media-!cn,🚀 节点选择',
+  // 加密货币（交易所 / 行情）
+  'GEOSITE,category-cryptocurrency,🚀 节点选择',
+  // 成人内容
+  'GEOSITE,category-porn,🚀 节点选择',
+  // 学术（IEEE / Springer / arXiv 等）
+  'GEOSITE,category-scholar-!cn,🚀 节点选择',
+  // Apple
+  'GEOSITE,apple-cn,DIRECT',
+  'GEOSITE,apple,DIRECT',
+  // 开发者站点（置于 apple 之后，避免 category-dev 内的 apple.com 覆盖上面的直连）
+  'GEOSITE,category-dev,🚀 节点选择',
+  // 国内域名和 IP
+  'GEOSITE,cn,DIRECT',
   'GEOIP,CN,DIRECT,no-resolve',
-  // ── AI 服务规则（统一走「♻️ 自动选择」）──
-  // Anthropic / Claude
-  'DOMAIN-SUFFIX,anthropic.com,♻️ 自动选择',
-  'DOMAIN-SUFFIX,claude.ai,♻️ 自动选择',
-  'DOMAIN-SUFFIX,claude.com,♻️ 自动选择',
-  // OpenAI
-  'DOMAIN-SUFFIX,openai.com,♻️ 自动选择',
-  'DOMAIN-SUFFIX,chatgpt.com,♻️ 自动选择',
-  'DOMAIN-SUFFIX,oaistatic.com,♻️ 自动选择',
-  'DOMAIN-SUFFIX,oaiusercontent.com,♻️ 自动选择',
-  // Google Gemini / AI Studio（仅精确 AI 主机，避免劫持全站 Google 流量）
-  'DOMAIN-SUFFIX,gemini.google.com,♻️ 自动选择',
-  'DOMAIN-SUFFIX,ai.google.dev,♻️ 自动选择',
-  'DOMAIN,aistudio.google.com,♻️ 自动选择',
-  'DOMAIN,generativelanguage.googleapis.com,♻️ 自动选择',
-  'DOMAIN,aiplatform.googleapis.com,♻️ 自动选择',
-  'DOMAIN,alkalimakersuite-pa.clients6.google.com,♻️ 自动选择',
-  // Cloudflare AI Gateway（仅网关，不含整个 cloudflare.com）
-  'DOMAIN,gateway.ai.cloudflare.com,♻️ 自动选择',
-  // GitHub Copilot
-  'DOMAIN-SUFFIX,githubcopilot.com,♻️ 自动选择',
-  'DOMAIN-SUFFIX,copilot.github.com,♻️ 自动选择',
-  'DOMAIN,copilot-proxy.githubusercontent.com,♻️ 自动选择',
-  // AI 编辑器
-  'DOMAIN-SUFFIX,cursor.com,♻️ 自动选择',
-  'DOMAIN-SUFFIX,cursor.sh,♻️ 自动选择',
-  'DOMAIN-SUFFIX,windsurf.com,♻️ 自动选择',
-  'DOMAIN-SUFFIX,codeium.com,♻️ 自动选择',
-  // 模型 / 推理服务商
-  'DOMAIN-SUFFIX,openrouter.ai,♻️ 自动选择',
-  'DOMAIN-SUFFIX,groq.com,♻️ 自动选择',
-  'DOMAIN-SUFFIX,x.ai,♻️ 自动选择',
-  'DOMAIN-SUFFIX,grok.com,♻️ 自动选择',
-  'DOMAIN-SUFFIX,deepseek.com,♻️ 自动选择',
-  'DOMAIN-SUFFIX,deepseek.ai,♻️ 自动选择',
-  'DOMAIN-SUFFIX,mistral.ai,♻️ 自动选择',
-  'DOMAIN-SUFFIX,cohere.com,♻️ 自动选择',
-  'DOMAIN-SUFFIX,fireworks.ai,♻️ 自动选择',
-  'DOMAIN-SUFFIX,together.ai,♻️ 自动选择',
-  'DOMAIN-SUFFIX,cerebras.ai,♻️ 自动选择',
-  'DOMAIN-SUFFIX,perplexity.ai,♻️ 自动选择',
-  'DOMAIN-SUFFIX,poe.com,♻️ 自动选择',
-  'DOMAIN-SUFFIX,character.ai,♻️ 自动选择',
-  // 托管 / 部署 / 数据集
-  'DOMAIN-SUFFIX,huggingface.co,♻️ 自动选择',
-  'DOMAIN-SUFFIX,hf.space,♻️ 自动选择',
-  'DOMAIN-SUFFIX,replicate.com,♻️ 自动选择',
-  'DOMAIN-SUFFIX,fal.ai,♻️ 自动选择',
-  'DOMAIN-SUFFIX,runpod.io,♻️ 自动选择',
-  'DOMAIN-SUFFIX,modal.com,♻️ 自动选择',
-  'DOMAIN-SUFFIX,baseten.co,♻️ 自动选择',
-  // 图像 / 音频 / 视频生成
-  'DOMAIN-SUFFIX,stability.ai,♻️ 自动选择',
-  'DOMAIN-SUFFIX,midjourney.com,♻️ 自动选择',
-  'DOMAIN-SUFFIX,ideogram.ai,♻️ 自动选择',
-  'DOMAIN-SUFFIX,lumalabs.ai,♻️ 自动选择',
-  'DOMAIN-SUFFIX,suno.com,♻️ 自动选择',
-  'DOMAIN-SUFFIX,elevenlabs.io,♻️ 自动选择',
-  'DOMAIN-SUFFIX,assemblyai.com,♻️ 自动选择',
-  // Vercel v0（仅 AI 子产品，不含整个 vercel.com）
-  'DOMAIN-SUFFIX,v0.dev,♻️ 自动选择',
-  'DOMAIN-SUFFIX,vusercontent.net,♻️ 自动选择',
-  'MATCH,♻️ 自动选择',
+  // 漏网之鱼
+  'MATCH,🐟 漏网之鱼',
 ] as const;
+
+// GeoData：MetaCubeX/meta-rules-dat，支持自动更新
+const GEO_CONFIG = {
+  'geodata-mode': true,
+  'geodata-loader': 'memconservative',
+  'geo-auto-update': true,
+  'geo-update-interval': 24,
+  'geox-url': {
+    geoip: 'https://github.com/MetaCubeX/meta-rules-dat/releases/download/latest/geoip-lite.dat',
+    geosite: 'https://github.com/MetaCubeX/meta-rules-dat/releases/download/latest/geosite.dat',
+    mmdb: 'https://github.com/MetaCubeX/meta-rules-dat/releases/download/latest/country-lite.mmdb',
+    asn: 'https://github.com/MetaCubeX/meta-rules-dat/releases/download/latest/GeoLite2-ASN.mmdb',
+  },
+} as const;
 
 function normalizedBinary(value: string | undefined): string | undefined {
   const trimmed = value?.trim();
@@ -157,11 +150,12 @@ export class MihomoAdapter {
     const proxies = parsed.map(item => item.proxy).filter((value): value is ProxyConfig => value !== null);
     if (proxies.length === 0) throw new Error('未找到有效的代理节点');
     const names = proxies.map(proxy => proxy.name);
-    const yaml = YAML.stringify({ port: 7890, 'socks-port': 7891, 'allow-lan': false, mode: 'rule', 'log-level': 'info', 'external-controller': '127.0.0.1:9090', dns: DNS_CONFIG, proxies, 'proxy-groups': [
-      { name: '🚀 节点选择', type: 'select', proxies: ['♻️ 自动选择', '🔯 故障转移', '🔮 负载均衡', '🎯 全球直连', ...names] },
-      { name: '♻️ 自动选择', type: 'url-test', proxies: names, url: 'http://www.gstatic.com/generate_204', interval: 300 },
-      { name: '🔯 故障转移', type: 'fallback', proxies: names, url: 'http://www.gstatic.com/generate_204', interval: 300 },
-      { name: '🔮 负载均衡', type: 'load-balance', proxies: names, url: 'http://www.gstatic.com/generate_204', interval: 300 },
+    const yaml = YAML.stringify({ port: 7890, 'socks-port': 7891, 'allow-lan': false, mode: 'rule', 'log-level': 'info', 'external-controller': '127.0.0.1:9090', ...GEO_CONFIG, dns: DNS_CONFIG, proxies, 'proxy-groups': [
+      { name: '🚀 节点选择', type: 'select', proxies: ['♻️ 自动选择', '🤖 AI 服务', '🔯 故障转移', '🔮 负载均衡', '🎯 全球直连', ...names] },
+      { name: '🤖 AI 服务', type: 'select', proxies: ['♻️ 自动选择', '🔯 故障转移', '🚀 节点选择', ...names] },
+      { name: '♻️ 自动选择', type: 'url-test', proxies: names, url: 'http://cp.cloudflare.com/generate_204', interval: 300, tolerance: 50, lazy: true },
+      { name: '🔯 故障转移', type: 'fallback', proxies: names, url: 'http://cp.cloudflare.com/generate_204', interval: 300, lazy: true },
+      { name: '🔮 负载均衡', type: 'load-balance', proxies: names, url: 'http://cp.cloudflare.com/generate_204', interval: 300, lazy: true, strategy: 'round-robin' },
       { name: '🎯 全球直连', type: 'select', proxies: ['DIRECT'] },
       { name: '🐟 漏网之鱼', type: 'select', proxies: ['🚀 节点选择', '🎯 全球直连', '♻️ 自动选择'] },
     ], rules: DEFAULT_RULES }, { lineWidth: 0 });

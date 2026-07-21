@@ -141,11 +141,11 @@ describe('kernel adapters', () => {
     expect(output.proxies).toHaveLength(2);
     expect(output.dns).toMatchObject({ enable: true, 'enhanced-mode': 'fake-ip' });
     expect(output['proxy-groups'].map((group: any) => group.name)).toEqual([
-      '🚀 节点选择', '♻️ 自动选择', '🔯 故障转移', '🔮 负载均衡', '🎯 全球直连', '🐟 漏网之鱼',
+      '🚀 节点选择', '🤖 AI 服务', '♻️ 自动选择', '🔯 故障转移', '🔮 负载均衡', '🎯 全球直连', '🐟 漏网之鱼',
     ]);
     expect(output['proxy-groups'][0].proxies).toEqual(expect.arrayContaining(['hy2', 'trojan']));
-    expect(output.rules).toContain('DOMAIN-SUFFIX,openai.com,♻️ 自动选择');
-    expect(output.rules.at(-1)).toBe('MATCH,♻️ 自动选择');
+    expect(output.rules).toContain('GEOSITE,category-ai-!cn,🤖 AI 服务');
+    expect(output.rules.at(-1)).toBe('MATCH,🐟 漏网之鱼');
     expect(process.calls.at(-1)?.options.timeout).toBe(30_000);
   });
 
