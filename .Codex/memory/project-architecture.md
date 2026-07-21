@@ -67,3 +67,23 @@ metadata:
   systemd, and remote-kernel operations with deterministic stateful ports.
 - Every run owns its runtime and report directories; browser and server network
   guards prevent the suite from contacting configured or Tailscale nodes.
+
+## 2026-07-20 — Future: Agent identity and privilege separation
+
+- Treat the SSH connection user, persistent Agent runtime owner, and optional
+  privileged kernel operator as separate identities. Never derive an existing
+  Agent installation from the current SSH user's `$HOME`.
+- Persist an Agent installation receipt (installation ID, owner/UID, absolute
+  binary and config paths, unit scope/name). Changing SSH credentials must not
+  silently migrate the Agent or preserve an incompatible deployment state.
+- Move routine validated/atomic Agent configuration and reload operations to the
+  authenticated Agent API; reserve SSH for bootstrap and diagnosis.
+- Support explicit privilege modes: rootless monitoring, delegated sudo,
+  administrator-installed allowlisted local helper, or externally managed.
+  Normal operation must not require storing a root account password.
+- A privileged helper must expose fixed validated actions over a local boundary,
+  never arbitrary shell commands, paths, or download URLs.
+- Deployment verification must match the expected node ID, installation ID,
+  runtime identity, version, and deployment nonce; an HTTP 200 from the target
+  port alone is not sufficient. Provide an explicit, rollback-safe workflow for
+  migrations between Agent runtime users.

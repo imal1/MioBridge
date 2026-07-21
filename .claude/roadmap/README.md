@@ -120,6 +120,28 @@ Acceptance:
 - Add unit, integration, and E2E coverage for key flows.
 - Include tests in CI once stable enough to gate PRs.
 
+### Agent Identity and Privilege Separation — 🔲 Planned
+
+Goal: support long-lived and future multi-user nodes without requiring the
+control plane to store a root account password or deriving Agent ownership from
+the current SSH user's `$HOME`.
+
+Acceptance:
+
+- Model the SSH connection user, persistent Agent runtime owner, and optional
+  privileged kernel operator as separate identities.
+- Persist an Agent installation receipt containing installation ID, owner/UID,
+  absolute binary/config paths, and systemd unit scope/name.
+- Apply validated atomic Agent configuration and reloads through the HMAC Agent
+  API; keep SSH for bootstrap and diagnosis.
+- Support explicit rootless, delegated-sudo, allowlisted local-helper, and
+  externally managed privilege modes. A helper must never accept arbitrary
+  shell commands, paths, or download URLs.
+- Changing SSH credentials must not silently migrate an installed Agent. Provide
+  an explicit, rollback-safe runtime-user migration workflow.
+- Verify deployments using node ID, installation ID, runtime identity, version,
+  and a deployment nonce; an HTTP 200 from the expected port is insufficient.
+
 ## Deferred
 
 Auth, API key management, multi-user accounts, quotas, billing, plugin markets,
