@@ -36,21 +36,68 @@ const DEFAULT_RULES = [
   'IP-CIDR6,fe80::/10,DIRECT,no-resolve',
   'DOMAIN-SUFFIX,cn,DIRECT',
   'GEOIP,CN,DIRECT,no-resolve',
+  // ── AI 服务规则（统一走「♻️ 自动选择」）──
+  // Anthropic / Claude
+  'DOMAIN-SUFFIX,anthropic.com,♻️ 自动选择',
+  'DOMAIN-SUFFIX,claude.ai,♻️ 自动选择',
+  'DOMAIN-SUFFIX,claude.com,♻️ 自动选择',
+  // OpenAI
   'DOMAIN-SUFFIX,openai.com,♻️ 自动选择',
   'DOMAIN-SUFFIX,chatgpt.com,♻️ 自动选择',
   'DOMAIN-SUFFIX,oaistatic.com,♻️ 自动选择',
   'DOMAIN-SUFFIX,oaiusercontent.com,♻️ 自动选择',
-  'DOMAIN-SUFFIX,anthropic.com,♻️ 自动选择',
-  'DOMAIN-SUFFIX,claude.ai,♻️ 自动选择',
+  // Google Gemini / AI Studio（仅精确 AI 主机，避免劫持全站 Google 流量）
   'DOMAIN-SUFFIX,gemini.google.com,♻️ 自动选择',
   'DOMAIN-SUFFIX,ai.google.dev,♻️ 自动选择',
-  'DOMAIN-SUFFIX,generativeai.google.com,♻️ 自动选择',
+  'DOMAIN,aistudio.google.com,♻️ 自动选择',
+  'DOMAIN,generativelanguage.googleapis.com,♻️ 自动选择',
+  'DOMAIN,aiplatform.googleapis.com,♻️ 自动选择',
+  'DOMAIN,alkalimakersuite-pa.clients6.google.com,♻️ 自动选择',
+  // Cloudflare AI Gateway（仅网关，不含整个 cloudflare.com）
+  'DOMAIN,gateway.ai.cloudflare.com,♻️ 自动选择',
+  // GitHub Copilot
   'DOMAIN-SUFFIX,githubcopilot.com,♻️ 自动选择',
   'DOMAIN-SUFFIX,copilot.github.com,♻️ 自动选择',
-  'DOMAIN-SUFFIX,deepseek.com,♻️ 自动选择',
+  'DOMAIN,copilot-proxy.githubusercontent.com,♻️ 自动选择',
+  // AI 编辑器
+  'DOMAIN-SUFFIX,cursor.com,♻️ 自动选择',
+  'DOMAIN-SUFFIX,cursor.sh,♻️ 自动选择',
+  'DOMAIN-SUFFIX,windsurf.com,♻️ 自动选择',
+  'DOMAIN-SUFFIX,codeium.com,♻️ 自动选择',
+  // 模型 / 推理服务商
+  'DOMAIN-SUFFIX,openrouter.ai,♻️ 自动选择',
   'DOMAIN-SUFFIX,groq.com,♻️ 自动选择',
-  'DOMAIN-SUFFIX,perplexity.ai,♻️ 自动选择',
+  'DOMAIN-SUFFIX,x.ai,♻️ 自动选择',
+  'DOMAIN-SUFFIX,grok.com,♻️ 自动选择',
+  'DOMAIN-SUFFIX,deepseek.com,♻️ 自动选择',
+  'DOMAIN-SUFFIX,deepseek.ai,♻️ 自动选择',
   'DOMAIN-SUFFIX,mistral.ai,♻️ 自动选择',
+  'DOMAIN-SUFFIX,cohere.com,♻️ 自动选择',
+  'DOMAIN-SUFFIX,fireworks.ai,♻️ 自动选择',
+  'DOMAIN-SUFFIX,together.ai,♻️ 自动选择',
+  'DOMAIN-SUFFIX,cerebras.ai,♻️ 自动选择',
+  'DOMAIN-SUFFIX,perplexity.ai,♻️ 自动选择',
+  'DOMAIN-SUFFIX,poe.com,♻️ 自动选择',
+  'DOMAIN-SUFFIX,character.ai,♻️ 自动选择',
+  // 托管 / 部署 / 数据集
+  'DOMAIN-SUFFIX,huggingface.co,♻️ 自动选择',
+  'DOMAIN-SUFFIX,hf.space,♻️ 自动选择',
+  'DOMAIN-SUFFIX,replicate.com,♻️ 自动选择',
+  'DOMAIN-SUFFIX,fal.ai,♻️ 自动选择',
+  'DOMAIN-SUFFIX,runpod.io,♻️ 自动选择',
+  'DOMAIN-SUFFIX,modal.com,♻️ 自动选择',
+  'DOMAIN-SUFFIX,baseten.co,♻️ 自动选择',
+  // 图像 / 音频 / 视频生成
+  'DOMAIN-SUFFIX,stability.ai,♻️ 自动选择',
+  'DOMAIN-SUFFIX,midjourney.com,♻️ 自动选择',
+  'DOMAIN-SUFFIX,ideogram.ai,♻️ 自动选择',
+  'DOMAIN-SUFFIX,lumalabs.ai,♻️ 自动选择',
+  'DOMAIN-SUFFIX,suno.com,♻️ 自动选择',
+  'DOMAIN-SUFFIX,elevenlabs.io,♻️ 自动选择',
+  'DOMAIN-SUFFIX,assemblyai.com,♻️ 自动选择',
+  // Vercel v0（仅 AI 子产品，不含整个 vercel.com）
+  'DOMAIN-SUFFIX,v0.dev,♻️ 自动选择',
+  'DOMAIN-SUFFIX,vusercontent.net,♻️ 自动选择',
   'MATCH,♻️ 自动选择',
 ] as const;
 

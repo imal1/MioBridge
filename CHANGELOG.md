@@ -2,6 +2,20 @@
 
 本文档记录 MioBridge 的重要变更。版本号遵循语义化版本规范。
 
+## [1.2.11] — 2026-07-21
+
+### Added
+
+- 扩充 Clash 默认生成配置中的 AI 分流规则（统一走「♻️ 自动选择」），新增
+  Anthropic、OpenAI、Gemini、GitHub Copilot、AI 编辑器（Cursor/Windsurf/
+  Codeium）及主流模型/推理/托管/图音视频生成服务商。
+
+### Changed
+
+- 收窄原先过宽的域名后缀（`googleapis.com`、`gstatic.com`、`cloudflare.com`、
+  `githubusercontent.com`、`vercel.com`、Google 登录域等）为精确 AI 主机，
+  避免劫持无关流量。
+
 ## [1.2.10] — 2026-07-20
 
 ### Fixed
