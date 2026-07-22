@@ -102,8 +102,10 @@ export class ArtifactService {
     let clashError: string | undefined;
     let clashContent: string | undefined;
     try {
-      if (!await this.options.clash.checkHealth()) throw new Error('Mihomo服务未运行或不可访问');
       if (!clashInput.content) throw new Error('没有可用于生成 Clash 配置的代理来源');
+      // Clash 产物是纯解析 + 模板生成，并不依赖 mihomo；mihomo 只在可用时做一次校验。
+      // 故 mihomo 不可用时照常生成并写盘（跳过校验），仅记一条警告——绝不因缺 mihomo 丢弃这次更新。
+      if (!await this.options.clash.checkHealth()) warnings.push('mihomo 不可用：已生成 Clash 配置但跳过校验');
       clashContent = await this.options.clash.convertToClashByContent(clashInput.content);
       if (!clashContent || !clashContent.includes('proxies:')) throw new Error('转换结果不包含有效的代理配置');
       clashGenerated = true;
