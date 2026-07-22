@@ -11,7 +11,7 @@
     },
     "agent": {
       "name": "miobridge-agent",
-      "version": "1.0.0",
+      "version": "1.2.12",
       "devDependencies": {
         "@types/bun": "latest",
         "@types/node": "^24.0.8",
@@ -20,7 +20,7 @@
     },
     "packages/cli": {
       "name": "@miobridge/cli",
-      "version": "1.0.0",
+      "version": "1.2.12",
       "bin": {
         "miobridge": "./dist/main.js",
       },
@@ -38,7 +38,7 @@
     },
     "packages/core": {
       "name": "@miobridge/core",
-      "version": "1.0.0",
+      "version": "1.2.12",
       "dependencies": {
         "yaml": "^2.8.1",
       },
@@ -50,7 +50,7 @@
     },
     "packages/e2e": {
       "name": "@miobridge/e2e",
-      "version": "1.0.0",
+      "version": "1.2.12",
       "devDependencies": {
         "@playwright/test": "1.61.1",
         "@types/node": "^24.0.8",
@@ -59,7 +59,7 @@
     },
     "packages/frontend": {
       "name": "@miobridge/frontend",
-      "version": "1.0.0",
+      "version": "1.2.12",
       "dependencies": {
         "@iconify/react": "^6.0.0",
         "@monaco-editor/react": "^4.7.0",
@@ -70,6 +70,7 @@
         "@radix-ui/react-tabs": "^1.1.16",
         "@radix-ui/react-tooltip": "^1.2.11",
         "@tailwindcss/postcss": "^4.1.11",
+        "@tanstack/react-query": "^5",
         "class-variance-authority": "^0.7.1",
         "clsx": "^2.1.1",
         "ky": "^1.8.1",
@@ -349,6 +350,10 @@
     "@tailwindcss/oxide-win32-x64-msvc": ["@tailwindcss/oxide-win32-x64-msvc@4.3.1", "", { "os": "win32", "cpu": "x64" }, "sha512-xDEyu1rg290472FEGaKHnzyDyh5QH+AlWvsU5hMoMtPpzmKlRI0jaYKCgSHDYtaQWZOYbMaduSyCwFwY4n1HmA=="],
 
     "@tailwindcss/postcss": ["@tailwindcss/postcss@4.3.1", "", { "dependencies": { "@alloc/quick-lru": "^5.2.0", "@tailwindcss/node": "4.3.1", "@tailwindcss/oxide": "4.3.1", "postcss": "8.5.15", "tailwindcss": "4.3.1" } }, "sha512-dNJuNbdEJT/SWRuXTYP1WSamelsz3ztkUsdtWQPjrexysrTpaEPM40P/71knXiXLYEojqPOEGitVLLpPMS5T6A=="],
+
+    "@tanstack/query-core": ["@tanstack/query-core@5.101.4", "", {}, "sha512-gNwcvOJcRbLWPOLG/2OBm+zM+Yv+MKsXKEOWC57USuZDEsI71hEErQsiEGx5wX9rzWWkfwM0fVSPoiIFSsxfiw=="],
+
+    "@tanstack/react-query": ["@tanstack/react-query@5.101.4", "", { "dependencies": { "@tanstack/query-core": "5.101.4" }, "peerDependencies": { "react": "^18 || ^19" } }, "sha512-yRg2pfOCxIs4ZJW3XYYHU/WgtD04FHSnfHlpRT7h7pR77hwkdRG4wxbKe4aq6P0RvXUTBSQpQeadS1SUYUe+KA=="],
 
     "@testing-library/dom": ["@testing-library/dom@10.4.1", "", { "dependencies": { "@babel/code-frame": "^7.10.4", "@babel/runtime": "^7.12.5", "@types/aria-query": "^5.0.1", "aria-query": "5.3.0", "dom-accessibility-api": "^0.5.9", "lz-string": "^1.5.0", "picocolors": "1.1.1", "pretty-format": "^27.0.2" } }, "sha512-o4PXJQidqJl82ckFaXUeoAW+XysPLauYI43Abki5hABd853iMhitooc6znOnczgbTYmEP6U6/y1ZyKAIsvMKGg=="],
 

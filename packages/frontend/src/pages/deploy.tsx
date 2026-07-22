@@ -1,10 +1,17 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useQueryClient } from '@tanstack/react-query'
 import { Icon } from '@iconify/react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { toast } from 'sonner'
 import { apiService } from '@/lib/api'
 import { streamServerEvents } from '@/lib/sse'
-import type { ClusterStatus, ComponentDeployStatus, ComponentState, DeployComponent, DeployOperation, NodeStatus } from '@/lib/types'
+import {
+  queryKeys, useClusterStatus, useClusterHealthCheck, useComponentDeployments, useComponentStates,
+  useCancelDeployment, useRetryDeployment, useStartDeployment,
+} from '@/lib/queries'
+import type { ComponentDeployStatus, DeployComponent, DeployOperation, NodeStatus } from '@/lib/types'
+import { QueryBoundary } from '@/components/shared/QueryBoundary'
+import { Skeleton } from '@/components/ui/skeleton'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -87,9 +94,19 @@ export default function DeployPage() {
   const [searchParams] = useSearchParams()
   const requestedComponent = searchParams.get('component') as DeployComponent | null
   const requestedOperation = searchParams.get('operation') as DeployOperation | null
-  const [cluster, setCluster] = useState<ClusterStatus | null>(null)
-  const [tasks, setTasks] = useState<Record<string, ComponentDeployStatus>>({})
-  const [states, setStates] = useState<ComponentState[]>([])
+  const queryClient = useQueryClient()
+  // SSE 实时更新，轮询 4s 兜底；tab 隐藏时暂停轮询以省请求。
+  const pollOptions = { refetchInterval: 4000, refetchIntervalInBackground: false } as const
+  const clusterQuery = useClusterStatus(pollOptions)
+  const deploymentsQuery = useComponentDeployments(undefined, pollOptions)
+  const statesQuery = useComponentStates(undefined, pollOptions)
+  const cluster = clusterQuery.data ?? null
+  const tasks = deploymentsQuery.data ?? {}
+  const states = statesQuery.data ?? []
+  const startDeployment = useStartDeployment()
+  const retryDeployment = useRetryDeployment()
+  const cancelDeployment = useCancelDeployment()
+  const healthCheck = useClusterHealthCheck()
   const [selectedNode, setSelectedNode] = useState(searchParams.get('node') || '')
   const [component, setComponent] = useState<DeployComponent>(COMPONENTS.some(item => item.value === requestedComponent) ? requestedComponent! : 'agent')
   const [operation, setOperation] = useState<DeployOperation>(OPERATIONS.some(item => item.value === requestedOperation) ? requestedOperation! : 'install')
@@ -115,20 +132,14 @@ export default function DeployPage() {
     })
   }, [])
 
+  // queryClient 身份稳定，refresh 因此稳定：SSE 副作用不会因刷新回调变化而反复重连。
   const refresh = useCallback(async () => {
-    const [clusterResult, taskResult, stateResult] = await Promise.all([
-      apiService.getClusterStatus(), apiService.getComponentDeployments(), apiService.getComponentStates(),
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: queryKeys.clusterStatus }),
+      queryClient.invalidateQueries({ queryKey: queryKeys.componentDeployments() }),
+      queryClient.invalidateQueries({ queryKey: queryKeys.componentStates() }),
     ])
-    if (clusterResult.success) setCluster(clusterResult.data as ClusterStatus)
-    if (taskResult.success && taskResult.data) setTasks(taskResult.data.deployments)
-    if (stateResult.success && stateResult.data) setStates(stateResult.data.states)
-  }, [])
-
-  useEffect(() => {
-    refresh().catch(caught => setError(caught instanceof Error ? caught.message : '部署状态加载失败'))
-    const timer = window.setInterval(() => refresh().catch(() => {}), 4000)
-    return () => window.clearInterval(timer)
-  }, [refresh])
+  }, [queryClient])
 
   const nodes = useMemo(() => cluster?.nodes || [], [cluster?.nodes])
   const taskList = useMemo(() => Object.values(tasks).sort((a, b) => b.startedAt - a.startedAt), [tasks])
@@ -187,53 +198,51 @@ export default function DeployPage() {
     setSubmitting(true)
     setError(null)
     try {
-      const response = await apiService.startComponentDeployment(selectedNode, component, operation, { preserveConfig, preserveData })
+      const response = await startDeployment.mutateAsync({ nodeId: selectedNode, component, operation, options: { preserveConfig, preserveData } })
       if (!response.success) throw new Error(errorMessage(response.error, '创建部署任务失败'))
       toast.success('部署任务已进入队列', { description: `${node?.name || selectedNode} · ${component}` })
-      await refresh()
     } catch (caught) {
       const message = caught instanceof Error ? caught.message : '创建部署任务失败'
       setError(message)
       toast.error('部署任务创建失败', { description: message })
     } finally { setSubmitting(false) }
-  }, [blockedNodes, component, node?.name, operation, preserveConfig, preserveData, refresh, selectedNode])
+  }, [blockedNodes, component, node?.name, operation, preserveConfig, preserveData, startDeployment, selectedNode])
 
   // apiService 在 HTTP 失败时抛出 ApiError；不捕获的话异常逃逸，用户得不到任何反馈。
   const retry = useCallback(async (task: ComponentDeployStatus) => {
     try {
-      const response = await apiService.retryComponentDeployment(task.taskId)
+      const response = await retryDeployment.mutateAsync(task.taskId)
       if (!response.success) throw new Error(errorMessage(response.error, '无法重试该任务'))
       toast.success('已按原始输入创建重试任务')
-      await refresh()
     } catch (caught) {
       const message = caught instanceof Error ? caught.message : '无法重试该任务'
       setError(message)
       toast.error('重试失败', { description: message })
     }
-  }, [refresh])
+  }, [retryDeployment])
 
   const cancel = useCallback(async (task: ComponentDeployStatus) => {
     try {
-      const response = await apiService.cancelComponentDeployment(task.taskId)
+      const response = await cancelDeployment.mutateAsync(task.taskId)
       if (!response.success) throw new Error(errorMessage(response.error, '任务已进入不可取消阶段'))
       toast.success('任务已取消')
-      await refresh()
     } catch (caught) {
       const message = caught instanceof Error ? caught.message : '任务已进入不可取消阶段'
       setError(message)
       toast.error('取消失败', { description: message })
     }
-  }, [refresh])
+  }, [cancelDeployment])
 
   // 「检查健康」必须真的探测目标节点：只刷新聚合状态无法证明刚装好的 Agent 已经起来了。
   const completeManual = useCallback(async () => {
     if (selectedNode) {
-      const response = await apiService.clusterHealthCheck(selectedNode)
+      const response = await healthCheck.mutateAsync(selectedNode)
       if (!response.success) toast.error('节点健康检查失败', { description: errorMessage(response.error, '目标节点尚未响应健康检查') })
       else toast.success('已完成目标节点健康检查', { description: node?.name || selectedNode })
+    } else {
+      await refresh()
     }
-    await refresh()
-  }, [node?.name, refresh, selectedNode])
+  }, [healthCheck, node?.name, refresh, selectedNode])
 
   const sshTarget = `${node?.sshUser || '<ssh-user>'}@${node?.host || '<child-host>'}`
   const installer = `curl -fsSL https://github.com/imal1/miobridge/releases/latest/download/install-agent.sh -o /tmp/install-agent.sh\nsh /tmp/install-agent.sh --config /tmp/miobridge-agent.yaml`
@@ -276,12 +285,16 @@ export default function DeployPage() {
       <Card className="mt-5">
         <CardHeader><CardDescription>3 / 3 · SSE 实时更新，轮询自动降级</CardDescription><CardTitle>任务与恢复</CardTitle></CardHeader>
         <CardContent className="space-y-3">
+          <QueryBoundary query={deploymentsQuery} skeleton={<div className="space-y-3">{Array.from({ length: 2 }).map((_, i) => <Skeleton key={i} className="h-28 w-full rounded-[20px]" />)}</div>}>
+          {() => <>
           {taskList.map(task => {
             const taskNode = nodes.find(item => item.nodeId === task.nodeId)
             const cancellable = task.status === 'pending' || (task.status === 'running' && task.step === 'prechecking')
             return <article key={task.taskId} className="rounded-[20px] border border-[var(--border)] bg-[var(--surface-container)] p-4"><div className="flex flex-wrap items-start justify-between gap-3"><div><p className="font-medium">{taskNode?.name || task.nodeId} · {task.component}</p><p className="text-xs text-muted-foreground">{task.operation} · {STEP_LABELS[task.step] || task.step} · {new Date(task.startedAt).toLocaleString('zh-CN')}</p>{task.beforeVersion || task.afterVersion ? <p className="mt-1 text-xs text-muted-foreground">版本 {task.beforeVersion || '未知'} → {task.afterVersion || '待确认'}</p> : null}</div>{taskBadge(task)}</div><Progress className="mt-4" value={task.progress} /><div className="mt-2 flex flex-wrap items-center justify-between gap-3 text-sm"><span className={task.status === 'error' ? 'text-destructive' : 'text-muted-foreground'}>{task.message}</span><div className="flex flex-wrap gap-2">{cancellable ? <Button size="sm" variant="outline" onClick={() => cancel(task)}>取消任务</Button> : null}{task.status === 'error' || task.status === 'cancelled' ? <Button size="sm" variant="outline" onClick={() => retry(task)}>按原输入重试</Button> : null}<Button asChild size="sm" variant="outline"><Link to={`/logs?node=${encodeURIComponent(task.nodeId)}&task=${encodeURIComponent(task.taskId)}`}>查看日志</Link></Button></div></div></article>
           })}
           {taskList.length === 0 ? <div className="rounded-[20px] bg-[var(--surface-container)] p-8 text-center text-muted-foreground">暂无部署任务。任务创建后会持久化，并在刷新或服务重启后恢复显示。</div> : null}
+          </>}
+          </QueryBoundary>
 
           {latestEvents.length ? (
             <section aria-label="部署任务事件" className="rounded-[20px] border border-[var(--border)] bg-[var(--surface-container-low)] p-4">

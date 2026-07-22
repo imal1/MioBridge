@@ -1,7 +1,7 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 import { Icon } from '@iconify/react'
 import { toast } from 'sonner'
-import { apiService } from '@/lib/api'
+import { useOpenApi } from '@/lib/queries'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
@@ -69,28 +69,18 @@ function curlFor(endpoint: ApiEndpoint, serverUrl?: string) {
 }
 
 export default function ApiDocsPage() {
-  const [document, setDocument] = useState<OpenApiDocument | null>(null)
   const [open, setOpen] = useState<string | null>(null)
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
+  const openApiQuery = useOpenApi()
+  const load = () => { void openApiQuery.refetch() }
+  const loading = openApiQuery.isPending
 
-  const load = useCallback(async () => {
-    setLoading(true)
-    setError(null)
-    try {
-      const result = await apiService.getOpenApi() as OpenApiDocument | { success?: boolean; error?: string }
-      if (!result || typeof result !== 'object' || !('paths' in result) || !result.paths) {
-        throw new Error('服务端未返回有效的 OpenAPI 文档')
-      }
-      setDocument(result as OpenApiDocument)
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'OpenAPI 文档加载失败')
-    } finally {
-      setLoading(false)
-    }
-  }, [])
-
-  useEffect(() => { void load() }, [load])
+  const raw = openApiQuery.data
+  const document = raw && typeof raw === 'object' && 'paths' in raw && (raw as OpenApiDocument).paths
+    ? raw as OpenApiDocument
+    : null
+  const error = openApiQuery.error
+    ? (openApiQuery.error.message || 'OpenAPI 文档加载失败')
+    : (!loading && raw && !document ? '服务端未返回有效的 OpenAPI 文档' : null)
 
   const endpoints = useMemo(() => document ? readOpenApiEndpoints(document) : [], [document])
   const groups = useMemo(() => {

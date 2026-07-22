@@ -1,9 +1,11 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useMemo, useState } from 'react'
 import { Icon } from '@iconify/react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { toast } from 'sonner'
-import { apiService } from '@/lib/api'
-import type { ClusterStatus, NodeStatus } from '@/lib/types'
+import type { NodeStatus } from '@/lib/types'
+import { useAgentAction, useClusterHealthCheck, useClusterStatus } from '@/lib/queries'
+import { QueryBoundary } from '@/components/shared/QueryBoundary'
+import { Skeleton } from '@/components/ui/skeleton'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -21,40 +23,38 @@ function statusLabel(node: NodeStatus) {
 export default function AgentsPage() {
   const [searchParams] = useSearchParams()
   const focusNode = searchParams.get('node')
-  const [cluster, setCluster] = useState<ClusterStatus | null>(null)
+  const clusterQuery = useClusterStatus()
+  const cluster = clusterQuery.data ?? null
+  const agentAction = useAgentAction()
+  const healthCheck = useClusterHealthCheck()
   const [busy, setBusy] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
 
-  const refresh = useCallback(async () => {
-    const result = await apiService.getClusterStatus()
-    if (result.success) setCluster(result.data as ClusterStatus)
-  }, [])
-
-  useEffect(() => { refresh().catch(caught => setError(caught instanceof Error ? caught.message : 'Agent 状态加载失败')) }, [refresh])
+  const refresh = useCallback(() => { void clusterQuery.refetch() }, [clusterQuery])
   const nodes = useMemo(() => [...(cluster?.nodes || [])].sort((a, b) => Number(b.nodeId === focusNode) - Number(a.nodeId === focusNode)), [cluster?.nodes, focusNode])
 
   const run = useCallback(async (node: NodeStatus, action: 'start' | 'stop' | 'restart' | 'health') => {
     setBusy(`${node.nodeId}:${action}`)
     setError(null)
     try {
-      const response = action === 'start' ? await apiService.startAgent(node.nodeId)
-        : action === 'stop' ? await apiService.stopAgent(node.nodeId)
-        : action === 'restart' ? await apiService.restartAgent(node.nodeId)
-        : await apiService.clusterHealthCheck(node.nodeId)
+      // 写操作的 mutation 成功后会失效 cluster-status，自动刷新，无需手动 refresh。
+      const response = action === 'health'
+        ? await healthCheck.mutateAsync(node.nodeId)
+        : await agentAction.mutateAsync({ nodeId: node.nodeId, action })
       if (!response.success) throw new Error(response.error || `${action} 失败`)
       toast.success(action === 'health' ? '健康检查完成' : 'Agent 维护操作完成', { description: node.name })
-      await refresh()
     } catch (caught) {
       const message = caught instanceof Error ? caught.message : 'Agent 操作失败'
       setError(message)
       toast.error('Agent 操作失败', { description: message })
     } finally { setBusy(null) }
-  }, [refresh])
+  }, [agentAction, healthCheck])
 
   return (
     <SignalPage crumb="Agent lifecycle" title="Agent 维护" description="维护已安装监控程序的运行生命周期；安装态变更统一前往部署中心。" status={`${nodes.filter(node => node.agent?.status === 'running').length}/${nodes.length} 运行中`} maxWidth="narrow" actions={<Button variant="outline" onClick={refresh}><Icon icon="ph:arrow-clockwise-light" />刷新</Button>}>
       {error ? <Alert variant="destructive"><AlertTitle>Agent 操作失败</AlertTitle><AlertDescription>{error}</AlertDescription></Alert> : null}
-      <div className="grid gap-5 lg:grid-cols-2">
+      <QueryBoundary query={clusterQuery} skeleton={<div className="grid gap-5 lg:grid-cols-2">{Array.from({ length: 2 }).map((_, i) => <Skeleton key={i} className="h-64 w-full rounded-xl" />)}</div>}>
+      {() => <div className="grid gap-5 lg:grid-cols-2">
         {nodes.map(node => {
           const deployed = Boolean(node.agent?.deployed)
           const running = node.agent?.status === 'running'
@@ -89,7 +89,8 @@ export default function AgentsPage() {
           )
         })}
         {nodes.length === 0 ? <Card><CardContent className="p-10 text-center text-muted-foreground">暂无节点。请先在节点页创建节点档案。</CardContent></Card> : null}
-      </div>
+      </div>}
+      </QueryBoundary>
     </SignalPage>
   )
 }

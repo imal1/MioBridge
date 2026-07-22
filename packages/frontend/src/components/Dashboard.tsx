@@ -1,8 +1,9 @@
 import { Icon } from '@iconify/react'
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { apiService, type ApiStatus } from '@/lib/api'
-import type { ClusterStatus, MetricsSnapshot, MetricsSummary } from '@/lib/types'
+import type { ApiStatus } from '@/lib/api'
+import type { ClusterStatus } from '@/lib/types'
+import { useClusterStatus, useMetrics, useStatus } from '@/lib/queries'
 import { useBackendReachable } from '@/context/AppContext'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
@@ -46,53 +47,28 @@ function formatBytes(value?: number) {
 
 export default function Dashboard({ initialCluster = null, initialStatus = null, initialError = null }: DashboardProps) {
   const backendReachable = useBackendReachable()
-  const [status, setStatus] = useState(initialStatus)
-  const [cluster, setCluster] = useState(initialCluster)
-  const [error, setError] = useState<string | null>(initialError)
   const [metricRange, setMetricRange] = useState<'24h' | '7d' | '30d'>('24h')
-  const [metrics, setMetrics] = useState<{ snapshot: MetricsSnapshot; history: MetricsSnapshot[]; summary: MetricsSummary } | null>(null)
 
-  // 每次刷新领一个序号，只有最新那次的响应可以写入状态。切换指标窗口会立刻发起
-  // 新请求，而先发的请求完全可能后到；不做丢弃的话它会把新窗口的数据覆盖回旧数据，
-  // 出现「按钮高亮 30d、图表画的却是 24h」这种界面自相矛盾的状态。
-  const requestSeq = useRef(0)
+  // 传入初始数据时（静态预览）挂载不自动拉取；否则三条查询各自加载。
+  // Sidebar 也调用 useStatus()，同 key 合并为单请求；指标按 range 分 key 缓存，
+  // 切换窗口时旧窗口的迟到响应写入的是旧 key，不会覆盖当前窗口——竞态由 key 天然消解。
+  const live = initialStatus === null && initialCluster === null
+  const statusQuery = useStatus({ enabled: live, ...(initialStatus ? { initialData: initialStatus } : {}) })
+  const clusterQuery = useClusterStatus({ enabled: live, ...(initialCluster ? { initialData: initialCluster } : {}) })
+  const metricsQuery = useMetrics(metricRange, { enabled: live })
 
-  /** 返回 false 表示这次响应已被更新的请求取代，没有写入任何状态。 */
-  const refresh = useCallback(async (): Promise<boolean> => {
-    const seq = ++requestSeq.current
-    let responses
-    try {
-      responses = await Promise.all([
-        apiService.getStatus(),
-        apiService.getClusterStatus(),
-        apiService.getMetrics(metricRange),
-      ])
-    } catch (error) {
-      // 过期请求的失败同样要丢弃：新窗口已经加载成功时，不该再弹一条旧窗口的错误。
-      if (seq !== requestSeq.current) return false
-      throw error
-    }
-    if (seq !== requestSeq.current) return false
-    const [nextStatus, nextCluster, nextMetrics] = responses
-    setStatus(nextStatus)
-    if (nextCluster.success) setCluster(nextCluster.data as ClusterStatus)
-    if (nextMetrics.success && nextMetrics.data) setMetrics(nextMetrics.data)
-    return true
-  }, [metricRange])
+  const status = statusQuery.data ?? null
+  const cluster = (clusterQuery.data ?? null) as ClusterStatus | null
+  const metrics = metricsQuery.data ?? null
+  const error = initialError
+    ?? (statusQuery.error ?? clusterQuery.error ?? metricsQuery.error)?.message
+    ?? null
 
-  // 首次加载和刷新按钮共用同一条失败路径。把 refresh 直接交给 onClick 的话，
-  // 失败只会变成一条未捕获的 promise rejection，用户点了按钮什么都看不到。
-  // 只有真正写入了状态才清除旧错误：被取代的过期响应不足以证明后端已经恢复。
   const runRefresh = useCallback(() => {
-    refresh()
-      .then(applied => { if (applied) setError(null) })
-      .catch((err: unknown) => setError(err instanceof Error ? err.message : '加载失败'))
-  }, [refresh])
-
-  useEffect(() => {
-    if (initialStatus !== null || initialCluster !== null) return
-    runRefresh()
-  }, [initialCluster, initialStatus, runRefresh])
+    void statusQuery.refetch()
+    void clusterQuery.refetch()
+    void metricsQuery.refetch()
+  }, [statusQuery, clusterQuery, metricsQuery])
 
   const missingFiles = status ? FILES.filter(file => !status[file.key]) : FILES
   const managedNodes = cluster?.nodes || []
