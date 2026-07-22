@@ -1,9 +1,9 @@
-import { useMutation, useQueryClient, type QueryClient } from '@tanstack/react-query'
+import { useMutation, useQueryClient, type QueryClient, type QueryKey } from '@tanstack/react-query'
 import { apiService } from '@/lib/api'
 import type { DeployComponent, DeployOperation, KernelType, NodeKernelConfig, SubscriptionPolicy } from '@/lib/types'
 import { queryKeys } from './keys'
 
-function invalidate(qc: QueryClient, keys: readonly unknown[][]) {
+function invalidate(qc: QueryClient, keys: readonly QueryKey[]) {
   for (const queryKey of keys) void qc.invalidateQueries({ queryKey })
 }
 
