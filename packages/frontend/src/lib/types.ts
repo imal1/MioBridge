@@ -88,6 +88,8 @@ export interface NodeStatus {
   version?: string;
   uptime?: number;
   agent?: NodeAgentInfo;
+  /** Agent 打通后检测到、但当前未纳入监控的已装内核，供前端提示用户确认纳管。 */
+  adoptableKernels?: KernelType[];
 }
 
 /** Cluster aggregate status */

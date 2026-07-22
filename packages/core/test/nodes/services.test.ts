@@ -1,5 +1,5 @@
 import { createHmac } from 'node:crypto';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { AgentClient, NodeAggregationService, NodeRepository, type NodeConfig, type StateStore } from '../../src/index.js';
 
 function memoryStore(initial: string | null): StateStore {
@@ -167,6 +167,21 @@ describe('node core services', () => {
     expect(recovered.nodes[0]?.lastError).toContain('offline');
   });
 
+  it('surfaces detected-but-unmonitored kernels as adoption candidates', async () => {
+    const repository = new NodeRepository(memoryStore(`nodes:\n  - id: node-a\n    name: A\n    host: agent.example\n    secret: secret\n    kernels:\n      - type: xray\n    location: HK\n    enabled: true\n`));
+    const reported = [
+      { type: 'sing-box', detected: true, monitored: false, accessible: true, nodesCount: 0, configPaths: [] },
+      { type: 'xray', detected: true, monitored: true, accessible: true, nodesCount: 0, configPaths: ['/etc/xray/config.json'] },
+      { type: 'v2ray', detected: false, monitored: false, accessible: false, nodesCount: 0, configPaths: [] },
+    ];
+    const client = new AgentClient({ fetch: (async () => new Response(
+      JSON.stringify({ data: { version: '1.2.14', kernels: reported, sources: [] } }), { status: 200 },
+    )) as typeof fetch });
+    const status = await new NodeAggregationService(repository, client).getClusterStatus();
+    // sing-box 已装未纳管 → 候选；xray 已纳管、v2ray 未检测 → 排除。
+    expect(status.nodes[0]?.adoptableKernels).toEqual(['sing-box']);
+  });
+
   it('collapses concurrent and rapid cluster-status polls into a single fan-out', async () => {
     const repository = new NodeRepository(memoryStore(`nodes:\n  - id: node-a\n    name: A\n    host: agent.example\n    secret: secret\n    kernels:\n      - type: xray\n    location: HK\n    enabled: true\n`));
     let calls = 0;
@@ -190,9 +205,39 @@ describe('node core services', () => {
     await service.getClusterStatus({ forceRefresh: true });
     expect(calls).toBe(4);
 
-    // TTL 过期后自动重新扇出。
+    // TTL 过期后：stale-while-revalidate 立刻回旧快照，后台再扇出刷新。
     clock += 6_000;
     await service.getClusterStatus();
-    expect(calls).toBe(6);
+    await vi.waitFor(() => expect(calls).toBe(6));
+  });
+
+  it('serves a stale snapshot immediately instead of blocking on a hung fan-out', async () => {
+    const repository = new NodeRepository(memoryStore(`nodes:\n  - id: node-a\n    name: A\n    host: agent.example\n    secret: secret\n    kernels:\n      - type: xray\n    location: HK\n    enabled: true\n`));
+    let calls = 0;
+    let releaseHung: () => void = () => {};
+    const client = new AgentClient({ fetch: (async () => {
+      calls++;
+      // 冷启动的 status()+collectSources() 立刻返回填满缓存；之后的后台刷新挂起，
+      // 模拟一个不可达/慢节点——过期后的读取绝不能被它拖住。
+      if (calls > 2) await new Promise<void>(resolve => { releaseHung = resolve; });
+      return new Response(
+        JSON.stringify({ data: { kernels, sources: [{ kernel: 'xray', url: 'vless://id@example.com:443' }] } }),
+        { status: 200 },
+      );
+    }) as typeof fetch });
+    let clock = 0;
+    const service = new NodeAggregationService(repository, client, undefined, { statusTtlMs: 1_000, now: () => clock });
+
+    await service.getClusterStatus();
+    expect(calls).toBe(2);
+
+    clock += 2_000; // 过期
+    const startedAt = Date.now();
+    const stale = await service.getClusterStatus();
+    // 立刻拿到旧快照，没有等待挂起的后台刷新。
+    expect(stale.totalNodes).toBe(1);
+    expect(Date.now() - startedAt).toBeLessThan(100);
+
+    releaseHung(); // 放行后台刷新，避免测试留下悬挂的 Promise。
   });
 });

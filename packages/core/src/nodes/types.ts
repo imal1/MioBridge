@@ -32,6 +32,8 @@ export interface NodeStatus {
   latency?: number; nodesCount?: number; subscriptionExists?: boolean;
   clashExists?: boolean; mihomoAvailable?: boolean; mihomoVersion?: string; version?: string;
   uptime?: number; agent?: NodeAgentInfo;
+  /** Agent 打通后检测到、但当前未纳入监控的已装内核。前端据此提示用户确认纳管。 */
+  adoptableKernels?: KernelType[];
 }
 export interface ClusterStatus {
   totalNodes: number; onlineNodes: number; totalProxies: number;
