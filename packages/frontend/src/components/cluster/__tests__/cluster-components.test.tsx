@@ -7,6 +7,7 @@ import { ClusterOverview } from '../ClusterOverview';
 import { NodeCard } from '../NodeCard';
 import { NodeDetail } from '../NodeDetail';
 import { getKernelDisplayStatus } from '../KernelStatus';
+import { renderWithClient } from '@/test/renderWithClient';
 import type { KernelRuntimeStatus, NodeStatus, ClusterStatus } from '@/lib/types';
 
 const runtimeKernels = (
@@ -107,7 +108,7 @@ describe('ClusterOverview', () => {
 
 describe('NodeCard', () => {
   it('renders all kernel labels with their prioritized status', () => {
-    render(<NodeCard node={mockNode} />);
+    renderWithClient(<NodeCard node={mockNode} />);
     expect(screen.getByText('Sing-Box')).toBeDefined();
     expect(screen.getByText('Xray')).toBeDefined();
     expect(screen.getByText('V2Ray')).toBeDefined();
@@ -123,12 +124,12 @@ describe('NodeCard', () => {
         xray: { detected: true, monitored: true, accessible: false, error: '配置文件不可读' },
       }),
     };
-    render(<NodeCard node={inaccessibleNode} />);
+    renderWithClient(<NodeCard node={inaccessibleNode} />);
     expect(screen.getByText('配置不可访问')).toBeDefined();
   });
 
   it('renders three unknown pills for an offline DTO with an empty runtime array', () => {
-    render(<NodeCard node={mockOfflineNode} />);
+    renderWithClient(<NodeCard node={mockOfflineNode} />);
     expect(screen.getAllByText('未知')).toHaveLength(3);
     expect(screen.getAllByTestId('kernel-status-type').map(element => element.textContent))
       .toEqual(['Sing-Box', 'Xray', 'V2Ray']);
@@ -140,14 +141,14 @@ describe('NodeCard', () => {
       ...mockNode,
       kernels: [mockNode.kernels[2], mockNode.kernels[0]],
     };
-    render(<NodeCard node={partialNode} />);
+    renderWithClient(<NodeCard node={partialNode} />);
     expect(screen.getAllByTestId('kernel-status-type').map(element => element.textContent))
       .toEqual(['Sing-Box', 'Xray', 'V2Ray']);
     expect(screen.getByText('未知')).toBeDefined();
   });
 
   it('expands to show detail on click', () => {
-    render(<NodeCard node={mockNode} />);
+    renderWithClient(<NodeCard node={mockNode} />);
     fireEvent.click(screen.getByRole('heading', { name: '新加坡' }));
     expect(screen.getByRole('dialog', { name: '新加坡' })).toBeDefined();
   });
