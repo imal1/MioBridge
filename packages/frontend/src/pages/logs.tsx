@@ -3,7 +3,8 @@ import { Icon } from '@iconify/react'
 import { useSearchParams } from 'react-router-dom'
 import { toast } from 'sonner'
 import { apiService, type LogsResult } from '@/lib/api'
-import type { ClusterStatus, NodeStatus } from '@/lib/types'
+import { useClusterStatus } from '@/lib/queries'
+import type { NodeStatus } from '@/lib/types'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
@@ -137,7 +138,9 @@ function LogFilters(props: FiltersProps) {
 export default function LogsPage() {
   const [searchParams] = useSearchParams()
   const [logs, setLogs] = useState<LogsResult | null>(null)
-  const [nodes, setNodes] = useState<NodeStatus[]>([])
+  // 节点列表与 Sidebar/其他页共享 cluster-status，合并为单请求。
+  const clusterQuery = useClusterStatus()
+  const nodes = clusterQuery.data?.nodes ?? []
   const [source, setSourceState] = useState<LogSource>(() => initialLogSource(searchParams))
   const [nodeId, setNodeId] = useState(searchParams.get('node') || '')
   const [file, setFile] = useState('')
@@ -191,13 +194,8 @@ export default function LogsPage() {
   }, [component, file, from, level, nodeId, query, source, taskId, to])
 
   useEffect(() => {
-    apiService.getClusterStatus().then(result => {
-      if (!result.success) return
-      const availableNodes = (result.data as ClusterStatus).nodes || []
-      setNodes(availableNodes)
-      if (!nodeId && availableNodes[0]) setNodeId(availableNodes[0].nodeId)
-    }).catch(() => {})
-  }, [])
+    if (!nodeId && nodes[0]) setNodeId(nodes[0].nodeId)
+  }, [nodes, nodeId])
 
   useEffect(() => {
     if (initialLoad.current) return
@@ -207,7 +205,8 @@ export default function LogsPage() {
 
   useEffect(() => {
     if (!autoRefresh) return
-    const timer = window.setInterval(() => { void loadLogs(false) }, 5000)
+    // tab 隐藏时暂停轮询，回到前台再继续，避免后台白耗请求。
+    const timer = window.setInterval(() => { if (document.visibilityState === 'visible') void loadLogs(false) }, 5000)
     return () => window.clearInterval(timer)
   }, [autoRefresh, loadLogs])
 
