@@ -1,7 +1,17 @@
 // @vitest-environment jsdom
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+
+function renderRuntimes(RuntimesPage: React.ComponentType) {
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  return render(
+    <QueryClientProvider client={client}>
+      <MemoryRouter initialEntries={['/runtimes?node=node-edit']}><RuntimesPage /></MemoryRouter>
+    </QueryClientProvider>,
+  )
+}
 
 const api = vi.hoisted(() => ({
   getClusterStatus: vi.fn(), detectKernels: vi.fn(), updateNodeKernels: vi.fn(), kernelAction: vi.fn(),
@@ -46,7 +56,7 @@ describe('Runtime monitoring management', () => {
 
   it('detects cores and saves monitoring through the dedicated runtime page', async () => {
     const { default: RuntimesPage } = await import('@/pages/runtimes')
-    render(<MemoryRouter initialEntries={['/runtimes?node=node-edit']}><RuntimesPage /></MemoryRouter>)
+    renderRuntimes(RuntimesPage)
     await screen.findByText('1.11.0')
     fireEvent.click(screen.getByRole('button', { name: '编辑监控范围与路径' }))
     expect((screen.getByRole('checkbox', { name: /Xray/ }) as HTMLInputElement).checked).toBe(true)
@@ -61,14 +71,14 @@ describe('Runtime monitoring management', () => {
 
   it('renders the runtime state and real binary path from the component state API', async () => {
     const { default: RuntimesPage } = await import('@/pages/runtimes')
-    render(<MemoryRouter initialEntries={['/runtimes?node=node-edit']}><RuntimesPage /></MemoryRouter>)
+    renderRuntimes(RuntimesPage)
     expect(await screen.findByText('/opt/bin/xray')).toBeDefined()
     expect(screen.getByText('running')).toBeDefined()
   })
 
   it('keeps install-state changes as links to the deployment center', async () => {
     const { default: RuntimesPage } = await import('@/pages/runtimes')
-    render(<MemoryRouter initialEntries={['/runtimes?node=node-edit']}><RuntimesPage /></MemoryRouter>)
+    renderRuntimes(RuntimesPage)
     await screen.findByText('1.11.0')
     const links = screen.getAllByRole('link', { name: /升级\/修复\/卸载|前往部署/ })
     expect(links.some(link => link.getAttribute('href')?.includes('/deploy?node=node-edit'))).toBe(true)
