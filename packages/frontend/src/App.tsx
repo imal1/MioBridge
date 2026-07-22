@@ -2,7 +2,9 @@ import React, { Suspense, lazy } from 'react';
 import { Navigate, Routes, Route, useLocation } from 'react-router-dom';
 import { AnimatePresence, motion } from 'motion/react';
 import { Toaster } from 'sonner';
+import { QueryClientProvider } from '@tanstack/react-query';
 import { ThemeProvider } from './components/ThemeProvider';
+import { queryClient } from './lib/queryClient';
 import { AppProvider, useAppContext } from './context/AppContext';
 import AppLayout from './components/layout/AppLayout';
 
@@ -80,10 +82,12 @@ function AnimatedRoutes() {
 export function App() {
   return (
     <ThemeProvider>
-      <AppProvider>
-        <AnimatedRoutes />
-        <Toaster richColors position="top-center" />
-      </AppProvider>
+      <QueryClientProvider client={queryClient}>
+        <AppProvider>
+          <AnimatedRoutes />
+          <Toaster richColors position="top-center" />
+        </AppProvider>
+      </QueryClientProvider>
     </ThemeProvider>
   );
 }

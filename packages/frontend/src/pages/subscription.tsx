@@ -1,10 +1,15 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useQueryClient } from '@tanstack/react-query'
 import { Icon } from '@iconify/react'
 import { Link } from 'react-router-dom'
 import { toast } from 'sonner'
 import { apiService } from '@/lib/api'
 import { streamServerEvents } from '@/lib/sse'
-import type { ClusterStatus, SubscriptionJob, SubscriptionPreflight } from '@/lib/types'
+import {
+  queryKeys, useClusterStatus, useRetrySubscriptionJob, useStartSubscriptionJob,
+  useSubscriptionJobs, useSubscriptionPreflight,
+} from '@/lib/queries'
+import type { SubscriptionJob } from '@/lib/types'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -31,29 +36,31 @@ function jobBadge(job: SubscriptionJob) {
 }
 
 export default function SubscriptionPage() {
-  const [cluster, setCluster] = useState<ClusterStatus | null>(null)
-  const [preflight, setPreflight] = useState<SubscriptionPreflight | null>(null)
-  const [jobs, setJobs] = useState<SubscriptionJob[]>([])
+  const queryClient = useQueryClient()
+  // SSE 实时更新，轮询 5s 兜底；tab 隐藏时暂停。
+  const pollOptions = { refetchInterval: 5000, refetchIntervalInBackground: false } as const
+  const clusterQuery = useClusterStatus(pollOptions)
+  const preflightQuery = useSubscriptionPreflight(pollOptions)
+  const jobsQuery = useSubscriptionJobs(pollOptions)
+  const cluster = clusterQuery.data ?? null
+  const preflight = preflightQuery.data ?? null
+  const jobs = useMemo(() => jobsQuery.data ?? [], [jobsQuery.data])
+  const startJob = useStartSubscriptionJob()
+  const retryJob = useRetrySubscriptionJob()
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   // 进度流断开必须显式暴露：静默关闭连接会让页面停在过期进度上，用户以为任务卡住了。
   const [streamBroken, setStreamBroken] = useState(false)
   const [streamAttempt, setStreamAttempt] = useState(0)
 
+  // queryClient 身份稳定，refresh 因此稳定，SSE 副作用不会因刷新回调变化而反复重连。
   const refresh = useCallback(async () => {
-    const [clusterResponse, preflightResponse, jobResponse] = await Promise.all([
-      apiService.getClusterStatus(), apiService.preflightSubscription(), apiService.getSubscriptionJobs(),
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: queryKeys.clusterStatus }),
+      queryClient.invalidateQueries({ queryKey: queryKeys.subscriptionPreflight }),
+      queryClient.invalidateQueries({ queryKey: queryKeys.subscriptionJobs }),
     ])
-    if (clusterResponse.success) setCluster(clusterResponse.data as ClusterStatus)
-    if (preflightResponse.success && preflightResponse.data) setPreflight(preflightResponse.data)
-    if (jobResponse.success && jobResponse.data) setJobs(jobResponse.data.jobs)
-  }, [])
-
-  useEffect(() => {
-    refresh().catch(caught => setError(caught instanceof Error ? caught.message : '订阅任务加载失败'))
-    const timer = window.setInterval(() => refresh().catch(() => {}), 5000)
-    return () => window.clearInterval(timer)
-  }, [refresh])
+  }, [queryClient])
 
   const activeJobs = useMemo(() => jobs.filter(job => job.status === 'queued' || job.status === 'running'), [jobs])
   useEffect(() => {
@@ -79,29 +86,27 @@ export default function SubscriptionPage() {
     try {
       const check = await apiService.preflightSubscription()
       if (!check.success || !check.data?.ready) throw new Error(check.data?.blockingErrors.join('；') || message(check.error, '没有可读来源'))
-      const response = await apiService.startSubscriptionJob()
+      const response = await startJob.mutateAsync()
       if (!response.success) throw new Error(message(response.error, '创建订阅任务失败'))
       toast.success('订阅任务已持久化并进入队列', { description: response.data?.jobId })
-      await refresh()
     } catch (caught) {
       const detail = caught instanceof Error ? caught.message : '创建订阅任务失败'
       setError(detail); toast.error('订阅生成未启动', { description: detail })
     } finally { setLoading(false) }
-  }, [refresh])
+  }, [startJob])
 
   const retry = useCallback(async (job: SubscriptionJob) => {
     // apiService 在 HTTP 失败时抛出 ApiError，不捕获的话异常会逃逸且用户看不到任何反馈。
     try {
-      const response = await apiService.retrySubscriptionJob(job.id)
+      const response = await retryJob.mutateAsync(job.id)
       if (!response.success) throw new Error(message(response.error, '无法按原输入重试'))
       toast.success('已按上次输入创建重试任务')
-      await refresh()
     } catch (caught) {
       const detail = caught instanceof Error ? caught.message : '无法按原输入重试'
       setError(detail)
       toast.error('任务重试失败', { description: detail })
     }
-  }, [refresh])
+  }, [retryJob])
 
   return (
     <SignalPage crumb="Subscription jobs" title="订阅生成" description="先预检来源，再以持久化任务执行采集、解析、去重、转换、验证、发布和备份。" status={`${preflight?.sourcesTotal || 0} 个来源 · ${activeJobs.length} 个活动任务`} maxWidth="narrow" actions={<Button variant="outline" onClick={refresh}><Icon icon="ph:arrow-clockwise-light" />重新预检</Button>}>

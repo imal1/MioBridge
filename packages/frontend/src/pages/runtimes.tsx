@@ -3,8 +3,11 @@ import { Icon } from '@iconify/react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { toast } from 'sonner'
 import { apiService } from '@/lib/api'
-import { KERNEL_TYPES, type ClusterStatus, type ComponentState, type KernelDetection, type KernelType, type NodeKernelConfig } from '@/lib/types'
+import { KERNEL_TYPES, type KernelDetection, type KernelType, type NodeKernelConfig } from '@/lib/types'
+import { useClusterStatus, useComponentStates, useKernelAction, useUpdateNodeKernels } from '@/lib/queries'
 import { KernelDetectionDialog } from '@/components/cluster/KernelDetectionDialog'
+import { QueryBoundary } from '@/components/shared/QueryBoundary'
+import { Skeleton } from '@/components/ui/skeleton'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -16,8 +19,8 @@ const LABELS: Record<KernelType, string> = { 'sing-box': 'sing-box', xray: 'Xray
 
 export default function RuntimesPage() {
   const [params, setParams] = useSearchParams()
-  const [cluster, setCluster] = useState<ClusterStatus | null>(null)
-  const [componentStates, setComponentStates] = useState<ComponentState[]>([])
+  const clusterQuery = useClusterStatus()
+  const cluster = clusterQuery.data ?? null
   const [detections, setDetections] = useState<KernelDetection[]>([])
   const [editorOpen, setEditorOpen] = useState(false)
   const [busy, setBusy] = useState<string | null>(null)
@@ -26,17 +29,13 @@ export default function RuntimesPage() {
   const nodeId = params.get('node') || nodes[0]?.nodeId || ''
   const node = nodes.find(item => item.nodeId === nodeId)
 
-  const refreshCluster = useCallback(async () => {
-    const result = await apiService.getClusterStatus()
-    if (result.success) setCluster(result.data as ClusterStatus)
-  }, [])
-
   // 运行态与二进制路径是组件状态接口的权威字段，不能由前端按内核类型猜测。
-  const refreshComponents = useCallback(async (targetId = nodeId) => {
-    if (!targetId) return
-    const result = await apiService.getComponentStates([targetId])
-    if (result.success && result.data) setComponentStates(result.data.states)
-  }, [nodeId])
+  // 按 nodeId 分 key 缓存：切换节点自动拉取新节点状态，无需手动清空。
+  const componentStatesQuery = useComponentStates(nodeId ? [nodeId] : undefined, { enabled: Boolean(nodeId) })
+  const componentStates = componentStatesQuery.data ?? []
+
+  const updateNodeKernels = useUpdateNodeKernels()
+  const kernelAction = useKernelAction()
 
   const detect = useCallback(async (targetId = nodeId) => {
     if (!targetId) return
@@ -49,8 +48,6 @@ export default function RuntimesPage() {
     } finally { setBusy(null) }
   }, [nodeId])
 
-  useEffect(() => { refreshCluster().catch(() => {}) }, [refreshCluster])
-  useEffect(() => { refreshComponents().catch(() => {}) }, [refreshComponents])
   useEffect(() => { if (nodeId && node?.agent?.deployed) detect(nodeId).catch(() => {}) }, [detect, node?.agent?.deployed, nodeId])
 
   const selectNode = (value: string) => {
@@ -58,7 +55,6 @@ export default function RuntimesPage() {
     next.set('node', value)
     setParams(next)
     setDetections([])
-    setComponentStates([])
   }
 
   const saveMonitoring = useCallback(async (kernels: NodeKernelConfig[]) => {
@@ -67,32 +63,31 @@ export default function RuntimesPage() {
     // 与 detect/maintain 保持一致：不清空旧错误会让上一次失败的提示滞留在本次操作上。
     setError(null)
     try {
-      const result = await apiService.updateNodeKernels(node.nodeId, kernels)
+      const result = await updateNodeKernels.mutateAsync({ nodeId: node.nodeId, kernels })
       if (!result.success) throw new Error(result.error || '监控配置保存失败')
       setEditorOpen(false)
       toast.success('监控配置已写入远端并通过 Agent 验证')
-      await refreshCluster()
-      await refreshComponents(node.nodeId)
+      // mutation 已失效 cluster-status 与 component-states，自动刷新；仅需重新检测。
       await detect(node.nodeId)
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : '监控配置保存失败')
     } finally { setBusy(null) }
-  }, [detect, node, refreshCluster, refreshComponents])
+  }, [detect, node, updateNodeKernels])
 
   const maintain = useCallback(async (type: KernelType, action: 'start' | 'stop' | 'restart') => {
     if (!node) return
     setBusy(`${node.nodeId}:${type}:${action}`)
     setError(null)
     try {
-      const result = await apiService.kernelAction(node.nodeId, type, action)
+      const result = await kernelAction.mutateAsync({ nodeId: node.nodeId, kernelType: type, action })
       if (!result.success) throw new Error(result.error || `${action} 失败`)
       toast.success(`${LABELS[type]} ${action} 完成`)
-      await refreshComponents(node.nodeId)
+      // mutation 已失效 component-states，自动刷新；仅需重新检测。
       await detect(node.nodeId)
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : '运行时维护失败')
     } finally { setBusy(null) }
-  }, [detect, node, refreshComponents])
+  }, [detect, node, kernelAction])
 
   return (
     <SignalPage crumb="Runtime operations" title="运行时" description="维护 mihomo 与协议核心的运行状态、配置路径和 Agent 监控范围。" status={node ? `${node.name} · ${detections.filter(item => item.installed).length} 个协议核心已安装` : '请选择节点'} maxWidth="narrow" actions={<Button variant="outline" onClick={() => detect()} disabled={!nodeId || busy !== null}><Icon icon={busy?.endsWith(':detect') ? 'ph:spinner-bold' : 'ph:magnifying-glass-light'} className={busy?.endsWith(':detect') ? 'animate-spin' : ''} />检测运行时</Button>}>
@@ -103,7 +98,8 @@ export default function RuntimesPage() {
         <CardHeader className="md:flex-row md:items-end md:justify-between"><div><CardTitle>目标节点</CardTitle><CardDescription>运行维护只作用于一个明确节点。</CardDescription></div><div className="min-w-[260px]"><Select aria-label="目标节点" value={nodeId} onChange={event => selectNode(event.target.value)}><option value="">选择节点</option>{nodes.map(item => <option key={item.nodeId} value={item.nodeId}>{item.name} · {item.location}</option>)}</Select></div></CardHeader>
       </Card>
 
-      {node ? <div className="grid gap-5 lg:grid-cols-2">
+      <QueryBoundary query={clusterQuery} skeleton={<div className="grid gap-5 lg:grid-cols-2">{Array.from({ length: 2 }).map((_, i) => <Skeleton key={i} className="h-56 w-full rounded-xl" />)}</div>}>
+      {() => node ? <div className="grid gap-5 lg:grid-cols-2">
         <Card>
           <CardHeader><div className="flex items-start justify-between gap-3"><div><CardTitle>mihomo</CardTitle><CardDescription>Clash 转换与产物验证运行时</CardDescription></div><Badge variant={node.mihomoAvailable ? 'secondary' : 'outline'}>{node.mihomoAvailable ? '可用' : '未安装/未知'}</Badge></div></CardHeader>
           <CardContent className="space-y-4">
@@ -137,6 +133,7 @@ export default function RuntimesPage() {
           )
         })}
       </div> : <Card><CardContent className="p-10 text-center text-muted-foreground">请先选择节点；如果没有节点，请先在节点页添加。</CardContent></Card>}
+      </QueryBoundary>
 
       {editorOpen && node ? <KernelDetectionDialog open detections={detections} monitored={node.configuredKernels} submitting={busy === `${node.nodeId}:monitoring`} error={error} confirmLabel="保存并验证监控配置" onCancel={() => setEditorOpen(false)} onConfirm={saveMonitoring} /> : null}
     </SignalPage>

@@ -74,8 +74,10 @@ function createIdempotencyKey(): string {
 const apiClient = ky.create({
   prefixUrl: API_BASE_URL,
   timeout: 30000,
+  // React Query 统一负责重试（retry: 1）；ky 的 GET 重试若保留会与之叠加，
+  // 让一次失败在 3 轮 ky 重试后才冒泡，拖慢内联错误卡出现。故置 0。
   retry: {
-    limit: 3,
+    limit: 0,
     methods: [...API_RETRY_METHODS],
     statusCodes: [408, 413, 429, 500, 502, 503, 504],
   },

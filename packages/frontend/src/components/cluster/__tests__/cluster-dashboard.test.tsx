@@ -2,12 +2,21 @@
 import { describe, expect, it, vi } from 'vitest'
 import { fireEvent, render, screen } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 
 vi.mock('@/lib/api', () => ({ apiService: {
   getStatus: vi.fn().mockResolvedValue({}), getClusterStatus: vi.fn().mockResolvedValue({ success: true, data: null }),
+  getConfigSchema: vi.fn().mockResolvedValue({ success: true, data: { fields: [] } }),
+  getEffectiveConfig: vi.fn().mockResolvedValue({ success: true, data: { config: {}, path: '' } }),
+  getMetrics: vi.fn().mockResolvedValue({ success: true, data: { snapshot: {}, history: [], summary: {} } }),
   getConfigs: vi.fn().mockResolvedValue([]), getFrontendConfig: vi.fn().mockResolvedValue({ success: true, data: {} }),
   validateConfig: vi.fn().mockResolvedValue({ success: true }), updateConfigs: vi.fn().mockResolvedValue({ success: true, data: { count: 1 } }),
 } }))
+
+function renderWithClient(ui: React.ReactElement) {
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  return render(<QueryClientProvider client={client}>{ui}</QueryClientProvider>)
+}
 
 const status = { rawExists: true, subscriptionExists: true, clashExists: true, mihomoAvailable: true, nodesCount: 12, uptime: 120, version: '1.0.0', mihomoVersion: '1.19.0' }
 const cluster = { totalNodes: 2, onlineNodes: 1, totalProxies: 12, nodes: [
@@ -18,7 +27,7 @@ const cluster = { totalNodes: 2, onlineNodes: 1, totalProxies: 12, nodes: [
 describe('Cluster Dashboard Page', () => {
   it('renders overview counts and readiness without executing business actions', async () => {
     const Dashboard = (await import('@/components/Dashboard')).default
-    render(<MemoryRouter><Dashboard initialCluster={cluster} initialStatus={status} initialError={null} /></MemoryRouter>)
+    renderWithClient(<MemoryRouter><Dashboard initialCluster={cluster} initialStatus={status} initialError={null} /></MemoryRouter>)
     expect(screen.getByRole('heading', { name: '总览' })).toBeDefined()
     expect(screen.getByText('1/2')).toBeDefined()
     expect(screen.getByText('1/4 可用')).toBeDefined()
@@ -28,7 +37,7 @@ describe('Cluster Dashboard Page', () => {
 
   it('shows the expanded workflow shortcuts', async () => {
     const Dashboard = (await import('@/components/Dashboard')).default
-    render(<MemoryRouter><Dashboard initialCluster={null} initialError={null} /></MemoryRouter>)
+    renderWithClient(<MemoryRouter><Dashboard initialCluster={null} initialError={null} /></MemoryRouter>)
     expect(screen.getByRole('link', { name: /添加节点/ })).toBeDefined()
     expect(screen.getByRole('link', { name: /部署运行环境/ })).toBeDefined()
     expect(screen.getByRole('link', { name: /维护订阅状态/ })).toBeDefined()
@@ -36,7 +45,7 @@ describe('Cluster Dashboard Page', () => {
 
   it('manages structured config drafts without runtime capability cards', async () => {
     const ConfigPage = (await import('@/pages/config')).default
-    render(<ConfigPage initialConfigs={['default']} frontendConfig={{}} initialError={null} />)
+    renderWithClient(<ConfigPage initialConfigs={['default']} frontendConfig={{}} initialError={null} />)
     expect(screen.queryByRole('tab', { name: '运行能力' })).toBeNull()
     fireEvent.change(screen.getByLabelText('protocols.sing_box_configs'), { target: { value: 'default, vless-reality' } })
     expect(screen.getByText('字段差异')).toBeDefined()

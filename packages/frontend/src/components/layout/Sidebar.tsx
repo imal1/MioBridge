@@ -1,8 +1,8 @@
-import { memo, useEffect, useState } from 'react'
+import { memo } from 'react'
 import { Link, useLocation } from 'react-router-dom'
 import { Icon } from '@iconify/react'
 import ThemeToggle from '@/components/ThemeToggle'
-import { apiService } from '@/lib/api'
+import { useStatus } from '@/lib/queries'
 import { NAV_ITEMS, type NavIcon } from './navigation'
 
 const ICONS: Record<NavIcon, string> = {
@@ -46,19 +46,13 @@ function NavItem({ href, icon, label, active }: { href: string; icon: NavIcon; l
 
 const Sidebar = memo(function Sidebar() {
   const location = useLocation()
-  const [mihomoAvailable, setMihomoAvailable] = useState<boolean | null>(null)
-
-  useEffect(() => {
-    let active = true
-    apiService.getStatus()
-      .then(status => {
-        if (active) setMihomoAvailable(Boolean(status.mihomoAvailable))
-      })
-      .catch(() => {
-        if (active) setMihomoAvailable(false)
-      })
-    return () => { active = false }
-  }, [])
+  // 与 Dashboard 共享 ['status'] key：常驻 Sidebar 与当前页合并为单次请求。
+  const status = useStatus()
+  const mihomoAvailable: boolean | null = status.isPending
+    ? null
+    : status.isError
+      ? false
+      : Boolean(status.data?.mihomoAvailable)
 
   return (
     <aside

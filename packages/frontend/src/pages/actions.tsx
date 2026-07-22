@@ -1,6 +1,7 @@
 import { Icon } from '@iconify/react'
 import { useCallback, useState } from 'react'
 import { apiService } from '@/lib/api'
+import { useUpdateSubscription } from '@/lib/queries'
 import { useAppContext } from '@/context/AppContext'
 import { Button } from '@/components/ui/button'
 import SectionHeading from '@/components/shared/SectionHeading'
@@ -13,22 +14,19 @@ const FILES = [
 
 export default function ActionsPage() {
   const { updateResult, setUpdateResult, openConvertModal } = useAppContext()
-  const [updating, setUpdating] = useState(false)
+  const updateSubscription = useUpdateSubscription()
+  const updating = updateSubscription.isPending
   const [updateError, setUpdateError] = useState<string | null>(null)
 
   const handleUpdate = useCallback(async () => {
-    setUpdating(true)
     setUpdateResult(null)
     setUpdateError(null)
     try {
-      const result = await apiService.updateSubscription()
-      setUpdateResult(result)
+      setUpdateResult(await updateSubscription.mutateAsync())
     } catch (err) {
       setUpdateError(err instanceof Error ? err.message : '更新失败')
-    } finally {
-      setUpdating(false)
     }
-  }, [setUpdateResult])
+  }, [setUpdateResult, updateSubscription])
 
   const handleDownload = (filename: string) => {
     window.open(apiService.getDownloadUrl(filename), '_blank')

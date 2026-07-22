@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { render, screen } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const api = vi.hoisted(() => ({
@@ -36,7 +37,8 @@ describe('Default local node display', () => {
       timestamp: '',
     })
     const { default: NodesPage } = await import('@/pages/nodes')
-    render(<MemoryRouter><NodesPage /></MemoryRouter>)
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    render(<QueryClientProvider client={client}><MemoryRouter><NodesPage /></MemoryRouter></QueryClientProvider>)
     // 本机节点是普通子节点：不被过滤、不带特殊徽标，走与其他节点相同的卡片和操作入口。
     await screen.findByText('本机节点')
     expect(screen.getByText('127.0.0.1 · 本机 · local')).toBeTruthy()

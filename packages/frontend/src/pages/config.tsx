@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useQueryClient } from '@tanstack/react-query'
 import { Icon } from '@iconify/react'
 import { toast } from 'sonner'
 import { apiService } from '@/lib/api'
+import { queryKeys, useConfigSchema, useEffectiveConfig, usePatchConfigValues, useRestoreConfig } from '@/lib/queries'
 import type { FrontendConfig } from '@/lib/configApi'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
@@ -89,25 +91,35 @@ export default function ConfigPage({ initialConfigs, frontendConfig, initialErro
   const [saving, setSaving] = useState(false)
   const [restartPending, setRestartPending] = useState(false)
   const [notificationHistory, setNotificationHistory] = useState<Array<{ id: string; event: string; ok: boolean; statusCode: number; timestamp: string }>>([])
+  const queryClient = useQueryClient()
+  const live = initialConfigs === undefined
+  const schemaQuery = useConfigSchema({ enabled: live })
+  const effectiveQuery = useEffectiveConfig({ enabled: live })
+  const patchConfig = usePatchConfigValues()
+  const restoreConfigMutation = useRestoreConfig()
 
   const applyLoaded = useCallback((fields: FieldDefinition[], config: Record<string, unknown>, path: string) => {
     setSchema(fields); setEffective(config); setInitial(structuredClone(config)); setConfigPath(path)
     setDraft(Object.fromEntries(fields.map(field => [field.path, inputValue(valueAt(config, field.path), field.type)])))
   }, [])
 
-  const refresh = useCallback(async () => {
-    const [schemaResponse, configResponse] = await Promise.all([apiService.getConfigSchema(), apiService.getEffectiveConfig()])
-    if (!schemaResponse.success || !schemaResponse.data || !configResponse.success || !configResponse.data) throw new Error('配置 schema 或生效值加载失败')
-    applyLoaded(schemaResponse.data.fields as FieldDefinition[], configResponse.data.config, configResponse.data.path)
-  }, [applyLoaded])
+  // schema 与生效值就绪后一次性播种草稿。保存/恢复失效缓存触发 refetch → 新数据引用 →
+  // 本 effect 重跑，等价于旧版保存后 await refresh() 的重置行为。
+  useEffect(() => {
+    if (!live || !schemaQuery.data || !effectiveQuery.data) return
+    applyLoaded(schemaQuery.data as FieldDefinition[], effectiveQuery.data.config, effectiveQuery.data.path)
+  }, [live, schemaQuery.data, effectiveQuery.data, applyLoaded])
 
   useEffect(() => {
-    if (initialConfigs !== undefined) {
-      setDraft({ 'protocols.sing_box_configs': initialConfigs.join(', ') })
-      return
-    }
-    refresh().catch(caught => setError(caught instanceof Error ? caught.message : '配置加载失败'))
-  }, [initialConfigs, refresh])
+    if (initialConfigs !== undefined) setDraft({ 'protocols.sing_box_configs': initialConfigs.join(', ') })
+  }, [initialConfigs])
+
+  const refresh = useCallback(() => {
+    void queryClient.invalidateQueries({ queryKey: queryKeys.configSchema })
+    void queryClient.invalidateQueries({ queryKey: queryKeys.effectiveConfig })
+  }, [queryClient])
+
+  const loadError = live ? (schemaQuery.error ?? effectiveQuery.error)?.message ?? null : null
 
   const changes = useMemo(() => schema.flatMap(field => {
     const next = field.type === 'boolean' ? draft[field.path] === 'true' : parseInput(draft[field.path] ?? '', field)
@@ -137,25 +149,25 @@ export default function ConfigPage({ initialConfigs, frontendConfig, initialErro
     if (!changes.length) return
     setSaving(true); setError(null); setMessage(null)
     try {
-      const response = await apiService.patchConfigValues(changes.map(({ path, after }) => ({ path, value: after })))
+      const response = await patchConfig.mutateAsync(changes.map(({ path, after }) => ({ path, value: after })))
       if (!response.success || !response.data) throw new Error(displayError(response.error, '配置保存失败'))
       setRestartPending(response.data.restartRequired)
       setMessage(`已在一次原子替换中保存 ${changes.length} 个字段${response.data.restartRequired ? '；部分字段需要重启 Dashboard 后生效' : '并生效'}`)
       toast.success('配置已原子保存')
-      if (initialConfigs === undefined) await refresh()
+      // mutation 失效 effective-config，effect 会用新数据重置草稿。
     } catch (caught) { setError(caught instanceof Error ? caught.message : '配置保存失败') }
     finally { setSaving(false) }
-  }, [changes, initialConfigs, refresh])
+  }, [changes, patchConfig])
 
   const restore = async () => {
     if (!window.confirm('恢复到上一次成功配置？当前配置会保留为 pre-restore 备份。')) return
     setError(null)
     // apiService 在 HTTP 失败时抛出 ApiError；不捕获的话页面停在原状，用户看不到失败。
     try {
-      const response = await apiService.restoreConfig()
+      const response = await restoreConfigMutation.mutateAsync()
       if (!response.success) throw new Error(displayError(response.error, '配置恢复失败'))
       toast.success('已恢复 last-good 配置')
-      await refresh()
+      // mutation 失效 effective-config，effect 会用新数据重置草稿。
     } catch (caught) { setError(caught instanceof Error ? caught.message : '配置恢复失败') }
   }
 
@@ -189,7 +201,7 @@ export default function ConfigPage({ initialConfigs, frontendConfig, initialErro
   }
 
   return <SignalPage crumb="Configuration workspace" title="配置" description="由 Core schema 驱动草稿、字段差异、完整校验、单次原子保存、待重启反馈、恢复和导入预览。" status={dirty ? `${changes.length} 个待保存字段` : restartPending ? '配置已保存，等待重启' : '草稿与生效值一致'} maxWidth="narrow" actions={<><Button variant="outline" onClick={validate}><Icon icon="ph:shield-check-light" />校验草稿</Button><Button variant="outline" onClick={refresh} disabled={initialConfigs !== undefined}><Icon icon="ph:arrow-clockwise-light" />刷新</Button></>}>
-    {error ? <Alert variant="destructive"><AlertTitle>配置操作失败</AlertTitle><AlertDescription>{error}</AlertDescription></Alert> : null}
+    {(error ?? loadError) ? <Alert variant="destructive"><AlertTitle>配置操作失败</AlertTitle><AlertDescription>{error ?? loadError}</AlertDescription></Alert> : null}
     {message ? <Alert variant="success"><AlertTitle>配置结果</AlertTitle><AlertDescription>{message}</AlertDescription></Alert> : null}
     {restartPending ? <Alert><AlertTitle>存在待重启字段</AlertTitle><AlertDescription>文件已经安全保存，但相关进程需要重启后才会读取新路径或端口。</AlertDescription></Alert> : null}
     <div className="grid gap-5 md:grid-cols-3"><Card variant="elevated"><CardHeader><CardDescription>Schema 字段</CardDescription><CardTitle className="signal-value">{schema.length}</CardTitle></CardHeader></Card><Card variant="elevated"><CardHeader><CardDescription>待保存差异</CardDescription><CardTitle className="signal-value">{changes.length}</CardTitle></CardHeader></Card><Card variant="elevated"><CardHeader><CardDescription>配置路径</CardDescription><CardTitle className="break-all text-sm">{configPath || '测试初始值'}</CardTitle></CardHeader></Card></div>
