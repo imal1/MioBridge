@@ -2,6 +2,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import type { MetricsSnapshot, MetricsSummary } from '@/lib/types'
 
 const mocks = vi.hoisted(() => ({ getMetrics: vi.fn(), getStatus: vi.fn(), getClusterStatus: vi.fn() }))
@@ -54,7 +55,12 @@ describe('Dashboard 指标窗口竞态', () => {
       range === '24h' ? slow24h.promise : fast30d.promise)
 
     const Dashboard = (await import('@/components/Dashboard')).default
-    render(<MemoryRouter><Dashboard /></MemoryRouter>)
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    render(
+      <QueryClientProvider client={client}>
+        <MemoryRouter><Dashboard /></MemoryRouter>
+      </QueryClientProvider>,
+    )
 
     // 挂载时按默认的 24h 发起请求，此时切到 30d，两个请求同时在途。
     await waitFor(() => expect(mocks.getMetrics).toHaveBeenCalledWith('24h'))
@@ -68,7 +74,7 @@ describe('Dashboard 指标窗口竞态', () => {
     slow24h.resolve(metricsWith(24))
     await new Promise(res => setTimeout(res, 0))
 
-    // 按钮高亮的是 30d，图表就必须还是 30d 的数据。
+    // 当前窗口是 30d：迟到的 24h 响应写入的是 ['metrics','24h'] 缓存，不影响当前视图。
     expect(screen.getByText('30 个快照样本')).toBeDefined()
     expect(screen.queryByText('24 个快照样本')).toBeNull()
   })
