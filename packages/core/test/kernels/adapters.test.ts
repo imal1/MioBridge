@@ -146,7 +146,42 @@ describe('kernel adapters', () => {
     expect(output['proxy-groups'][0].proxies).toEqual(expect.arrayContaining(['hy2', 'trojan']));
     expect(output.rules).toContain('GEOSITE,category-ai-!cn,🤖 AI 服务');
     expect(output.rules.at(-1)).toBe('MATCH,🐟 漏网之鱼');
-    expect(process.calls.at(-1)?.options.timeout).toBe(30_000);
+    // 首次校验可能要下载 geodata（GEOSITE 规则前置），30s 不够。
+    expect(process.calls.at(-1)?.options.timeout).toBe(120_000);
+  });
+
+  it('suffixes duplicate proxy names so mihomo does not reject the whole config', async () => {
+    const paths = createRuntimePaths({ env: { MIOBRIDGE_CONFIG_DIR: '/state', PATH: '' }, applicationRoot: '/app' });
+    const fs = new MemoryFs();
+    fs.files.set('/state/bin/mihomo', 'binary');
+    const adapter = new MihomoAdapter({ paths, process: new FakeProcess(), fs, logger, runtimeDir: '/runtime' });
+    // 同机多端口、ps 相同的 vmess 是真实场景（233boy 多协议脚本）——名字相同但确为不同代理。
+    const vmess = (port: number, id: string) => `vmess://${Buffer.from(JSON.stringify({ v: 2, ps: 'same-name', add: 'dup.example', port: String(port), id, aid: '0', net: 'tcp' })).toString('base64')}`;
+    const output = YAML.parse(await adapter.convertToClashByContent([vmess(3689, 'id-a'), vmess(41423, 'id-b'), 'trojan://secret@dup.example:443#same-name'].join('\n')));
+    const names = output.proxies.map((proxy: any) => proxy.name);
+    expect(names).toEqual(['same-name', 'same-name 2', 'same-name 3']);
+    for (const group of output['proxy-groups'].filter((g: any) => g.proxies.includes('same-name'))) {
+      expect(group.proxies).toEqual(expect.arrayContaining(names));
+    }
+  });
+
+  it('keeps proxy groups acyclic — mihomo rejects mutually referencing groups as a loop', async () => {
+    const paths = createRuntimePaths({ env: { MIOBRIDGE_CONFIG_DIR: '/state', PATH: '' }, applicationRoot: '/app' });
+    const fs = new MemoryFs();
+    fs.files.set('/state/bin/mihomo', 'binary');
+    const adapter = new MihomoAdapter({ paths, process: new FakeProcess(), fs, logger, runtimeDir: '/runtime' });
+    const output = YAML.parse(await adapter.convertToClashByContent('trojan://secret@ok.example:443#ok'));
+    const groups = new Map<string, string[]>(output['proxy-groups'].map((g: any) => [g.name, g.proxies]));
+    // AI 组引用主选组是刻意保留的回退方向；反向引用会成环，曾让 mihomo 拒绝整份配置。
+    expect(groups.get('🤖 AI 服务')).toContain('🚀 节点选择');
+    expect(groups.get('🚀 节点选择')).not.toContain('🤖 AI 服务');
+    // 通用环检测：沿组间引用走一遍，任何组不可达自身。
+    const reaches = (from: string, target: string, seen = new Set<string>()): boolean => {
+      if (seen.has(from)) return false;
+      seen.add(from);
+      return (groups.get(from) ?? []).some(member => member === target || (groups.has(member) && reaches(member, target, seen)));
+    };
+    for (const name of groups.keys()) expect({ group: name, cyclic: reaches(name, name) }).toEqual({ group: name, cyclic: false });
   });
 
   it('rejects a partial conversion instead of publishing fewer proxies than the input', async () => {

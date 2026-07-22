@@ -80,17 +80,19 @@ const DEFAULT_RULES = [
   'MATCH,🐟 漏网之鱼',
 ] as const;
 
-// GeoData：MetaCubeX/meta-rules-dat，支持自动更新
+// GeoData：MetaCubeX/meta-rules-dat，支持自动更新。
+// 用 jsdelivr 镜像而非 github releases：客户端首次加载 geodata 时代理尚未就绪（鸡生蛋），
+// github 直连在国内网络下载常超时（实测 90s 不完），jsdelivr 数秒即达；内容与 @release 分支一致。
 const GEO_CONFIG = {
   'geodata-mode': true,
   'geodata-loader': 'memconservative',
   'geo-auto-update': true,
   'geo-update-interval': 24,
   'geox-url': {
-    geoip: 'https://github.com/MetaCubeX/meta-rules-dat/releases/download/latest/geoip-lite.dat',
-    geosite: 'https://github.com/MetaCubeX/meta-rules-dat/releases/download/latest/geosite.dat',
-    mmdb: 'https://github.com/MetaCubeX/meta-rules-dat/releases/download/latest/country-lite.mmdb',
-    asn: 'https://github.com/MetaCubeX/meta-rules-dat/releases/download/latest/GeoLite2-ASN.mmdb',
+    geoip: 'https://testingcf.jsdelivr.net/gh/MetaCubeX/meta-rules-dat@release/geoip-lite.dat',
+    geosite: 'https://testingcf.jsdelivr.net/gh/MetaCubeX/meta-rules-dat@release/geosite.dat',
+    mmdb: 'https://testingcf.jsdelivr.net/gh/MetaCubeX/meta-rules-dat@release/country-lite.mmdb',
+    asn: 'https://testingcf.jsdelivr.net/gh/MetaCubeX/meta-rules-dat@release/GeoLite2-ASN.mmdb',
   },
 } as const;
 
@@ -149,9 +151,19 @@ export class MihomoAdapter {
     }
     const proxies = parsed.map(item => item.proxy).filter((value): value is ProxyConfig => value !== null);
     if (proxies.length === 0) throw new Error('未找到有效的代理节点');
+    // 不同代理可能共用同一显示名（如同机多端口、ps 相同的 vmess），而 mihomo 把重名当非法配置直接拒绝；
+    // 为后续重名追加序号，首个保留原名，保证全部节点都能进入产物。
+    const used = new Set<string>();
+    for (const proxy of proxies) {
+      let name = proxy.name;
+      for (let i = 2; used.has(name); i += 1) name = `${proxy.name} ${i}`;
+      proxy.name = name;
+      used.add(name);
+    }
     const names = proxies.map(proxy => proxy.name);
     const yaml = YAML.stringify({ port: 7890, 'socks-port': 7891, 'allow-lan': false, mode: 'rule', 'log-level': 'info', 'external-controller': '127.0.0.1:9090', ...GEO_CONFIG, dns: DNS_CONFIG, proxies, 'proxy-groups': [
-      { name: '🚀 节点选择', type: 'select', proxies: ['♻️ 自动选择', '🤖 AI 服务', '🔯 故障转移', '🔮 负载均衡', '🎯 全球直连', ...names] },
+      // 注意别把 '🤖 AI 服务' 加回来：AI 组已引用本组，互引会被 mihomo 判定 ProxyGroup loop 而拒绝整份配置。
+      { name: '🚀 节点选择', type: 'select', proxies: ['♻️ 自动选择', '🔯 故障转移', '🔮 负载均衡', '🎯 全球直连', ...names] },
       { name: '🤖 AI 服务', type: 'select', proxies: ['♻️ 自动选择', '🔯 故障转移', '🚀 节点选择', ...names] },
       { name: '♻️ 自动选择', type: 'url-test', proxies: names, url: 'http://cp.cloudflare.com/generate_204', interval: 300, tolerance: 50, lazy: true },
       { name: '🔯 故障转移', type: 'fallback', proxies: names, url: 'http://cp.cloudflare.com/generate_204', interval: 300, lazy: true },
@@ -216,7 +228,8 @@ export class MihomoAdapter {
     const temp = join(configDir, 'temp-config.yaml');
     await this.options.fs.mkdir(configDir);
     await this.options.fs.writeFile(temp, config);
-    try { await this.options.process.run(executable, ['-d', this.options.runtimeDir, '-t', '-f', temp], this.processOptions(30_000)); }
+    // 首次校验需下载 geodata（GEOSITE/GEOIP 规则的前置），30s 常不够；下载完成后有缓存，后续校验秒回。
+    try { await this.options.process.run(executable, ['-d', this.options.runtimeDir, '-t', '-f', temp], this.processOptions(120_000)); }
     catch (error) { throw new Error(`配置验证失败: ${error instanceof Error ? error.message : String(error)}`); }
     finally { await this.options.fs.remove(temp); }
   }
