@@ -237,9 +237,9 @@ export function createNodeDashboardDependencies(composition: NodeCoreComposition
       async getManualAgentConfig(nodeId) {
         return result({ nodeId, content: await deployment.manualAgentConfig(nodeId) });
       },
-      async getComponentStates(nodeIds) {
+      async getComponentStates(nodeIds, forceRefresh) {
         const [cluster, taskRecord] = await Promise.all([
-          composition.aggregation.getClusterStatus(),
+          composition.aggregation.getClusterStatus({ forceRefresh: forceRefresh === true }),
           deployment.getComponentDeployments(nodeIds),
         ]);
         const allowed = nodeIds ? new Set(nodeIds) : null;

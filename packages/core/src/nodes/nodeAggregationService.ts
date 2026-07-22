@@ -13,12 +13,23 @@ export class NodeAggregationService {
   private readonly cache = new Map<string, NodeStatus>();
   /** 已经从持久化存储回填过 lastError 的节点，避免每次轮询都读一次。 */
   private readonly hydrated = new Set<string>();
+  /** 集群状态是一次对全部节点的实时扇出，多个端点（status/health/metrics/components…）
+   *  会同时轮询它。短 TTL 缓存 + in-flight 去重把这些并发轮询折叠成一次扇出，
+   *  避免任何一个慢/不可达节点把每个调用方都拖满 10s。 */
+  private readonly statusTtlMs: number;
+  private readonly now: () => number;
+  private statusCache: { at: number; value: ClusterStatus } | undefined;
+  private statusInFlight: Promise<ClusterStatus> | undefined;
   constructor(
     private readonly repository: NodeRepository,
     private readonly agent: AgentClient,
     /** 可选：提供后「最近错误」可以跨进程重启保留。 */
     private readonly state?: StateStore,
-  ) {}
+    options: { statusTtlMs?: number; now?: () => number } = {},
+  ) {
+    this.statusTtlMs = options.statusTtlMs ?? 2_000;
+    this.now = options.now ?? Date.now;
+  }
   getNodeCache(): ReadonlyMap<string, NodeStatus> { return this.cache; }
 
   private async loadLastError(nodeId: string): Promise<string | undefined> {
@@ -43,7 +54,25 @@ export class NodeAggregationService {
     return { sources: results.flatMap(r => r.sources), errors: results.flatMap(r => r.errors) };
   }
 
-  async getClusterStatus(): Promise<ClusterStatus> {
+  async getClusterStatus(options: { forceRefresh?: boolean } = {}): Promise<ClusterStatus> {
+    if (!options.forceRefresh) {
+      const cached = this.statusCache;
+      if (cached && this.now() - cached.at < this.statusTtlMs) return cached.value;
+      // 已有一次扇出在途：并发调用方复用它，而不是各自再打一轮全节点请求。
+      if (this.statusInFlight) return this.statusInFlight;
+    }
+    const run = this.computeClusterStatus();
+    this.statusInFlight = run;
+    try {
+      const value = await run;
+      this.statusCache = { at: this.now(), value };
+      return value;
+    } finally {
+      if (this.statusInFlight === run) this.statusInFlight = undefined;
+    }
+  }
+
+  private async computeClusterStatus(): Promise<ClusterStatus> {
     const nodes = await this.repository.list({ enabledOnly: false });
     const enabledNodes = nodes.filter(node => node.enabled);
     const [statuses, collection] = await Promise.all([Promise.all(nodes.map(node => this.status(node))), Promise.all(enabledNodes.map(node => this.collectSources(node)))]);
