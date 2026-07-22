@@ -76,6 +76,19 @@ describe('Runtime monitoring management', () => {
     expect(screen.getByText('running')).toBeDefined()
   })
 
+  it('re-detects and adopts newly installed kernels directly, without a confirmation step', async () => {
+    const { default: RuntimesPage } = await import('@/pages/runtimes')
+    renderRuntimes(RuntimesPage)
+    await screen.findByText('1.11.0')
+    // v2ray 未安装 → 卡片上出现「再次检测」；点击后 sing-box 已安装未监控，直接纳管，无任何确认弹窗。
+    fireEvent.click(screen.getByRole('button', { name: '再次检测' }))
+    await waitFor(() => expect(api.updateNodeKernels).toHaveBeenCalledWith('node-edit', [
+      { type: 'xray', configPath: '/custom/xray.json' },
+      { type: 'sing-box', configPath: '/etc/sing-box/config.json' },
+    ]))
+    expect(screen.queryByText(/检测到未纳管内核/)).toBeNull()
+  })
+
   it('keeps install-state changes as links to the deployment center', async () => {
     const { default: RuntimesPage } = await import('@/pages/runtimes')
     renderRuntimes(RuntimesPage)

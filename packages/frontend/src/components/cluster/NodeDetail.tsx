@@ -8,8 +8,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
-import type { NodeKernelConfig, NodeStatus } from '@/lib/types';
-import { useUpdateNodeKernels } from '@/lib/queries/mutations';
+import type { NodeStatus } from '@/lib/types';
 import { KernelRuntimeDetails } from './KernelStatus';
 
 interface NodeDetailProps {
@@ -29,22 +28,6 @@ export function NodeDetail({
 }: NodeDetailProps) {
   const [updating, setUpdating] = useState(false);
   const [checking, setChecking] = useState(false);
-  // 健康检查是「重新征询纳管」的显式入口：每次点都重开，绕过卡片提示条那一次性的忽略，
-  // 让 agent 部署/刷新后仍能纳管过去经其他途径安装的内核。
-  const [promptAdopt, setPromptAdopt] = useState(false);
-  const updateKernels = useUpdateNodeKernels();
-
-  const adoptable = node.online ? (node.adoptableKernels ?? []) : [];
-  const showAdopt = promptAdopt && adoptable.length > 0;
-
-  const handleAdopt = () => {
-    const byType = new Map<string, NodeKernelConfig>(node.configuredKernels.map((k) => [k.type, k]));
-    for (const type of adoptable) if (!byType.has(type)) byType.set(type, { type });
-    updateKernels.mutate(
-      { nodeId: node.nodeId, kernels: [...byType.values()] },
-      { onSuccess: () => setPromptAdopt(false) },
-    );
-  };
 
   const formatUptime = (s?: number) => {
     if (!s && s !== 0) return '-';
@@ -68,8 +51,6 @@ export function NodeDetail({
     setChecking(true);
     try {
       await onHealthCheck(node.nodeId);
-      // 刷新已带回最新 adoptableKernels；显式开启纳管征询（有候选才真正展示）。
-      setPromptAdopt(true);
     } finally {
       setChecking(false);
     }
@@ -185,36 +166,6 @@ export function NodeDetail({
                 </span>
               </InfoRow>
             )}
-          </div>
-        </div>
-      )}
-
-      {showAdopt && (
-        <div
-          className="mt-4 flex items-center justify-between gap-3 rounded-lg px-3 py-2 text-sm"
-          style={{ backgroundColor: 'var(--secondary)', color: 'var(--secondary-foreground)' }}
-        >
-          <span className="flex items-center gap-1.5">
-            <Icon icon="ph:magic-wand-bold" className="w-4 h-4" style={{ color: 'var(--primary)' }} />
-            检测到未纳管内核：{adoptable.join('、')}
-          </span>
-          <div className="flex items-center gap-2">
-            <button
-              onClick={handleAdopt}
-              disabled={updateKernels.isPending}
-              className="flex items-center gap-1 px-3 py-1 rounded-md font-medium transition-all active:scale-[0.98] disabled:opacity-60"
-              style={{ backgroundColor: 'var(--primary)', color: 'var(--primary-foreground)' }}
-            >
-              <Icon icon={updateKernels.isPending ? 'ph:spinner-bold' : 'ph:check-bold'} className={`w-3.5 h-3.5 ${updateKernels.isPending ? 'animate-spin' : ''}`} />
-              纳管
-            </button>
-            <button
-              onClick={() => setPromptAdopt(false)}
-              className="px-3 py-1 rounded-md font-medium transition-all active:scale-[0.98]"
-              style={{ color: 'var(--muted-foreground)' }}
-            >
-              取消
-            </button>
           </div>
         </div>
       )}

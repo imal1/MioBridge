@@ -74,6 +74,30 @@ export default function RuntimesPage() {
     } finally { setBusy(null) }
   }, [detect, node, updateNodeKernels])
 
+  // 「再次检测」：为后装内核提供纳管入口——agent 部署后经其他途径安装的核心，重新检测到即直接纳管，
+  // 不弹窗询问（产品决策：检测结果就是事实，确认步骤只会让用户错过唯一的纳管时机）。
+  const redetectAndAdopt = useCallback(async () => {
+    if (!node) return
+    setBusy(`${node.nodeId}:redetect`)
+    setError(null)
+    try {
+      const fresh = await apiService.detectKernels({ nodeId: node.nodeId })
+      setDetections(fresh)
+      const monitored = new Map(node.configuredKernels.map(item => [item.type, item]))
+      const adopted = fresh.filter(item => item.installed && !monitored.has(item.type))
+      if (adopted.length === 0) { toast.info('未检测到新安装的协议核心'); return }
+      const kernels = [
+        ...monitored.values(),
+        ...adopted.map(item => ({ type: item.type, ...(item.defaultConfigPath ? { configPath: item.defaultConfigPath } : {}) })),
+      ]
+      const result = await updateNodeKernels.mutateAsync({ nodeId: node.nodeId, kernels })
+      if (!result.success) throw new Error(result.error || '纳管失败')
+      toast.success(`已纳管：${adopted.map(item => LABELS[item.type]).join('、')}`)
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : '再次检测失败')
+    } finally { setBusy(null) }
+  }, [node, updateNodeKernels])
+
   const maintain = useCallback(async (type: KernelType, action: 'start' | 'stop' | 'restart') => {
     if (!node) return
     setBusy(`${node.nodeId}:${type}:${action}`)
@@ -124,7 +148,7 @@ export default function RuntimesPage() {
               <CardContent className="space-y-4">
                 <div className="grid gap-2 text-sm"><div className="flex justify-between gap-4"><span className="text-muted-foreground">二进制路径</span><code className="break-all text-right">{component?.path || runtime?.binaryPath || detected?.binaryPath || '未上报'}</code></div><div className="flex justify-between gap-4"><span className="text-muted-foreground">配置路径</span><code className="break-all text-right">{node.configuredKernels.find(item => item.type === type)?.configPath || detected?.defaultConfigPath || '-'}</code></div><div className="flex justify-between gap-4"><span className="text-muted-foreground">运行状态</span><span>{component?.runtimeState || '未知'}</span></div><div className="flex justify-between gap-4"><span className="text-muted-foreground">可读状态</span><span>{runtime?.accessible ? '可读' : runtime?.error || '未知'}</span></div><div className="flex justify-between gap-4"><span className="text-muted-foreground">来源数量</span><span>{runtime?.nodesCount ?? '-'}</span></div></div>
                 <div className="flex flex-wrap gap-2">
-                  {detected?.installed ? <><Button size="sm" variant="outline" disabled={busy !== null} onClick={() => maintain(type, 'start')}>启动</Button><Button size="sm" variant="outline" disabled={busy !== null} onClick={() => maintain(type, 'stop')}>停止</Button><Button size="sm" variant="outline" disabled={busy !== null} onClick={() => maintain(type, 'restart')}>重启</Button></> : null}
+                  {detected?.installed ? <><Button size="sm" variant="outline" disabled={busy !== null} onClick={() => maintain(type, 'start')}>启动</Button><Button size="sm" variant="outline" disabled={busy !== null} onClick={() => maintain(type, 'stop')}>停止</Button><Button size="sm" variant="outline" disabled={busy !== null} onClick={() => maintain(type, 'restart')}>重启</Button></> : <Button size="sm" variant="outline" disabled={busy !== null} onClick={() => redetectAndAdopt()}><Icon icon={busy?.endsWith(':redetect') ? 'ph:spinner-bold' : 'ph:arrows-clockwise-bold'} className={busy?.endsWith(':redetect') ? 'animate-spin' : ''} />再次检测</Button>}
                   <Button asChild size="sm" variant="outline"><Link to={`/deploy?node=${encodeURIComponent(node.nodeId)}&component=${encodeURIComponent(type)}`}>{detected?.installed ? '升级/修复/卸载' : '前往部署'}</Link></Button>
                   <Button asChild size="sm" variant="outline"><Link to={`/logs?node=${encodeURIComponent(node.nodeId)}&component=${encodeURIComponent(type)}`}>查看日志</Link></Button>
                 </div>
