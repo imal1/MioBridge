@@ -59,7 +59,7 @@ export interface DashboardOperationsPort {
   readonly getDeploymentEvents: (taskId: string, afterEventId?: string) => Promise<OperationsResult>;
   readonly getDeploymentLog: (taskId: string) => Promise<OperationsResult>;
   readonly getManualAgentConfig: (nodeId: string) => Promise<OperationsResult>;
-  readonly getComponentStates: (nodeIds?: string[]) => Promise<OperationsResult>;
+  readonly getComponentStates: (nodeIds?: string[], forceRefresh?: boolean) => Promise<OperationsResult>;
 }
 
 // ── Config + logs ───────────────────────────────────────────────────

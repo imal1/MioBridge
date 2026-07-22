@@ -86,7 +86,8 @@ export function registerApplicationRoutes(registrar: DashboardRouteRegistrar, de
     const body = object(req.body);
     const nodeId = string(body.nodeId, 'nodeId');
     await deps.operations.detectKernels({ nodeId });
-    await sendResult(req, res, await deps.operations.getComponentStates([nodeId]));
+    // 刚触发过检测：绕过集群状态缓存，让返回的组件状态反映这次检测结果。
+    await sendResult(req, res, await deps.operations.getComponentStates([nodeId], true));
   });
 
   route(registrar, 'POST', '/api/cluster/components/:component/:action', async (req, res) => {

@@ -166,4 +166,33 @@ describe('node core services', () => {
     expect(recovered.nodes[0]?.error).toBeUndefined();
     expect(recovered.nodes[0]?.lastError).toContain('offline');
   });
+
+  it('collapses concurrent and rapid cluster-status polls into a single fan-out', async () => {
+    const repository = new NodeRepository(memoryStore(`nodes:\n  - id: node-a\n    name: A\n    host: agent.example\n    secret: secret\n    kernels:\n      - type: xray\n    location: HK\n    enabled: true\n`));
+    let calls = 0;
+    const client = new AgentClient({ fetch: (async () => { calls++; return new Response(
+      JSON.stringify({ data: { kernels, sources: [{ kernel: 'xray', url: 'vless://id@example.com:443' }] } }),
+      { status: 200 },
+    ); }) as typeof fetch });
+    let clock = 1_000;
+    const service = new NodeAggregationService(repository, client, undefined, { statusTtlMs: 5_000, now: () => clock });
+
+    // 多个端点同时轮询：in-flight 去重把它们折叠成一次扇出。
+    // 单节点每轮 = status() + collectSources() = 2 次 fetch。
+    await Promise.all([service.getClusterStatus(), service.getClusterStatus(), service.getClusterStatus()]);
+    expect(calls).toBe(2);
+
+    // TTL 内再轮询：命中缓存，零扇出。
+    await service.getClusterStatus();
+    expect(calls).toBe(2);
+
+    // forceRefresh 绕过缓存，重新扇出。
+    await service.getClusterStatus({ forceRefresh: true });
+    expect(calls).toBe(4);
+
+    // TTL 过期后自动重新扇出。
+    clock += 6_000;
+    await service.getClusterStatus();
+    expect(calls).toBe(6);
+  });
 });
