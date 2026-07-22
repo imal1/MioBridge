@@ -61,6 +61,21 @@ describe('ArtifactService', () => {
     expect(await readFile(join(config.staticDir, 'subscription.txt'), 'utf8')).toBe('old-subscription');
   });
 
+  it('writes the Clash config even when mihomo is unavailable, flagging it as unvalidated', async () => {
+    const { config } = await setup();
+    const usable = 'vless://id@usable.example:443#usable';
+    const service = new ArtifactService({ config, logger,
+      local: { isAvailable: async () => true, extractNodeUrls: async () => [usable] },
+      remote: { collectRemoteNodeSources: async () => ({ sources: [], errors: [] }) },
+      clash: { checkHealth: async () => false, convertToClashByContent: async content => `proxies:\n${content}\n` },
+    });
+    const result = await service.updateSubscription();
+    // mihomo 只做可选校验；缺席时仍生成并写盘，只带一条「未校验」警告。
+    expect(result.clashGenerated).toBe(true);
+    expect(result.warnings ?? []).toContain('mihomo 不可用：已生成 Clash 配置但跳过校验');
+    expect(await readFile(join(config.staticDir, 'clash.yaml'), 'utf8')).toContain('proxies:');
+  });
+
   it('publishes every unique kernel source from multiple managed nodes into all three artifacts', async () => {
     const { config } = await setup();
     const sources = ['node-a', 'node-b'].flatMap((nodeId, nodeIndex) =>

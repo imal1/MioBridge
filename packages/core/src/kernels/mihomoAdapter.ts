@@ -209,7 +209,9 @@ export class MihomoAdapter {
   }
   private async validate(config: string): Promise<void> {
     const executable = this.executable ?? await this.findExecutable();
-    if (!executable) throw new Error('mihomo 不可用，无法验证 Clash 配置');
+    // 校验是可选增强，不是生成的前置：mihomo 不存在就跳过校验、保留已生成的配置，
+    // 而非让整个 Clash 生成失败。mihomo 存在却校验不过（配置真非法）才向上抛错。
+    if (!executable) { this.options.logger.warn('mihomo 不可用，跳过 Clash 配置校验'); return; }
     const configDir = this.options.paths.managedPath('mihomo');
     const temp = join(configDir, 'temp-config.yaml');
     await this.options.fs.mkdir(configDir);
