@@ -1,0 +1,16 @@
+export const queryKeys = {
+  clusterStatus: ['cluster-status'] as const,
+  status: ['status'] as const,
+  metrics: (range: string) => ['metrics', range] as const,
+  componentStates: (nodeIds?: string[]) => ['component-states', nodeIds ?? null] as const,
+  componentDeployments: (nodeIds?: string[]) => ['component-deployments', nodeIds ?? null] as const,
+  subscriptionJobs: ['subscription-jobs'] as const,
+  subscriptionPolicy: ['subscription-policy'] as const,
+  subscriptionPreflight: ['subscription-preflight'] as const,
+  artifacts: ['artifacts'] as const,
+  configSchema: ['config-schema'] as const,
+  effectiveConfig: ['effective-config'] as const,
+  notificationHistory: ['notification-history'] as const,
+  openApi: ['openapi'] as const,
+  logs: (key: string) => ['logs', key] as const,
+}
