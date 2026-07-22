@@ -1,9 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useQueryClient } from '@tanstack/react-query'
 import { Icon } from '@iconify/react'
 import { Link } from 'react-router-dom'
 import { toast } from 'sonner'
-import { apiService, type ApiStatus } from '@/lib/api'
-import type { ArtifactState, SubscriptionJob, SubscriptionPolicy } from '@/lib/types'
+import {
+  queryKeys, useArtifacts, useStatus, useSubscriptionJobs, useSubscriptionPolicy, useUpdateSubscriptionPolicy,
+} from '@/lib/queries'
+import type { SubscriptionJob, SubscriptionPolicy } from '@/lib/types'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -43,9 +46,15 @@ function nodeDropCheck(jobs: SubscriptionJob[], threshold: number): { ok: boolea
 }
 
 export default function SubscriptionStatusPage() {
-  const [status, setStatus] = useState<ApiStatus | null>(null)
-  const [artifacts, setArtifacts] = useState<ArtifactState[]>([])
-  const [jobs, setJobs] = useState<SubscriptionJob[]>([])
+  const queryClient = useQueryClient()
+  const statusQuery = useStatus()
+  const artifactsQuery = useArtifacts()
+  const jobsQuery = useSubscriptionJobs()
+  const policyQuery = useSubscriptionPolicy()
+  const updatePolicy = useUpdateSubscriptionPolicy()
+  const status = statusQuery.data ?? null
+  const artifacts = useMemo(() => artifactsQuery.data ?? [], [artifactsQuery.data])
+  const jobs = useMemo(() => jobsQuery.data ?? [], [jobsQuery.data])
   const [policy, setPolicy] = useState<SubscriptionPolicy>(DEFAULT_POLICY)
   const [draft, setDraft] = useState<SubscriptionPolicy>(DEFAULT_POLICY)
   // 重试间隔是自由文本，必须独立保存，否则用户敲到 "2," 时会被立刻改写。
@@ -75,34 +84,39 @@ export default function SubscriptionStatusPage() {
     })
   }, [])
 
-  const refresh = useCallback(async () => {
+  // 真实拉取每个公共 URL：产物元数据说“存在”不等于对外真的能取到。apiService 不覆盖
+  // 这些同源静态路径，保留独立 fetch 探测。
+  const probePublicUrls = useCallback(async () => {
+    const probes = await Promise.all(PUBLIC_URLS.map(async path => {
+      try {
+        const response = await fetch(path, { cache: 'no-store' })
+        return { path, ok: response.ok }
+      } catch { return { path, ok: false } }
+    }))
+    setPublicUrls(probes)
+  }, [])
+  useEffect(() => { void probePublicUrls() }, [probePublicUrls])
+
+  // 生效策略随查询更新；只有草稿仍等于旧生效值（用户没有未保存的编辑）时才跟随刷新，
+  // 否则迟到的响应会静默吞掉用户已经输入的内容。要放弃编辑请用「放弃草稿」。
+  useEffect(() => {
+    if (!policyQuery.data) return
+    const next = policyQuery.data
+    const baseline = policyRef.current
+    applyPolicy(next)
+    if (JSON.stringify(draftRef.current) === JSON.stringify(baseline)) resetDraft(next)
+  }, [policyQuery.data, applyPolicy, resetDraft])
+
+  const refresh = useCallback(() => {
     setError(null)
-    try {
-      const [nextStatus, artifactResponse, jobResponse, policyResponse, probes] = await Promise.all([
-        apiService.getStatus(), apiService.getArtifacts(), apiService.getSubscriptionJobs(), apiService.getSubscriptionPolicy(),
-        // 真实拉取每个公共 URL：产物元数据说“存在”不等于对外真的能取到。
-        Promise.all(PUBLIC_URLS.map(async path => {
-          try {
-            const response = await fetch(path, { cache: 'no-store' })
-            return { path, ok: response.ok }
-          } catch { return { path, ok: false } }
-        })),
-      ])
-      setStatus(nextStatus)
-      setPublicUrls(probes)
-      if (artifactResponse.success && artifactResponse.data) setArtifacts(artifactResponse.data.artifacts)
-      if (jobResponse.success && jobResponse.data) setJobs(jobResponse.data.jobs)
-      if (policyResponse.success && policyResponse.data) {
-        const next = policyResponse.data
-        const baseline = policyRef.current
-        applyPolicy(next)
-        // 只有草稿仍与旧生效值一致（用户没有未保存的编辑）时才跟随刷新；
-        // 否则迟到的响应会静默吞掉用户已经输入的内容。要放弃编辑请用「放弃草稿」。
-        if (JSON.stringify(draftRef.current) === JSON.stringify(baseline)) resetDraft(next)
-      }
-    } catch (caught) { setError(caught instanceof Error ? caught.message : '状态检查失败') }
-  }, [applyPolicy, resetDraft])
-  useEffect(() => { refresh().catch(() => {}) }, [refresh])
+    void queryClient.invalidateQueries({ queryKey: queryKeys.status })
+    void queryClient.invalidateQueries({ queryKey: queryKeys.artifacts })
+    void queryClient.invalidateQueries({ queryKey: queryKeys.subscriptionJobs })
+    void queryClient.invalidateQueries({ queryKey: queryKeys.subscriptionPolicy })
+    void probePublicUrls()
+  }, [probePublicUrls, queryClient])
+
+  const loadError = (statusQuery.error ?? artifactsQuery.error ?? jobsQuery.error ?? policyQuery.error)?.message ?? null
 
   const latestJob = jobs[0]
   const checks = useMemo(() => [
@@ -124,7 +138,7 @@ export default function SubscriptionStatusPage() {
   const savePolicy = async () => {
     setSaving(true); setError(null)
     try {
-      const response = await apiService.updateSubscriptionPolicy(draft)
+      const response = await updatePolicy.mutateAsync(draft)
       if (!response.success || !response.data) throw new Error('定时策略保存失败')
       applyPolicy(response.data); resetDraft(response.data); toast.success('订阅策略已保存')
     } catch (caught) { setError(caught instanceof Error ? caught.message : '定时策略保存失败') }
@@ -133,7 +147,7 @@ export default function SubscriptionStatusPage() {
 
   return (
     <SignalPage crumb="Subscription health" title="订阅状态" description="维护正式产物的新鲜度、格式、公共 URL、上次任务与定时生成策略。" status={healthy ? '订阅健康' : `${checks.filter(item => !item.ok).length} 个问题待处理`} maxWidth="narrow" actions={<Button variant="outline" onClick={refresh}><Icon icon="ph:heartbeat-light" />立即检查</Button>}>
-      {error ? <Alert variant="destructive"><AlertTitle>状态检查失败</AlertTitle><AlertDescription>{error}</AlertDescription></Alert> : null}
+      {(error ?? loadError) ? <Alert variant="destructive"><AlertTitle>状态检查失败</AlertTitle><AlertDescription>{error ?? loadError}</AlertDescription></Alert> : null}
       {!healthy ? <Alert variant="destructive"><AlertTitle>订阅闭环未完成</AlertTitle><AlertDescription>本页只诊断和维护策略；需要生成、运行时维护或产物操作时跳转到唯一负责页面。</AlertDescription></Alert> : <Alert variant="success"><AlertTitle>所有检查通过</AlertTitle><AlertDescription>正式订阅及兼容 URL 当前可用。</AlertDescription></Alert>}
       <div className="mt-5 grid gap-4 md:grid-cols-2">{checks.map(item => <Card key={item.label}><CardContent className="flex items-center justify-between gap-4 p-5"><div><p className="font-medium">{item.label}</p><p className="mt-1 text-sm text-muted-foreground">{item.detail}</p></div><Badge variant={item.ok ? 'secondary' : 'destructive'}>{item.ok ? '通过' : '异常'}</Badge></CardContent></Card>)}</div>
 
