@@ -158,7 +158,7 @@ describe('NodeDetail', () => {
   const onClose = vi.fn();
 
   it('shows type, version, config paths, proxy count, and error for each kernel', () => {
-    render(<NodeDetail node={mockNode} isOpen onClose={onClose} />);
+    renderWithClient(<NodeDetail node={mockNode} isOpen onClose={onClose} />);
     const dialog = screen.getByRole('dialog', { name: '新加坡' });
     expect(within(dialog).getByText('Sing-Box')).toBeDefined();
     expect(within(dialog).getByText('1.11.0')).toBeDefined();
@@ -169,7 +169,7 @@ describe('NodeDetail', () => {
   });
 
   it('renders kernel details as unknown while a node is offline', () => {
-    render(<NodeDetail node={mockOfflineNode} isOpen onClose={onClose} />);
+    renderWithClient(<NodeDetail node={mockOfflineNode} isOpen onClose={onClose} />);
     expect(screen.getAllByText('未知')).toHaveLength(3);
     expect(screen.getByRole('region', { name: 'Sing-Box 内核详情' })).toBeDefined();
     expect(screen.getByRole('region', { name: 'Xray 内核详情' })).toBeDefined();
