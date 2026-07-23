@@ -4,21 +4,7 @@ import { createPortal } from 'react-dom'
 import { Icon } from '@iconify/react'
 import { useAppContext } from '@/context/AppContext'
 import ThemeToggle from '@/components/ThemeToggle'
-import { NAV_ITEMS, type NavIcon } from './navigation'
-
-const ICONS: Record<NavIcon, string> = {
-  overview: 'ph:gauge-light',
-  subscription: 'ph:arrows-clockwise-light',
-  outputs: 'ph:files-light',
-  nodes: 'ph:hard-drives-light',
-  deploy: 'ph:paper-plane-tilt-light',
-  agents: 'ph:heartbeat-light',
-  runtimes: 'ph:cpu-light',
-  status: 'ph:shield-check-light',
-  logs: 'ph:terminal-window-light',
-  config: 'ph:sliders-horizontal-light',
-  api: 'ph:globe-hemisphere-west-light',
-}
+import { NAV_ITEMS, NAV_ICONS } from './navigation'
 
 export default function MobileDrawer() {
   const { mobileDrawerOpen, setMobileDrawerOpen } = useAppContext()
@@ -128,7 +114,7 @@ export default function MobileDrawer() {
                     style={{ top: '50%', transform: 'translateY(-50%)', width: '3px', height: '60%', background: 'var(--primary)' }}
                   />
                 )}
-                <Icon icon={ICONS[item.icon]} className="w-5 h-5 flex-shrink-0" />
+                <Icon icon={NAV_ICONS[item.icon]} className="w-5 h-5 flex-shrink-0" />
                 <span className="text-sm font-medium">{item.label}</span>
               </Link>
             )

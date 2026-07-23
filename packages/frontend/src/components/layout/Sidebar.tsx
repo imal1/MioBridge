@@ -1,116 +1,122 @@
 import { memo } from 'react'
 import { Link, useLocation } from 'react-router-dom'
 import { Icon } from '@iconify/react'
-import ThemeToggle from '@/components/ThemeToggle'
-import { useStatus } from '@/lib/queries'
-import { NAV_ITEMS, type NavIcon } from './navigation'
+import { useTheme } from '@/components/ThemeProvider'
+import { useStatus, useClusterStatus } from '@/lib/queries'
+import { NAV_MAIN, NAV_SYSTEM, NAV_ICONS, type NavItem } from './navigation'
 
-const ICONS: Record<NavIcon, string> = {
-  overview: 'ph:gauge-light',
-  subscription: 'ph:arrows-clockwise-light',
-  outputs: 'ph:files-light',
-  nodes: 'ph:hard-drives-light',
-  deploy: 'ph:paper-plane-tilt-light',
-  agents: 'ph:heartbeat-light',
-  runtimes: 'ph:cpu-light',
-  status: 'ph:shield-check-light',
-  logs: 'ph:terminal-window-light',
-  config: 'ph:sliders-horizontal-light',
-  api: 'ph:globe-hemisphere-west-light',
-}
-
-function NavItem({ href, icon, label, active }: { href: string; icon: NavIcon; label: string; active: boolean }) {
+function NavButton({ item, active, iconSize }: { item: NavItem; active: boolean; iconSize: number }) {
   return (
-    <Link
-      to={href}
-      className="group relative flex h-11 items-center gap-3 rounded-full px-3 text-sm font-medium transition-[transform,background-color,color,box-shadow] duration-700 ease-[var(--motion)] active:scale-[0.985]"
-      style={{
-        background: active ? 'var(--sidebar-accent)' : 'transparent',
-        color: active ? 'var(--sidebar-accent-foreground)' : 'var(--sidebar-foreground)',
-        boxShadow: active ? '0 18px 42px rgba(63, 143, 95, .22)' : 'none',
-      }}
-    >
-      <span
-        className="grid h-5 w-5 place-items-center rounded-md border transition-transform duration-700 ease-[var(--motion)] group-hover:translate-x-0.5"
-        style={{
-          borderColor: active ? 'rgba(255,255,255,.34)' : 'var(--sidebar-border)',
-          background: active ? 'rgba(255,255,255,.12)' : 'transparent',
-        }}
-      >
-        <Icon icon={ICONS[icon]} className="h-4 w-4" />
-      </span>
-      <span>{label}</span>
+    <Link to={item.href} className={`mb-nav-btn${active ? ' active' : ''}`}>
+      <Icon icon={NAV_ICONS[item.icon]} style={{ fontSize: iconSize }} />
+      <span>{item.label}</span>
+      {item.badge ? (
+        <span
+          className="signal-mono"
+          style={{
+            marginLeft: 'auto', fontSize: 10.5, padding: '1px 7px', borderRadius: 99,
+            background: active ? 'rgba(255,255,255,.16)' : 'var(--card2)',
+            color: active ? 'var(--primary-foreground)' : 'var(--muted-foreground)',
+          }}
+        >
+          {item.badge}
+        </span>
+      ) : null}
     </Link>
   )
 }
 
 const Sidebar = memo(function Sidebar() {
   const location = useLocation()
-  // 与 Dashboard 共享 ['status'] key：常驻 Sidebar 与当前页合并为单次请求。
+  const { theme, toggleTheme } = useTheme()
+  const isDark = theme === 'dark'
+  // 与 Dashboard 共享 key，常驻侧栏与当前页合并为单次请求。
   const status = useStatus()
+  const cluster = useClusterStatus()
+
   const mihomoAvailable: boolean | null = status.isPending
     ? null
     : status.isError
       ? false
       : Boolean(status.data?.mihomoAvailable)
+  const mihomoVersion = status.data?.mihomoVersion
+  const nodeCount = cluster.data?.nodes?.length
+
+  const mainItems: NavItem[] = NAV_MAIN.map(it =>
+    it.icon === 'nodes' && nodeCount ? { ...it, badge: String(nodeCount) } : it,
+  )
 
   return (
-    <aside
-      className="fixed bottom-[var(--desktop-sidebar-gap)] left-[var(--desktop-sidebar-gap)] top-[var(--desktop-sidebar-gap)] z-20 flex w-[var(--desktop-sidebar-width)] flex-col rounded-[32px] border p-[18px]"
-      style={{
-        background: 'var(--sidebar)',
-        borderColor: 'var(--sidebar-border)',
-        boxShadow: 'inset 0 1px 0 rgba(255,255,255,.08), var(--shadow-elevated)',
-        backdropFilter: 'blur(18px)',
-      }}
-    >
-      <Link to="/" className="mb-8 flex items-center gap-3">
+    <aside className="mb-sidebar">
+      <Link to="/" className="mb-5 flex items-center gap-2.5 px-1.5 no-underline hover:no-underline">
         <span
-          className="grid h-10 w-10 place-items-center rounded-2xl border"
+          className="grid place-items-center"
           style={{
-            borderColor: 'var(--sidebar-border)',
-            background: 'var(--muted)',
-            color: 'var(--sidebar-primary)',
+            width: 32, height: 32, borderRadius: 10, border: '1px solid var(--border)',
+            background: 'var(--card2)', color: 'var(--primary)',
           }}
         >
-          <Icon icon="ph:wave-sine-light" className="h-6 w-6" />
+          <Icon icon="ph:wave-sine-light" style={{ fontSize: 19 }} />
         </span>
-        <span
-          className="text-[24px] font-black leading-[0.92] tracking-normal text-sidebar-foreground"
-          style={{ fontFamily: 'var(--font-display)' }}
-        >
-          Mio<br />Bridge
+        <span style={{ fontWeight: 800, fontSize: 16, letterSpacing: '-.01em', color: 'var(--foreground)' }}>
+          MioBridge
         </span>
       </Link>
 
-      <nav className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto">
-        {NAV_ITEMS.map(item => (
-          <NavItem
-            key={item.href}
-            {...item}
-            active={location.pathname === item.href}
-          />
+      <nav className="flex flex-col gap-[3px]">
+        {mainItems.map(item => (
+          <NavButton key={item.href} item={item} active={location.pathname === item.href} iconSize={16} />
         ))}
       </nav>
 
-      <div className="space-y-3">
+      <div className="mt-[18px] border-t px-2 pb-1 pt-2.5" style={{ borderColor: 'var(--border)' }}>
+        <p
+          className="mx-1.5 mb-1.5"
+          style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: '.08em', color: 'var(--muted-foreground)' }}
+        >
+          系统
+        </p>
+        <nav className="flex flex-col gap-0.5">
+          {NAV_SYSTEM.map(item => (
+            <NavButton key={item.href} item={item} active={location.pathname === item.href} iconSize={15} />
+          ))}
+        </nav>
+      </div>
+
+      <div className="mt-auto flex flex-col gap-2">
         <div
-          className="rounded-[22px] border px-4 py-3 text-xs"
+          className="flex items-center gap-2"
           style={{
-            borderColor: 'var(--sidebar-border)',
-            background: 'var(--surface-container-low)',
-            color: 'var(--muted-foreground)',
+            padding: '8px 10px', border: '1px solid var(--border)', borderRadius: 10,
+            background: 'var(--card2)', fontSize: 11.5, color: 'var(--muted-foreground)',
           }}
         >
-          mihomo 状态<br />
-          <span className={`signal-mono ${mihomoAvailable ? 'signal-success' : mihomoAvailable === false ? 'text-danger' : ''}`}>
+          <span
+            style={{
+              width: 7, height: 7, borderRadius: 99,
+              background: mihomoAvailable === false ? 'var(--danger)' : 'var(--primary)',
+              animation: mihomoAvailable ? 'signal-pulse 2.4s infinite' : 'none',
+            }}
+          />
+          mihomo{' '}
+          <span
+            className="signal-mono"
+            style={{ color: mihomoAvailable === false ? 'var(--danger)' : 'var(--primary)' }}
+          >
             {mihomoAvailable === null ? 'checking' : mihomoAvailable ? 'available' : 'unavailable'}
           </span>
+          {mihomoVersion ? (
+            <span className="signal-mono" style={{ marginLeft: 'auto' }}>{mihomoVersion}</span>
+          ) : null}
         </div>
-        <div className="flex items-center justify-between px-1 text-xs text-muted-foreground">
-          <span>主题</span>
-          <ThemeToggle />
-        </div>
+        <button
+          onClick={toggleTheme}
+          className="mb-nav-btn"
+          style={{ height: 30, border: '1px solid var(--border)', borderRadius: 10, fontSize: 11.5, fontWeight: 400, color: 'var(--muted-foreground)' }}
+        >
+          <Icon icon={isDark ? 'ph:sun-light' : 'ph:moon-light'} style={{ fontSize: 14 }} />
+          {isDark ? '浅色模式' : '深色模式'}
+        </button>
       </div>
     </aside>
   )

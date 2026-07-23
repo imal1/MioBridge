@@ -5,34 +5,39 @@ import { MemoryRouter } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import type { MetricsSnapshot, MetricsSummary } from '@/lib/types'
 
-const mocks = vi.hoisted(() => ({ getMetrics: vi.fn(), getStatus: vi.fn(), getClusterStatus: vi.fn() }))
+const mocks = vi.hoisted(() => ({
+  getMetrics: vi.fn(), getStatus: vi.fn(), getClusterStatus: vi.fn(),
+  getArtifacts: vi.fn(), getComponentDeployments: vi.fn(),
+}))
 
 vi.mock('@/lib/api', () => ({
   apiService: {
     getStatus: mocks.getStatus,
     getClusterStatus: mocks.getClusterStatus,
     getMetrics: mocks.getMetrics,
+    getArtifacts: mocks.getArtifacts,
+    getComponentDeployments: mocks.getComponentDeployments,
   },
 }))
 
-function summary(): MetricsSummary {
+function summary(subscriptionSuccessRate: number): MetricsSummary {
   return {
     deploymentSuccessRate: null, deploymentCompleted: 0, deploymentAverageDurationMs: null,
     deploymentStepAverageDurationMs: {}, agentOnlineRate: null, sourceSuccessRate: null,
-    subscriptionSuccessRate: null, subscriptionJobs: 0, artifactAverageAgeSeconds: null,
+    subscriptionSuccessRate, subscriptionJobs: 0, artifactAverageAgeSeconds: null,
     artifactMaximumAgeSeconds: null,
   }
 }
 
-/** 用快照条数区分是哪一个窗口的响应：界面上会渲染成「N 个快照样本」。 */
-function metricsWith(snapshots: number) {
+/** 用订阅成功率区分是哪一个窗口的响应：界面上会渲染成「N%」。 */
+function metricsWith(rate: number) {
   return {
     success: true,
     data: {
       range: '',
       snapshot: {} as MetricsSnapshot,
-      history: Array.from({ length: snapshots }, () => ({}) as MetricsSnapshot),
-      summary: summary(),
+      history: [] as MetricsSnapshot[],
+      summary: summary(rate),
     },
   }
 }
@@ -51,6 +56,8 @@ describe('Dashboard 指标窗口竞态', () => {
 
     mocks.getStatus.mockResolvedValue({})
     mocks.getClusterStatus.mockResolvedValue({ success: true, data: null })
+    mocks.getArtifacts.mockResolvedValue({ success: true, data: { artifacts: [] } })
+    mocks.getComponentDeployments.mockResolvedValue({ success: true, data: { deployments: {} } })
     mocks.getMetrics.mockImplementation((range: string) =>
       range === '24h' ? slow24h.promise : fast30d.promise)
 
@@ -69,13 +76,13 @@ describe('Dashboard 指标窗口竞态', () => {
 
     // 后发的 30d 先返回，再让先发的 24h 迟到。
     fast30d.resolve(metricsWith(30))
-    await waitFor(() => expect(screen.getByText('30 个快照样本')).toBeDefined())
+    await waitFor(() => expect(screen.getByText('30%')).toBeDefined())
 
     slow24h.resolve(metricsWith(24))
     await new Promise(res => setTimeout(res, 0))
 
     // 当前窗口是 30d：迟到的 24h 响应写入的是 ['metrics','24h'] 缓存，不影响当前视图。
-    expect(screen.getByText('30 个快照样本')).toBeDefined()
-    expect(screen.queryByText('24 个快照样本')).toBeNull()
+    expect(screen.getByText('30%')).toBeDefined()
+    expect(screen.queryByText('24%')).toBeNull()
   })
 })

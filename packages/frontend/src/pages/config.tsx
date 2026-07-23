@@ -1,20 +1,10 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { useQueryClient } from '@tanstack/react-query'
 import { Icon } from '@iconify/react'
 import { toast } from 'sonner'
 import { apiService } from '@/lib/api'
-import { queryKeys, useConfigSchema, useEffectiveConfig, usePatchConfigValues, useRestoreConfig } from '@/lib/queries'
+import { useConfigSchema, useEffectiveConfig, usePatchConfigValues, useRestoreConfig } from '@/lib/queries'
 import type { FrontendConfig } from '@/lib/configApi'
-import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
-import { Badge } from '@/components/ui/badge'
-import { Button } from '@/components/ui/button'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
-import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
-import { Select } from '@/components/ui/select'
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { Textarea } from '@/components/ui/textarea'
-import SignalPage from '@/components/shared/SignalPage'
+import PageHeader from '@/components/shared/PageHeader'
 
 interface ConfigPageProps {
   initialConfigs?: string[]
@@ -46,7 +36,6 @@ function valueAt(source: Record<string, unknown>, path: string): unknown {
   }
   return value
 }
-
 function setAt(source: Record<string, unknown>, path: string, value: unknown) {
   const parts = path.split('.')
   let target = source
@@ -56,19 +45,16 @@ function setAt(source: Record<string, unknown>, path: string, value: unknown) {
   }
   target[parts.at(-1)!] = value
 }
-
 function inputValue(value: unknown, type: FieldDefinition['type']): string {
   if (type.endsWith('[]')) return Array.isArray(value) ? value.join(', ') : ''
   return value === undefined || value === null ? '' : String(value)
 }
-
 function parseInput(value: string, field: FieldDefinition): unknown {
   if (field.type === 'number') return Number(value)
-  if (field.type === 'number[]') return value.split(',').map(item => Number(item.trim())).filter(Number.isFinite)
-  if (field.type === 'string[]') return value.split(',').map(item => item.trim()).filter(Boolean)
+  if (field.type === 'number[]') return value.split(',').map(i => Number(i.trim())).filter(Number.isFinite)
+  if (field.type === 'string[]') return value.split(',').map(i => i.trim()).filter(Boolean)
   return value
 }
-
 function displayError(value: unknown, fallback: string) {
   if (typeof value === 'string') return value
   if (value && typeof value === 'object' && 'message' in value && typeof value.message === 'string') return value.message
@@ -81,17 +67,13 @@ export default function ConfigPage({ initialConfigs, frontendConfig, initialErro
   }, [frontendConfig, initialConfigs])
   const [schema, setSchema] = useState<FieldDefinition[]>(initialConfigs === undefined ? [] : FALLBACK_SCHEMA)
   const [effective, setEffective] = useState<Record<string, unknown>>(initialDocument)
-  const [initial, setInitial] = useState<Record<string, unknown>>(structuredClone(initialDocument))
   const [draft, setDraft] = useState<Record<string, string>>({})
   const [configPath, setConfigPath] = useState('')
-  const [importSource, setImportSource] = useState('')
-  const [importDiff, setImportDiff] = useState<Array<{ path: string; before: unknown; after: unknown }>>([])
   const [error, setError] = useState<string | null>(initialError)
   const [message, setMessage] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
   const [restartPending, setRestartPending] = useState(false)
-  const [notificationHistory, setNotificationHistory] = useState<Array<{ id: string; event: string; ok: boolean; statusCode: number; timestamp: string }>>([])
-  const queryClient = useQueryClient()
+  const [tab, setTab] = useState<string | null>(null)
   const live = initialConfigs === undefined
   const schemaQuery = useConfigSchema({ enabled: live })
   const effectiveQuery = useEffectiveConfig({ enabled: live })
@@ -99,12 +81,10 @@ export default function ConfigPage({ initialConfigs, frontendConfig, initialErro
   const restoreConfigMutation = useRestoreConfig()
 
   const applyLoaded = useCallback((fields: FieldDefinition[], config: Record<string, unknown>, path: string) => {
-    setSchema(fields); setEffective(config); setInitial(structuredClone(config)); setConfigPath(path)
-    setDraft(Object.fromEntries(fields.map(field => [field.path, inputValue(valueAt(config, field.path), field.type)])))
+    setSchema(fields); setEffective(config); setConfigPath(path)
+    setDraft(Object.fromEntries(fields.map(f => [f.path, inputValue(valueAt(config, f.path), f.type)])))
   }, [])
 
-  // schema 与生效值就绪后一次性播种草稿。保存/恢复失效缓存触发 refetch → 新数据引用 →
-  // 本 effect 重跑，等价于旧版保存后 await refresh() 的重置行为。
   useEffect(() => {
     if (!live || !schemaQuery.data || !effectiveQuery.data) return
     applyLoaded(schemaQuery.data as FieldDefinition[], effectiveQuery.data.config, effectiveQuery.data.path)
@@ -114,11 +94,6 @@ export default function ConfigPage({ initialConfigs, frontendConfig, initialErro
     if (initialConfigs !== undefined) setDraft({ 'protocols.sing_box_configs': initialConfigs.join(', ') })
   }, [initialConfigs])
 
-  const refresh = useCallback(() => {
-    void queryClient.invalidateQueries({ queryKey: queryKeys.configSchema })
-    void queryClient.invalidateQueries({ queryKey: queryKeys.effectiveConfig })
-  }, [queryClient])
-
   const loadError = live ? (schemaQuery.error ?? effectiveQuery.error)?.message ?? null : null
 
   const changes = useMemo(() => schema.flatMap(field => {
@@ -127,7 +102,10 @@ export default function ConfigPage({ initialConfigs, frontendConfig, initialErro
     return JSON.stringify(before) === JSON.stringify(next) ? [] : [{ path: field.path, before, after: next, restartRequired: field.restartRequired }]
   }), [draft, effective, schema])
   const dirty = changes.length > 0
-  const defaultGroup = GROUPS.find(group => schema.some(field => field.path.startsWith(`${group.key}.`)))?.key ?? 'app'
+
+  const groupsWithFields = GROUPS.filter(g => schema.some(f => f.path.startsWith(`${g.key}.`)))
+  const activeTab = tab && groupsWithFields.some(g => g.key === tab) ? tab : groupsWithFields[0]?.key ?? 'app'
+  const tabFields = schema.filter(f => f.path.startsWith(`${activeTab}.`))
 
   const buildDraftDocument = useCallback(() => {
     const document = structuredClone(effective)
@@ -139,7 +117,7 @@ export default function ConfigPage({ initialConfigs, frontendConfig, initialErro
     setError(null); setMessage(null)
     const response = await apiService.validateConfigSource(JSON.stringify(buildDraftDocument(), null, 2))
     if (!response.success || !response.data?.valid) {
-      const detail = response.data?.issues.map(issue => `${issue.path}: ${issue.message}`).join('；') || displayError(response.error, '配置校验失败')
+      const detail = response.data?.issues.map(i => `${i.path}: ${i.message}`).join('；') || displayError(response.error, '配置校验失败')
       setError(detail); return
     }
     setMessage('当前草稿已通过完整 schema 校验'); toast.success('配置草稿校验通过')
@@ -152,9 +130,8 @@ export default function ConfigPage({ initialConfigs, frontendConfig, initialErro
       const response = await patchConfig.mutateAsync(changes.map(({ path, after }) => ({ path, value: after })))
       if (!response.success || !response.data) throw new Error(displayError(response.error, '配置保存失败'))
       setRestartPending(response.data.restartRequired)
-      setMessage(`已在一次原子替换中保存 ${changes.length} 个字段${response.data.restartRequired ? '；部分字段需要重启 Dashboard 后生效' : '并生效'}`)
+      setMessage(`已在一次原子替换中保存 ${changes.length} 个字段${response.data.restartRequired ? '；部分字段需要重启后生效' : '并生效'}`)
       toast.success('配置已原子保存')
-      // mutation 失效 effective-config，effect 会用新数据重置草稿。
     } catch (caught) { setError(caught instanceof Error ? caught.message : '配置保存失败') }
     finally { setSaving(false) }
   }, [changes, patchConfig])
@@ -162,52 +139,106 @@ export default function ConfigPage({ initialConfigs, frontendConfig, initialErro
   const restore = async () => {
     if (!window.confirm('恢复到上一次成功配置？当前配置会保留为 pre-restore 备份。')) return
     setError(null)
-    // apiService 在 HTTP 失败时抛出 ApiError；不捕获的话页面停在原状，用户看不到失败。
     try {
       const response = await restoreConfigMutation.mutateAsync()
       if (!response.success) throw new Error(displayError(response.error, '配置恢复失败'))
       toast.success('已恢复 last-good 配置')
-      // mutation 失效 effective-config，effect 会用新数据重置草稿。
     } catch (caught) { setError(caught instanceof Error ? caught.message : '配置恢复失败') }
   }
 
-  const previewImport = async () => {
-    setError(null); setImportDiff([])
-    let response
-    try {
-      response = await apiService.previewConfigImport(importSource)
-    } catch (caught) { return setError(caught instanceof Error ? caught.message : '导入文件无效') }
-    if (!response.success && !response.data) return setError(displayError(response.error, '导入文件无效'))
-    const data = response.data as { validation?: { valid: boolean; issues: Array<{ path: string; message: string }> }; differences?: Array<{ path: string; before: unknown; after: unknown }> } | undefined
-    if (!data?.validation?.valid) return setError(data?.validation?.issues.map(item => `${item.path}: ${item.message}`).join('；') || '导入文件无效')
-    setImportDiff(data.differences || [])
-  }
+  const discard = () => setDraft(Object.fromEntries(schema.map(f => [f.path, inputValue(valueAt(effective, f.path), f.type)])))
 
-  const testWebhook = async () => {
-    setError(null)
-    try {
-      const response = await apiService.testWebhook()
-      if (!response.success || !response.data) throw new Error(displayError(response.error, 'Webhook 测试失败'))
-      toast.success('Webhook 测试发送成功', { description: `HTTP ${response.data.statusCode}` })
-      const history = await apiService.getNotificationHistory()
-      if (history.success && history.data) setNotificationHistory(history.data.records)
-    } catch (caught) { setError(caught instanceof Error ? caught.message : 'Webhook 测试失败') }
-  }
+  const diffSummary = changes.map(c => `${c.path} ${JSON.stringify(c.before)} → ${JSON.stringify(c.after)}`).join(' · ')
 
-  const renderField = (field: FieldDefinition) => {
-    const value = draft[field.path] ?? ''
-    const changed = changes.some(change => change.path === field.path)
-    return <div key={field.path} className="rounded-2xl border border-[var(--border)] p-4"><div className="flex flex-wrap items-center justify-between gap-2"><Label htmlFor={`field-${field.path}`}>{field.path}</Label><div className="flex gap-2">{field.restartRequired ? <Badge variant="outline">需重启</Badge> : <Badge variant="secondary">可热应用</Badge>}{changed ? <Badge>已修改</Badge> : null}</div></div><p className="mt-1 text-xs text-muted-foreground">初始：{JSON.stringify(valueAt(initial, field.path)) ?? '未设置'} · 生效：{JSON.stringify(valueAt(effective, field.path)) ?? '未设置'}</p><div className="mt-3">{field.type === 'boolean' ? <label className="flex items-center gap-2 text-sm"><input id={`field-${field.path}`} type="checkbox" checked={value === 'true'} onChange={event => setDraft(previous => ({ ...previous, [field.path]: String(event.target.checked) }))} />启用</label> : field.allowed ? <Select id={`field-${field.path}`} value={value} onChange={event => setDraft(previous => ({ ...previous, [field.path]: event.target.value }))}>{field.allowed.map(option => <option key={option} value={option}>{option}</option>)}</Select> : <Input id={`field-${field.path}`} type={field.type === 'number' ? 'number' : 'text'} min={field.minimum} max={field.maximum} value={value} placeholder={field.type.endsWith('[]') ? '用逗号分隔多个值' : '未设置'} onChange={event => setDraft(previous => ({ ...previous, [field.path]: event.target.value }))} />}</div></div>
-  }
+  return (
+    <>
+      <PageHeader
+        title="配置"
+        description={<>Schema 驱动的草稿、差异与单次原子保存。配置路径 <span className="signal-mono" style={{ fontSize: 11.5 }}>{configPath || '~/.config/miobridge/config.yaml'}</span></>}
+        actions={(
+          <>
+            <button onClick={validate} className="mb-pill-btn" style={{ height: 32 }}>校验草稿</button>
+            <a href="/api/config/export" download className="mb-pill-btn" style={{ height: 32 }}>导出脱敏配置</a>
+            <button onClick={restore} className="mb-pill-btn" style={{ height: 32, color: 'var(--danger)', borderColor: 'var(--danger)' }}>恢复 last-good</button>
+          </>
+        )}
+      />
 
-  return <SignalPage crumb="Configuration workspace" title="配置" description="由 Core schema 驱动草稿、字段差异、完整校验、单次原子保存、待重启反馈、恢复和导入预览。" status={dirty ? `${changes.length} 个待保存字段` : restartPending ? '配置已保存，等待重启' : '草稿与生效值一致'} maxWidth="narrow" actions={<><Button variant="outline" onClick={validate}><Icon icon="ph:shield-check-light" />校验草稿</Button><Button variant="outline" onClick={refresh} disabled={initialConfigs !== undefined}><Icon icon="ph:arrow-clockwise-light" />刷新</Button></>}>
-    {(error ?? loadError) ? <Alert variant="destructive"><AlertTitle>配置操作失败</AlertTitle><AlertDescription>{error ?? loadError}</AlertDescription></Alert> : null}
-    {message ? <Alert variant="success"><AlertTitle>配置结果</AlertTitle><AlertDescription>{message}</AlertDescription></Alert> : null}
-    {restartPending ? <Alert><AlertTitle>存在待重启字段</AlertTitle><AlertDescription>文件已经安全保存，但相关进程需要重启后才会读取新路径或端口。</AlertDescription></Alert> : null}
-    <div className="grid gap-5 md:grid-cols-3"><Card variant="elevated"><CardHeader><CardDescription>Schema 字段</CardDescription><CardTitle className="signal-value">{schema.length}</CardTitle></CardHeader></Card><Card variant="elevated"><CardHeader><CardDescription>待保存差异</CardDescription><CardTitle className="signal-value">{changes.length}</CardTitle></CardHeader></Card><Card variant="elevated"><CardHeader><CardDescription>配置路径</CardDescription><CardTitle className="break-all text-sm">{configPath || '测试初始值'}</CardTitle></CardHeader></Card></div>
-    <Card className="mt-5"><CardHeader><CardTitle>Schema 配置工作台</CardTitle><CardDescription>未出现在 schema 中的字段不能从 CLI 或 Dashboard 修改。</CardDescription></CardHeader><CardContent><Tabs key={defaultGroup} defaultValue={defaultGroup}><TabsList className="flex flex-wrap">{GROUPS.filter(group => schema.some(field => field.path.startsWith(`${group.key}.`))).map(group => <TabsTrigger key={group.key} value={group.key}>{group.label}</TabsTrigger>)}</TabsList>{GROUPS.map(group => <TabsContent key={group.key} value={group.key} className="grid gap-3 md:grid-cols-2">{schema.filter(field => field.path.startsWith(`${group.key}.`)).map(renderField)}</TabsContent>)}</Tabs></CardContent></Card>
-    {dirty ? <Card className="mt-5"><CardHeader><CardTitle>字段差异</CardTitle><CardDescription>所有变更通过完整校验后一次写入临时文件，再原子替换生效配置。</CardDescription></CardHeader><CardContent className="space-y-3">{changes.map(change => <div key={change.path} className="rounded-2xl bg-[var(--surface-container)] p-4"><p className="font-medium">{change.path}</p><p className="mt-2 break-all text-xs text-muted-foreground">{JSON.stringify(change.before)} → {JSON.stringify(change.after)}</p></div>)}<div className="flex gap-2"><Button onClick={save} disabled={saving}><Icon icon={saving ? 'ph:spinner-bold' : 'ph:floppy-disk-light'} className={saving ? 'animate-spin' : ''} />原子保存全部差异</Button><Button variant="outline" onClick={() => setDraft(Object.fromEntries(schema.map(field => [field.path, inputValue(valueAt(effective, field.path), field.type)])))}>放弃草稿</Button></div></CardContent></Card> : null}
-    <Card className="mt-5"><CardHeader><CardTitle>导入、导出与恢复</CardTitle><CardDescription>导入只生成校验与差异预览，不会直接覆盖；导出内容由服务端脱敏。</CardDescription></CardHeader><CardContent className="space-y-4"><Textarea value={importSource} onChange={event => setImportSource(event.target.value)} rows={8} placeholder="粘贴 YAML 配置，仅执行预览" /><div className="flex flex-wrap gap-2"><Button variant="outline" onClick={previewImport} disabled={!importSource.trim()}>预览导入差异</Button><Button asChild variant="outline"><a href="/api/config/export" download><Icon icon="ph:download-simple-light" />导出脱敏配置</a></Button><Button variant="destructive" onClick={restore}>恢复 last-good</Button></div>{importDiff.length ? <div className="space-y-2">{importDiff.map(item => <div key={item.path} className="rounded-2xl bg-[var(--surface-container)] p-3 text-sm"><strong>{item.path}</strong><p className="mt-1 break-all text-xs text-muted-foreground">{JSON.stringify(item.before)} → {JSON.stringify(item.after)}</p></div>)}</div> : null}</CardContent></Card>
-    <Card className="mt-5"><CardHeader><CardTitle>Webhook 通知</CardTitle><CardDescription>Webhook 的启用状态、URL 和事件范围在上方 schema 中保存；此处只发送测试并查看最近结果。</CardDescription></CardHeader><CardContent className="space-y-4"><div className="flex gap-2"><Button variant="outline" onClick={testWebhook}>发送测试通知</Button><Button variant="outline" onClick={async () => { const response = await apiService.getNotificationHistory(); if (response.success && response.data) setNotificationHistory(response.data.records) }}>刷新历史</Button></div>{notificationHistory.map(record => <div key={record.id} className="flex items-center justify-between gap-3 rounded-2xl bg-[var(--surface-container)] p-3"><div><p className="font-medium">{record.event}</p><p className="text-xs text-muted-foreground">{new Date(record.timestamp).toLocaleString('zh-CN')} · HTTP {record.statusCode}</p></div><Badge variant={record.ok ? 'secondary' : 'destructive'}>{record.ok ? '成功' : '失败'}</Badge></div>)}{notificationHistory.length === 0 ? <p className="text-sm text-muted-foreground">尚未加载通知投递历史。</p> : null}</CardContent></Card>
-  </SignalPage>
+      {(error ?? loadError) ? (
+        <div className="garden-alert garden-alert-danger" style={{ borderRadius: 12, marginBottom: 12 }}>
+          <Icon icon="ph:warning-circle-light" className="mt-0.5 size-5 shrink-0" />
+          <div><p className="font-semibold">配置操作失败</p><p className="text-xs">{error ?? loadError}</p></div>
+        </div>
+      ) : null}
+      {message ? (
+        <div className="garden-alert garden-alert-success" style={{ borderRadius: 12, marginBottom: 12 }}>
+          <Icon icon="ph:check-circle-light" className="mt-0.5 size-5 shrink-0" />
+          <div><p className="font-semibold">配置结果</p><p className="text-xs">{message}</p></div>
+        </div>
+      ) : null}
+      {restartPending ? (
+        <div className="mb-3" style={{ padding: '9px 12px', borderRadius: 10, background: 'var(--warning-bg)', color: 'var(--warning)', fontSize: 12 }}>
+          存在待重启字段：文件已安全保存，但相关进程需重启后才会读取新路径或端口。
+        </div>
+      ) : null}
+
+      <div className="mb-3 flex gap-1" style={{ borderBottom: '1px solid var(--border)' }}>
+        {groupsWithFields.map(g => {
+          const active = activeTab === g.key
+          return (
+            <button key={g.key} onClick={() => setTab(g.key)} style={{ height: 32, padding: '0 12px', border: 'none', background: 'transparent', cursor: 'pointer', fontFamily: 'inherit', fontSize: 12, fontWeight: 600, color: active ? 'var(--primary)' : 'var(--muted-foreground)', borderBottom: `2px solid ${active ? 'var(--primary)' : 'transparent'}`, marginBottom: -1 }}>{g.label}</button>
+          )
+        })}
+      </div>
+
+      <div className="grid gap-2.5" style={{ gridTemplateColumns: '1fr 1fr' }}>
+        {tabFields.map(field => {
+          const value = draft[field.path] ?? ''
+          const changed = changes.some(c => c.path === field.path)
+          const tag = changed ? '已修改' : field.restartRequired ? '需重启' : '可热应用'
+          const tagBg = changed ? 'var(--warning-bg)' : field.restartRequired ? 'var(--card2)' : 'var(--success-bg)'
+          const tagColor = changed ? 'var(--warning)' : field.restartRequired ? 'var(--muted-foreground)' : 'var(--primary)'
+          return (
+            <div key={field.path} className="mb-card" style={{ padding: '12px 14px', borderRadius: 12 }}>
+              <div className="mb-1.5 flex items-center justify-between gap-2">
+                <span className="signal-mono" style={{ fontSize: 11.5, fontWeight: 600 }}>{field.path}</span>
+                <span style={{ display: 'inline-flex', padding: '1px 8px', borderRadius: 99, fontSize: 10, fontWeight: 700, background: tagBg, color: tagColor }}>{tag}</span>
+              </div>
+              {field.type === 'boolean' ? (
+                <label className="flex items-center gap-2" style={{ fontSize: 12 }}>
+                  <input type="checkbox" aria-label={field.path} checked={value === 'true'} onChange={e => setDraft(p => ({ ...p, [field.path]: String(e.target.checked) }))} />启用
+                </label>
+              ) : field.allowed ? (
+                <select aria-label={field.path} value={value} onChange={e => setDraft(p => ({ ...p, [field.path]: e.target.value }))} className="signal-mono" style={{ width: '100%', height: 30, padding: '0 10px', border: '1px solid var(--border)', borderRadius: 8, background: 'var(--card2)', color: 'var(--foreground)', fontSize: 11.5, outline: 'none', boxSizing: 'border-box' }}>
+                  {field.allowed.map(o => <option key={o} value={o}>{o}</option>)}
+                </select>
+              ) : (
+                <input
+                  aria-label={field.path}
+                  type={field.type === 'number' ? 'number' : 'text'}
+                  min={field.minimum} max={field.maximum} value={value}
+                  placeholder={field.type.endsWith('[]') ? '用逗号分隔多个值' : '未设置'}
+                  onChange={e => setDraft(p => ({ ...p, [field.path]: e.target.value }))}
+                  className="signal-mono"
+                  style={{ width: '100%', height: 30, padding: '0 10px', border: '1px solid var(--border)', borderRadius: 8, background: 'var(--card2)', color: 'var(--foreground)', fontSize: 11.5, outline: 'none', boxSizing: 'border-box' }}
+                />
+              )}
+              <p style={{ margin: '5px 0 0', fontSize: 10.5, color: 'var(--muted-foreground)' }}>生效：{JSON.stringify(valueAt(effective, field.path)) ?? '未设置'}</p>
+            </div>
+          )
+        })}
+        {tabFields.length === 0 ? <p style={{ gridColumn: 'span 2', padding: 20, textAlign: 'center', color: 'var(--muted-foreground)', fontSize: 12 }}>该分组暂无可编辑字段。</p> : null}
+      </div>
+
+      {dirty ? (
+        <div className="mb-card mt-[14px] flex items-center justify-between gap-2.5" style={{ padding: '11px 16px' }}>
+          <p style={{ margin: 0, fontSize: 12.5 }}><strong>{changes.length} 个待保存差异</strong><span style={{ color: 'var(--muted-foreground)' }}> — {diffSummary}</span></p>
+          <div className="flex gap-2">
+            <button onClick={discard} className="mb-pill-btn" style={{ height: 30, fontSize: 11.5 }}>放弃草稿</button>
+            <button onClick={save} disabled={saving} className="mb-pill-btn primary" style={{ height: 30, fontSize: 11.5 }}>原子保存全部差异</button>
+          </div>
+        </div>
+      ) : null}
+    </>
+  )
 }

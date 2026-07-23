@@ -28,7 +28,8 @@ export default defineConfig({
     port: 5173,
     strictPort: true,
     proxy: {
-      '/api': {
+      // 用 /api/ 前缀而非 /api，避免把 SPA 路由 /api-docs 也代理到后端（会 502）。
+      '^/api/': {
         target: 'http://127.0.0.1:3000',
         changeOrigin: true,
       },

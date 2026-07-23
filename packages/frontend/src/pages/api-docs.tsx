@@ -2,11 +2,7 @@ import { useMemo, useState } from 'react'
 import { Icon } from '@iconify/react'
 import { toast } from 'sonner'
 import { useOpenApi } from '@/lib/queries'
-import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
-import { Button } from '@/components/ui/button'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
-import MethodBadge from '@/components/shared/MethodBadge'
-import SignalPage from '@/components/shared/SignalPage'
+import PageHeader from '@/components/shared/PageHeader'
 
 const HTTP_METHODS = ['get', 'post', 'put', 'patch', 'delete', 'head', 'options'] as const
 
@@ -68,6 +64,8 @@ function curlFor(endpoint: ApiEndpoint, serverUrl?: string) {
   return `curl -fsS -X ${endpoint.method}${hasJson ? " -H 'Content-Type: application/json' --data '<request-body>'" : ''} '${url}'`
 }
 
+const METHOD_COLOR: Record<string, string> = { GET: 'var(--primary)', POST: 'var(--info)', PATCH: 'var(--warning)', PUT: 'var(--warning)', DELETE: 'var(--danger)' }
+
 export default function ApiDocsPage() {
   const [open, setOpen] = useState<string | null>(null)
   const openApiQuery = useOpenApi()
@@ -75,9 +73,7 @@ export default function ApiDocsPage() {
   const loading = openApiQuery.isPending
 
   const raw = openApiQuery.data
-  const document = raw && typeof raw === 'object' && 'paths' in raw && (raw as OpenApiDocument).paths
-    ? raw as OpenApiDocument
-    : null
+  const document = raw && typeof raw === 'object' && 'paths' in raw && (raw as OpenApiDocument).paths ? raw as OpenApiDocument : null
   const error = openApiQuery.error
     ? (openApiQuery.error.message || 'OpenAPI 文档加载失败')
     : (!loading && raw && !document ? '服务端未返回有效的 OpenAPI 文档' : null)
@@ -89,53 +85,64 @@ export default function ApiDocsPage() {
     return [...grouped.entries()]
   }, [endpoints])
   const serverUrl = document?.servers?.[0]?.url
-  const copy = async (value: string, label: string) => {
-    await navigator.clipboard.writeText(value)
-    toast.success(`已复制${label}`)
-  }
+  const copy = async (value: string, label: string) => { await navigator.clipboard.writeText(value); toast.success(`已复制${label}`) }
 
-  return <SignalPage
-    crumb="OpenAPI 3.1"
-    title="API"
-    description="内容实时来自 /api/openapi.json；写接口仅提供契约与命令复制，不在浏览器内执行。"
-    status={loading ? '加载契约中' : error ? '契约不可用' : `${endpoints.length} 个端点 · v${document?.info?.version || '未知'}`}
-    maxWidth="narrow"
-    actions={<Button variant="outline" onClick={load} disabled={loading}><Icon icon={loading ? 'ph:spinner-light' : 'ph:arrow-clockwise-light'} className={loading ? 'animate-spin' : ''} />刷新文档</Button>}
-  >
+  return (
+    <>
+      <PageHeader
+        title="API"
+        description={`OpenAPI ${document?.openapi || '3.1'} · ${endpoints.length} 个端点 · v${document?.info?.version || '未知'} · 内容实时来自 /api/openapi.json；写接口仅提供契约与命令复制。`}
+        actions={<button onClick={load} disabled={loading} className="mb-pill-btn" style={{ height: 32 }}><Icon icon={loading ? 'ph:spinner-light' : 'ph:arrow-clockwise-light'} className={loading ? 'animate-spin' : ''} />刷新文档</button>}
+      />
 
-    {error ? <Alert variant="destructive"><Icon icon="ph:warning-circle-bold" className="h-5 w-5" /><div><AlertTitle>无法读取 API 契约</AlertTitle><AlertDescription>{error}</AlertDescription></div></Alert> : null}
+      {error ? (
+        <div className="garden-alert garden-alert-danger" style={{ borderRadius: 12, marginBottom: 12 }}>
+          <Icon icon="ph:warning-circle-light" className="mt-0.5 size-5 shrink-0" />
+          <div><p className="font-semibold">无法读取 API 契约</p><p className="text-xs">{error}</p></div>
+        </div>
+      ) : null}
 
-    {!error && document ? <Card><CardHeader><CardTitle>{document.info?.title || 'MioBridge API'}</CardTitle><CardDescription>{document.info?.description || `OpenAPI ${document.openapi || '3.x'} · 服务地址 ${serverUrl || window.location.origin}`}</CardDescription></CardHeader></Card> : null}
-
-    <div className="space-y-5">
-      {groups.map(([groupName, groupEndpoints]) => <Card key={groupName}>
-        <CardHeader><CardTitle>{groupName}</CardTitle><CardDescription>{groupEndpoints.length} 个契约端点。展开查看参数、响应和复制命令。</CardDescription></CardHeader>
-        <CardContent className="space-y-2">{groupEndpoints.map(endpoint => {
-          const key = `${endpoint.method}:${endpoint.path}`
-          const parameters = endpoint.operation.parameters ?? []
-          return <div key={key} className="rounded-2xl border border-[var(--border)] bg-[var(--surface-container)]">
-            <button type="button" className="flex w-full items-center gap-3 p-4 text-left" onClick={() => setOpen(value => value === key ? null : key)} aria-expanded={open === key}>
-              <MethodBadge method={endpoint.method} />
-              <code className="min-w-0 flex-1 break-all text-xs">{endpoint.path}</code>
-              <span className="hidden text-sm text-muted-foreground md:block">{endpoint.summary}</span>
-              <Icon icon={open === key ? 'ph:caret-up-light' : 'ph:caret-down-light'} />
-            </button>
-            {open === key ? <div className="space-y-3 border-t border-[var(--border)] p-4">
-              <div><p className="text-sm font-medium">{endpoint.summary}</p>{endpoint.description ? <p className="mt-1 text-sm text-muted-foreground">{endpoint.description}</p> : null}</div>
-              {parameters.length ? <div className="overflow-x-auto"><table className="w-full min-w-[480px] text-left text-xs"><thead className="text-muted-foreground"><tr><th className="pb-2">参数</th><th className="pb-2">位置</th><th className="pb-2">必填</th><th className="pb-2">说明</th></tr></thead><tbody>{parameters.map((parameter, index) => <tr key={`${parameter.in}:${parameter.name}:${index}`} className="border-t border-[var(--border)]"><td className="py-2 font-mono">{parameter.name || '—'}</td><td>{parameter.in || '—'}</td><td>{parameter.required ? '是' : '否'}</td><td>{parameter.description || '—'}</td></tr>)}</tbody></table></div> : null}
-              {endpoint.operation.requestBody ? <div className="rounded-xl bg-[var(--surface-container-lowest)] p-3 text-xs"><p className="font-medium">请求体{endpoint.operation.requestBody.required ? '（必填）' : ''}</p><p className="mt-1 text-muted-foreground">{endpoint.operation.requestBody.description || Object.keys(endpoint.operation.requestBody.content ?? {}).join('、') || '请按 OpenAPI schema 提交。'}</p></div> : null}
-              <pre className="overflow-auto rounded-xl bg-[var(--surface-container-lowest)] p-3 text-xs">{curlFor(endpoint, serverUrl)}</pre>
-              <p className="text-xs text-muted-foreground">响应：{Object.entries(endpoint.operation.responses ?? {}).map(([status, response]) => `${status} ${response.description || ''}`.trim()).join(' · ') || '未声明'}</p>
-              <div className="flex flex-wrap gap-2">
-                <Button size="sm" variant="outline" onClick={() => copy(endpointUrl(endpoint, serverUrl), ' URL')}>复制 URL</Button>
-                <Button size="sm" variant="outline" onClick={() => copy(curlFor(endpoint, serverUrl), ' cURL')}>复制 cURL</Button>
-                {canOpenEndpoint(endpoint) ? <Button asChild size="sm" variant="outline"><a href={endpointUrl(endpoint, serverUrl)} target="_blank" rel="noreferrer">打开 GET</a></Button> : null}
-              </div>
-            </div> : null}
+      <div className="flex flex-col gap-[14px]">
+        {groups.map(([groupName, groupEndpoints]) => (
+          <div key={groupName} className="mb-card overflow-hidden">
+            <p style={{ margin: 0, padding: '11px 16px 7px', fontSize: 12.5, fontWeight: 700 }}>{groupName}</p>
+            <div>
+              {groupEndpoints.map(endpoint => {
+                const key = `${endpoint.method}:${endpoint.path}`
+                const isOpen = open === key
+                return (
+                  <div key={key} style={{ borderTop: '1px solid var(--border)' }}>
+                    <button
+                      onClick={() => setOpen(v => v === key ? null : key)} aria-expanded={isOpen}
+                      className="mb-hover"
+                      style={{ display: 'flex', alignItems: 'center', gap: 10, width: '100%', padding: '9px 16px', border: 'none', background: 'transparent', color: 'var(--foreground)', cursor: 'pointer', textAlign: 'left', fontFamily: 'inherit' }}
+                    >
+                      <span className="signal-mono" style={{ display: 'inline-flex', justifyContent: 'center', minWidth: 46, padding: '2px 0', borderRadius: 6, fontSize: 10, fontWeight: 700, background: 'var(--card2)', color: METHOD_COLOR[endpoint.method] || 'var(--muted-foreground)' }}>{endpoint.method}</span>
+                      <code className="signal-mono" style={{ fontSize: 11.5 }}>{endpoint.path}</code>
+                      <span style={{ marginLeft: 'auto', fontSize: 11.5, color: 'var(--muted-foreground)' }} className="hidden md:inline">{endpoint.summary}</span>
+                      <Icon icon={isOpen ? 'ph:caret-up-bold' : 'ph:caret-down-bold'} style={{ fontSize: 12, color: 'var(--muted-foreground)' }} />
+                    </button>
+                    {isOpen ? (
+                      <div style={{ padding: '0 16px 12px' }}>
+                        {endpoint.description ? <p style={{ margin: '0 0 8px', fontSize: 11.5, color: 'var(--muted-foreground)' }}>{endpoint.description}</p> : null}
+                        <pre className="signal-mono" style={{ margin: 0, padding: '10px 12px', borderRadius: 10, background: 'var(--terminal)', color: 'var(--terminal-fg)', fontSize: 11, overflow: 'auto' }}>{curlFor(endpoint, serverUrl)}</pre>
+                        <div className="mt-2 flex gap-1.5">
+                          <button onClick={() => copy(endpointUrl(endpoint, serverUrl), ' URL')} className="mb-pill-btn" style={{ height: 26, padding: '0 10px', fontSize: 11 }}>复制 URL</button>
+                          <button onClick={() => copy(curlFor(endpoint, serverUrl), ' cURL')} className="mb-pill-btn" style={{ height: 26, padding: '0 10px', fontSize: 11 }}>复制 cURL</button>
+                          {canOpenEndpoint(endpoint) ? <a href={endpointUrl(endpoint, serverUrl)} target="_blank" rel="noreferrer" className="mb-pill-btn" style={{ height: 26, padding: '0 10px', fontSize: 11 }}>打开 GET</a> : null}
+                        </div>
+                      </div>
+                    ) : null}
+                  </div>
+                )
+              })}
+            </div>
           </div>
-        })}</CardContent>
-      </Card>)}
-      {!loading && !error && endpoints.length === 0 ? <Card><CardContent className="p-10 text-center text-muted-foreground">契约中没有可显示的 paths。</CardContent></Card> : null}
-    </div>
-  </SignalPage>
+        ))}
+        {!loading && !error && endpoints.length === 0 ? (
+          <div className="mb-card" style={{ padding: 32, textAlign: 'center', color: 'var(--muted-foreground)', fontSize: 12 }}>契约中没有可显示的 paths。</div>
+        ) : null}
+      </div>
+    </>
+  )
 }

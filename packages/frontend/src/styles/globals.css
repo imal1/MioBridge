@@ -69,6 +69,12 @@
   --shadow-card-hover: inset 0 1px 0 rgba(255,255,255,.96), 0 34px 104px rgba(63, 99, 73, .19);
   --shadow-elevated: 0 28px 90px rgba(63, 99, 73, .16);
 
+  /* Compact redesign tokens */
+  --card2: rgba(63, 143, 95, 0.07);
+  --terminal: #0b100d;
+  --terminal-fg: #dceee0;
+  --shadow-compact: 0 10px 34px rgba(63, 99, 73, 0.10);
+
   --sidebar: rgba(255, 255, 250, 0.72);
   --sidebar-foreground: var(--signal-ink);
   --sidebar-primary: var(--signal-stem);
@@ -123,6 +129,11 @@
   --shadow-card: inset 0 1px 0 rgba(255,255,255,.075), 0 26px 90px rgba(4, 17, 10, .40);
   --shadow-card-hover: inset 0 1px 0 rgba(255,255,255,.12), 0 34px 110px rgba(4, 17, 10, .46);
   --shadow-elevated: 0 24px 90px rgba(4, 17, 10, .42);
+
+  --card2: rgba(126, 226, 168, 0.07);
+  --terminal: #0b100d;
+  --terminal-fg: #dceee0;
+  --shadow-compact: 0 10px 34px rgba(4, 17, 10, 0.40);
 
   --sidebar: rgba(234, 245, 235, 0.045);
   --sidebar-foreground: #eaf5eb;
@@ -573,4 +584,98 @@ button, input, textarea, select {
     transition-duration: 0.01ms !important;
     scroll-behavior: auto !important;
   }
+}
+
+/* ============================================================
+   Compact redesign — dense control-panel layout.
+   Shared structural primitives; most spacing/colors stay inline
+   to mirror the handoff spec 1:1.
+   ============================================================ */
+.mb-app {
+  position: relative;
+  z-index: 2;
+  min-height: 100dvh;
+  color: var(--foreground);
+  font-size: 13.5px;
+  line-height: 1.55;
+}
+
+.mb-sidebar {
+  position: fixed;
+  inset: 0 auto 0 0;
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+  width: 212px;
+  padding: 18px 14px 14px;
+  background: var(--sidebar);
+  border-right: 1px solid var(--border);
+  backdrop-filter: blur(16px);
+}
+
+.mb-main {
+  box-sizing: border-box;
+  margin-left: 212px;
+  max-width: 1160px;
+  padding: 24px 28px 40px;
+}
+
+.mb-nav-btn {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  height: 33px;
+  padding: 0 11px;
+  border: none;
+  border-radius: 9px;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+  text-align: left;
+  background: transparent;
+  color: var(--foreground);
+  transition: background .2s;
+  text-decoration: none;
+}
+.mb-nav-btn:not(.active):hover { background: var(--card2); text-decoration: none; }
+.mb-nav-btn.active {
+  background: var(--primary);
+  color: var(--primary-foreground);
+  box-shadow: 0 6px 18px rgba(63, 143, 95, .28);
+}
+
+.mb-card {
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--card);
+  box-shadow: var(--shadow-compact);
+}
+
+.mb-table { width: 100%; border-collapse: collapse; }
+.mb-th {
+  font-size: 10.5px; font-weight: 700; letter-spacing: .06em;
+  color: var(--muted-foreground); border-bottom: 1px solid var(--border);
+}
+.mb-hover:hover { background: var(--card2); }
+
+.mb-pill-btn {
+  display: inline-flex; align-items: center; gap: 6px; height: 34px; padding: 0 16px;
+  border-radius: 99px; font-weight: 600; font-size: 12.5px; cursor: pointer;
+  font-family: inherit; border: 1px solid var(--border); background: var(--card);
+  color: var(--foreground); transition: background .2s;
+}
+.mb-pill-btn:hover { background: var(--card2); }
+.mb-pill-btn.primary {
+  border: none; background: var(--primary); color: var(--primary-foreground);
+  box-shadow: 0 8px 22px rgba(63, 143, 95, .25);
+}
+.mb-pill-btn.primary:hover { background: var(--primary); }
+
+/* Mobile: drop the fixed rail, hand off to drawer */
+@media (max-width: 1023px) {
+  .mb-sidebar { display: none; }
+  .mb-main { margin-left: 0; max-width: 100%; padding: 16px 14px 32px; }
 }

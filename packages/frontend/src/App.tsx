@@ -12,13 +12,8 @@ const ConvertModal = lazy(() => import('./components/ConvertModal'));
 const Dashboard = lazy(() => import('./components/Dashboard'));
 const ConfigPage = lazy(() => import('./pages/config'));
 const NodesPage = lazy(() => import('./pages/nodes'));
-const DeployPage = lazy(() => import('./pages/deploy'));
-const AgentsPage = lazy(() => import('./pages/agents'));
-const RuntimesPage = lazy(() => import('./pages/runtimes'));
 const LogsPage = lazy(() => import('./pages/logs'));
 const SubscriptionPage = lazy(() => import('./pages/subscription'));
-const OutputsPage = lazy(() => import('./pages/outputs'));
-const SubscriptionStatusPage = lazy(() => import('./pages/subscription-status'));
 const ApiDocsPage = lazy(() => import('./pages/api-docs'));
 
 const pageTransition = {
@@ -61,15 +56,17 @@ function AnimatedRoutes() {
               <Route path="/" element={<Dashboard />} />
               <Route path="/config" element={<ConfigPage />} />
               <Route path="/nodes" element={<NodesPage />} />
-              <Route path="/deploy" element={<DeployPage />} />
-              <Route path="/agents" element={<AgentsPage />} />
-              <Route path="/runtimes" element={<RuntimesPage />} />
               <Route path="/logs" element={<LogsPage />} />
               <Route path="/subscription" element={<SubscriptionPage />} />
-              <Route path="/outputs" element={<OutputsPage />} />
-              <Route path="/subscription-status" element={<SubscriptionStatusPage />} />
-              <Route path="/actions" element={<Navigate replace to="/subscription" />} />
               <Route path="/api-docs" element={<ApiDocsPage />} />
+              {/* 重设计合并旧页面：部署/Agent/运行时并入节点，衍生输出并入总览，订阅状态并入订阅。 */}
+              <Route path="/deploy" element={<Navigate replace to="/nodes" />} />
+              <Route path="/agents" element={<Navigate replace to="/nodes" />} />
+              <Route path="/runtimes" element={<Navigate replace to="/nodes" />} />
+              <Route path="/outputs" element={<Navigate replace to="/" />} />
+              <Route path="/subscription-status" element={<Navigate replace to="/subscription" />} />
+              <Route path="/actions" element={<Navigate replace to="/subscription" />} />
+              <Route path="*" element={<Navigate replace to="/" />} />
             </Routes>
           </Suspense>
         </motion.div>

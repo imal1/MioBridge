@@ -32,15 +32,15 @@ describe('Cluster Dashboard Page', () => {
     expect(screen.getByText('1/2')).toBeDefined()
     expect(screen.getByText('1/4 可用')).toBeDefined()
     expect(screen.queryByRole('button', { name: '立即更新订阅' })).toBeNull()
-    expect(screen.getByRole('link', { name: /前往订阅生成/ })).toBeDefined()
+    expect(screen.getByRole('link', { name: /生成订阅/ })).toBeDefined()
   })
 
-  it('shows the expanded workflow shortcuts', async () => {
+  it('exposes the redesign header shortcuts', async () => {
     const Dashboard = (await import('@/components/Dashboard')).default
     renderWithClient(<MemoryRouter><Dashboard initialCluster={null} initialError={null} /></MemoryRouter>)
+    // 重设计头部动作：添加节点 → /nodes，生成订阅 → /subscription。
     expect(screen.getByRole('link', { name: /添加节点/ })).toBeDefined()
-    expect(screen.getByRole('link', { name: /部署运行环境/ })).toBeDefined()
-    expect(screen.getByRole('link', { name: /维护订阅状态/ })).toBeDefined()
+    expect(screen.getByRole('link', { name: /生成订阅/ })).toBeDefined()
   })
 
   it('manages structured config drafts without runtime capability cards', async () => {
@@ -48,7 +48,7 @@ describe('Cluster Dashboard Page', () => {
     renderWithClient(<ConfigPage initialConfigs={['default']} frontendConfig={{}} initialError={null} />)
     expect(screen.queryByRole('tab', { name: '运行能力' })).toBeNull()
     fireEvent.change(screen.getByLabelText('protocols.sing_box_configs'), { target: { value: 'default, vless-reality' } })
-    expect(screen.getByText('字段差异')).toBeDefined()
+    expect(screen.getByText(/待保存差异/)).toBeDefined()
     expect(screen.getByText(/vless-reality/)).toBeDefined()
   })
 })
