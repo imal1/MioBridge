@@ -1,6 +1,6 @@
-import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
+import type { IncomingMessage, ServerResponse } from 'node:http';
 import { randomUUID } from 'node:crypto';
-import type { Socket } from 'node:net';
+import Fastify, { type FastifyReply, type FastifyRequest } from 'fastify';
 import type { DashboardServerDependencies } from './composition.js';
 import { registerCompatRoutes } from './compatRoutes.js';
 import { registerCoreRoutes } from './coreRoutes.js';
@@ -19,9 +19,6 @@ import {
 import { serveStatic } from './staticServer.js';
 
 const MAX_BODY_BYTES = 1024 * 1024;
-/** 超限后最多再排空多少倍的数据，用来保证 413 响应能送达而不被无限拖住。 */
-const DRAIN_LIMIT_FACTOR = 8;
-const METHODS = new Set<DashboardHttpMethod>(['GET', 'HEAD', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS']);
 
 export interface NodeDashboardServerOptions {
   readonly host: string;
@@ -46,39 +43,6 @@ class BodyError extends Error {
   constructor(readonly status: number, readonly code: string, message: string) {
     super(message);
     this.name = 'BodyError';
-  }
-}
-
-async function readBody(request: IncomingMessage): Promise<unknown> {
-  const chunks: Buffer[] = [];
-  let size = 0;
-  let overflow = false;
-  for await (const value of request) {
-    const chunk = Buffer.isBuffer(value) ? value : Buffer.from(value);
-    size += chunk.length;
-    if (size > MAX_BODY_BYTES) {
-      // 超限后停止缓冲但继续排空请求流：直接 break 会销毁 socket，
-      // 客户端就收不到我们正要发送的 413 响应了（表现为连接被重置）。
-      overflow = true;
-      chunks.length = 0;
-      // 但也不能无限期陪跑，明显恶意的超大上传直接断开。
-      if (size > MAX_BODY_BYTES * DRAIN_LIMIT_FACTOR) {
-        request.destroy();
-        throw new BodyError(413, 'PAYLOAD_TOO_LARGE', '请求体超过 1 MiB 限制');
-      }
-      continue;
-    }
-    chunks.push(chunk);
-  }
-  if (overflow) throw new BodyError(413, 'PAYLOAD_TOO_LARGE', '请求体超过 1 MiB 限制');
-  if (chunks.length === 0) return undefined;
-  const source = Buffer.concat(chunks).toString('utf8');
-  const contentType = request.headers['content-type'] ?? '';
-  if (!contentType.includes('application/json')) return source;
-  try {
-    return JSON.parse(source);
-  } catch {
-    throw new BodyError(400, 'INVALID_JSON', '请求体不是合法的 JSON');
   }
 }
 
@@ -140,43 +104,49 @@ export async function runNodeDashboardServer(options: NodeDashboardServerOptions
   const routes = new DashboardRouteRegistry();
   registerRoutes(routes, options.dependencies);
   options.extendRoutes?.(routes);
-  const responses = new Set<ServerResponse>();
 
-  const server = createServer(async (incoming, outgoing) => {
-    responses.add(outgoing);
-    outgoing.once('close', () => responses.delete(outgoing));
+  const app = Fastify({ logger: true, bodyLimit: MAX_BODY_BYTES, forceCloseConnections: true });
+
+  // Reproduce the previous readBody() semantics: empty → undefined, JSON parsed
+  // (invalid → 400 envelope), any other content type passed through as a raw
+  // string. Body-limit overflow surfaces as Fastify's 413 in the error handler.
+  app.removeAllContentTypeParsers();
+  app.addContentTypeParser('application/json', { parseAs: 'string' }, (_request, body, done) => {
+    if (body === '') { done(null, undefined); return; }
+    try { done(null, JSON.parse(body as string)); }
+    catch { done(new BodyError(400, 'INVALID_JSON', '请求体不是合法的 JSON'), undefined); }
+  });
+  app.addContentTypeParser('*', { parseAs: 'string' }, (_request, body, done) => {
+    done(null, body === '' ? undefined : body);
+  });
+
+  app.setErrorHandler((error: Error & { statusCode?: number }, request, reply) => {
+    const requestId = firstHeader(request.headers['x-request-id']) ?? randomUUID();
+    const failure = error instanceof BodyError
+      ? error
+      : error.statusCode === 413
+      ? new BodyError(413, 'PAYLOAD_TOO_LARGE', '请求体超过 1 MiB 限制')
+      : new BodyError(400, 'INVALID_BODY', error.message || '请求体无效');
+    void reply.header('X-Request-ID', requestId).code(failure.status).send({
+      success: false,
+      error: { code: failure.code, message: failure.message, retryable: false },
+      timestamp: new Date().toISOString(),
+      requestId,
+      role: 'admin',
+    });
+  });
+
+  const handler = async (req: FastifyRequest, reply: FastifyReply): Promise<void> => {
+    const method = req.method as DashboardHttpMethod;
+    const url = new URL(req.url, `http://${req.headers.host ?? 'localhost'}`);
+    const requestId = firstHeader(req.headers['x-request-id']) ?? randomUUID();
+    // Hand the raw Node objects to the existing adapters and take over the
+    // socket; Fastify only owns lifecycle, body parsing, and logging.
+    reply.hijack();
+    const request = requestAdapter(req.raw, reply.raw, url, method, req.body, requestId);
+    const response = responseAdapter(reply.raw);
+    response.header('X-Request-ID', requestId);
     try {
-      const method = incoming.method as DashboardHttpMethod | undefined;
-      if (!method || !METHODS.has(method)) {
-        outgoing.statusCode = 405;
-        outgoing.end('Method Not Allowed');
-        return;
-      }
-      const url = new URL(incoming.url ?? '/', `http://${incoming.headers.host ?? 'localhost'}`);
-      // requestId 必须在读取 body 之前定下来：body 解析失败的响应同样要能被调用方关联。
-      const requestId = firstHeader(incoming.headers['x-request-id']) ?? randomUUID();
-      let body: unknown;
-      try {
-        body = await readBody(incoming);
-      } catch (error) {
-        const failure = error instanceof BodyError
-          ? error
-          : new BodyError(400, 'INVALID_BODY', error instanceof Error ? error.message : '请求体无效');
-        outgoing.statusCode = failure.status;
-        outgoing.setHeader('X-Request-ID', requestId);
-        outgoing.setHeader('Content-Type', 'application/json; charset=utf-8');
-        outgoing.end(JSON.stringify({
-          success: false,
-          error: { code: failure.code, message: failure.message, retryable: false },
-          timestamp: new Date().toISOString(),
-          requestId,
-          role: 'admin',
-        }));
-        return;
-      }
-      const request = requestAdapter(incoming, outgoing, url, method, body, requestId);
-      const response = responseAdapter(outgoing);
-      response.header('X-Request-ID', request.requestId);
       await options.onRequest?.(request);
       if (await routes.dispatch(request, response)) return;
       if (method === 'GET' || method === 'HEAD') {
@@ -187,53 +157,44 @@ export async function runNodeDashboardServer(options: NodeDashboardServerOptions
         });
         if (served) return;
       }
-      if (!outgoing.writableEnded) outgoing.statusCode = 404;
-      if (!outgoing.writableEnded) outgoing.end('Not Found');
+      if (!reply.raw.writableEnded) reply.raw.statusCode = 404;
+      if (!reply.raw.writableEnded) reply.raw.end('Not Found');
     } catch (error) {
-      if (!outgoing.headersSent) outgoing.statusCode = 500;
-      if (!outgoing.writableEnded) outgoing.end(error instanceof Error ? error.message : 'Internal Server Error');
+      if (!reply.raw.headersSent) reply.raw.statusCode = 500;
+      if (!reply.raw.writableEnded) reply.raw.end(error instanceof Error ? error.message : 'Internal Server Error');
     }
-  });
-  const sockets = new Set<Socket>();
-  server.on('connection', socket => {
-    sockets.add(socket);
-    socket.once('close', () => sockets.delete(socket));
+  };
+  app.all('/', handler);
+  app.all('/*', handler);
+
+  const signals = ['SIGINT', 'SIGTERM', 'SIGHUP'] as const;
+  const close = () => { void app.close(); };
+  let metricsTimer: NodeJS.Timeout | undefined;
+  const cleanup = () => {
+    if (metricsTimer) clearInterval(metricsTimer);
+    signals.forEach(signal => process.off(signal, close));
+    options.signal?.removeEventListener('abort', close);
+  };
+  // Hooks must be registered before listen(); resolve the exit promise when the
+  // Fastify instance finishes closing (SIGINT/SIGTERM/SIGHUP or the abort signal).
+  const exit = new Promise<number>((resolve, reject) => {
+    app.addHook('onClose', () => { cleanup(); resolve(0); });
+    app.server.once('error', error => { cleanup(); reject(error); });
   });
 
-  await new Promise<void>((resolve, reject) => {
-    const fail = (error: Error) => reject(error);
-    server.once('error', fail);
-    server.listen(options.port, options.host, () => {
-      server.off('error', fail);
-      resolve();
-    });
-  });
+  await app.listen({ host: options.host, port: options.port });
 
   const sampleMetrics = async () => {
     const snapshot = await options.dependencies.core.getMetricsSnapshot();
     await options.dependencies.core.state.set(`metrics/${Date.now()}.json`, JSON.stringify(snapshot));
   };
   void sampleMetrics().catch(() => undefined);
-  const metricsTimer = setInterval(() => { void sampleMetrics().catch(() => undefined); }, 5 * 60_000);
+  metricsTimer = setInterval(() => { void sampleMetrics().catch(() => undefined); }, 5 * 60_000);
   metricsTimer.unref?.();
 
-  return new Promise<number>((resolve, reject) => {
-    const signals = ['SIGINT', 'SIGTERM', 'SIGHUP'] as const;
-    const close = () => {
-      for (const response of responses) response.destroy();
-      for (const socket of sockets) socket.destroy();
-      server.closeAllConnections();
-      server.close();
-    };
-    const cleanup = () => {
-      clearInterval(metricsTimer);
-      signals.forEach(signal => process.off(signal, close));
-      options.signal?.removeEventListener('abort', close);
-    };
-    signals.forEach(signal => process.on(signal, close));
-    options.signal?.addEventListener('abort', close, { once: true });
-    if (options.signal?.aborted) close();
-    server.once('close', () => { cleanup(); resolve(0); });
-    server.once('error', error => { cleanup(); reject(error); });
-  });
+  signals.forEach(signal => process.on(signal, close));
+  options.signal?.addEventListener('abort', close, { once: true });
+  if (options.signal?.aborted) close();
+
+  return exit;
 }

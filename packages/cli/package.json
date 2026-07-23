@@ -23,6 +23,7 @@
   },
   "dependencies": {
     "@miobridge/core": "workspace:*",
+    "fastify": "^5.10.0",
     "ssh2": "^1.17.0",
     "yaml": "^2.8.1"
   },
