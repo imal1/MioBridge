@@ -39,11 +39,13 @@ describe('Default local node display', () => {
     const { default: NodesPage } = await import('@/pages/nodes')
     const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
     render(<QueryClientProvider client={client}><MemoryRouter><NodesPage /></MemoryRouter></QueryClientProvider>)
-    // 本机节点是普通子节点：不被过滤、不带特殊徽标，走与其他节点相同的卡片和操作入口。
+    // 本机节点是普通子节点：不被过滤、不带特殊徽标，走与其他节点相同的表格行。
     await screen.findByText('本机节点')
-    expect(screen.getByText('127.0.0.1 · 本机 · local')).toBeTruthy()
+    expect(screen.getByText('127.0.0.1 · 本机')).toBeTruthy()
     expect(screen.getByText('东京节点')).toBeTruthy()
-    expect(screen.getAllByText(/部署 Agent|查看部署/).length).toBe(2)
+    // 部署入口在选中节点后的详情标签页，不再是每行按钮；离线本机与在线子节点各有一个 Agent 状态徽标。
+    expect(screen.getByText('未安装')).toBeTruthy()
+    expect(screen.getByText('在线')).toBeTruthy()
     expect(screen.queryByText('本机', { exact: true })).toBeNull()
   })
 })

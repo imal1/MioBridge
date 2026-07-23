@@ -71,3 +71,9 @@ export function useAppContext() {
 export function useBackendReachable() {
   return useContext(AppContext)?.backendReachable ?? null
 }
+
+// Provider-safe convert-modal opener: no-ops when rendered outside AppProvider
+// (e.g. isolated component tests) instead of throwing.
+export function useConvertModal() {
+  return { open: useContext(AppContext)?.openConvertModal ?? (() => {}) }
+}
