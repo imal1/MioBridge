@@ -1,3 +1,4 @@
+import { delimiter, join, resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import YAML from 'yaml';
 import {
@@ -69,16 +70,17 @@ describe('kernel adapters', () => {
     const process = new FakeProcess();
     const adapter = new SingBoxAdapter({ process, logger, paths, configs: [], requestTimeout: 1234 });
     expect(await adapter.isAvailable()).toBe(true);
-    expect(process.calls[0]?.command).toBe('/state/bin/sing-box');
+    expect(process.calls[0]?.command).toBe(paths.binaryCandidates('sing-box')[0]);
   });
 
   it('skips an official sing-box core that does not provide the 233boy url command', async () => {
     const paths = createRuntimePaths({ env: { MIOBRIDGE_CONFIG_DIR: '/state', PATH: '/usr/local/bin' } });
+    const [managedSingBox, pathSingBox] = paths.binaryCandidates('sing-box');
     const calls: string[] = [];
     const process: ProcessRunner = {
       async run(command, args) {
         calls.push(`${command} ${args.join(' ')}`);
-        if (command === '/state/bin/sing-box') return { stdout: 'Usage: sing-box [command]', stderr: '' };
+        if (command === managedSingBox) return { stdout: 'Usage: sing-box [command]', stderr: '' };
         return { stdout: 'url [name] URL information', stderr: '' };
       },
       async which() { return null; },
@@ -86,27 +88,33 @@ describe('kernel adapters', () => {
     const adapter = new SingBoxAdapter({ process, logger, paths, configs: [], requestTimeout: 1234 });
     expect(await adapter.isAvailable()).toBe(true);
     expect(calls).toEqual([
-      '/state/bin/sing-box help',
-      '/usr/local/bin/sing-box help',
+      `${managedSingBox} help`,
+      `${pathSingBox} help`,
     ]);
   });
 
   it.each(['/repo', '/tmp/unrelated'])('uses managed, explicit repository, then PATH candidates independent of cwd (%s)', async () => {
-    const paths = createRuntimePaths({ env: { MIOBRIDGE_CONFIG_DIR: '/state', PATH: '/one:/two' }, applicationRoot: '/app' });
+    const paths = createRuntimePaths({ env: { MIOBRIDGE_CONFIG_DIR: '/state', PATH: ['/one', '/two'].join(delimiter) }, applicationRoot: '/app' });
     const adapter = new MihomoAdapter({ paths, process: new FakeProcess(), fs: new MemoryFs(), logger, runtimeDir: '/runtime' });
-    expect(adapter.binaryCandidates()).toEqual(['/state/bin/mihomo', '/app/bin/mihomo', '/one/mihomo', '/two/mihomo']);
+    expect(adapter.binaryCandidates()).toEqual([
+      join(resolve('/state'), 'bin', 'mihomo'),
+      join(resolve('/app'), 'bin', 'mihomo'),
+      join('/one', 'mihomo'),
+      join('/two', 'mihomo'),
+    ]);
   });
 
   it('validates generated YAML with unchanged mihomo arguments and removes the temporary file', async () => {
     const paths = createRuntimePaths({ env: { MIOBRIDGE_CONFIG_DIR: '/state', PATH: '' }, applicationRoot: '/app' });
     const fs = new MemoryFs();
-    fs.files.set('/state/bin/mihomo', 'binary');
+    fs.files.set(paths.binaryCandidates('mihomo')[0]!, 'binary');
     const process = new FakeProcess();
     const adapter = new MihomoAdapter({ paths, process, fs, logger, runtimeDir: '/runtime' });
     const output = await adapter.convertToClashByContent('vless://id@example.com:443?type=tcp&security=tls#node');
+    const tempConfig = join(paths.managedPath('mihomo'), 'temp-config.yaml');
     expect(YAML.parse(output).proxies[0]).toMatchObject({ name: 'node', type: 'vless' });
-    expect(process.calls.at(-1)?.args).toEqual(['-d', '/runtime', '-t', '-f', '/state/mihomo/temp-config.yaml']);
-    expect(fs.files.has('/state/mihomo/temp-config.yaml')).toBe(false);
+    expect(process.calls.at(-1)?.args).toEqual(['-d', '/runtime', '-t', '-f', tempConfig]);
+    expect(fs.files.has(tempConfig)).toBe(false);
   });
 
   it('preserves Reality and WebSocket parameters and uses safe default routing rules', async () => {
@@ -130,7 +138,7 @@ describe('kernel adapters', () => {
   it('renders every input node into the complete Clash template without replacing routing rules', async () => {
     const paths = createRuntimePaths({ env: { MIOBRIDGE_CONFIG_DIR: '/state', PATH: '' }, applicationRoot: '/app' });
     const fs = new MemoryFs();
-    fs.files.set('/state/bin/mihomo', 'binary');
+    fs.files.set(paths.binaryCandidates('mihomo')[0]!, 'binary');
     const process = new FakeProcess();
     const adapter = new MihomoAdapter({ paths, process, fs, logger, runtimeDir: '/runtime' });
     const output = YAML.parse(await adapter.convertToClashByContent([

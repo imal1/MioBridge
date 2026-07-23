@@ -1,6 +1,6 @@
 import { mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { delimiter, join, sep } from 'node:path';
+import { delimiter, join, resolve, sep } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   ConfigService,
@@ -33,9 +33,9 @@ describe('RuntimePaths', () => {
     expect(paths.baseDir).toBe(first);
     expect(paths.binaryCandidates('mihomo')).toEqual([
       join(first, 'bin', 'mihomo'),
-      '/opt/miobridge/bin/mihomo',
-      '/one/mihomo',
-      '/two/mihomo',
+      join(resolve('/opt/miobridge'), 'bin', 'mihomo'),
+      join('/one', 'mihomo'),
+      join('/two', 'mihomo'),
     ]);
   });
 
@@ -56,7 +56,8 @@ describe('StateStore', () => {
     await store.set('nodes.yaml', 'nodes:\n');
 
     expect(await readFile(join(directory, 'nodes.yaml'), 'utf8')).toBe('nodes:\n');
-    expect((await stat(join(directory, 'nodes.yaml'))).mode & 0o777).toBe(0o600);
+    // POSIX mode bits are meaningless on Windows (NTFS only honours the read-only bit).
+    if (process.platform !== 'win32') expect((await stat(join(directory, 'nodes.yaml'))).mode & 0o777).toBe(0o600);
     expect(await store.listKeys('deploy-progress/')).toEqual(['deploy-progress/node-a']);
     await expect(store.get('../outside')).rejects.toThrow('非法的 state key');
 
@@ -141,7 +142,7 @@ describe('YamlService and ConfigService', () => {
     ]);
     expect(applied).toMatchObject({ restartRequired: true, results: [{ path: 'app.port' }, { path: 'network.request_timeout' }] });
     expect(config.getConfigByPath('app.port')).toBe(4000);
-    expect((await stat(paths.configFile)).mode & 0o777).toBe(0o600);
+    if (process.platform !== 'win32') expect((await stat(paths.configFile)).mode & 0o777).toBe(0o600);
 
     const beforeInvalid = await readFile(paths.configFile, 'utf8');
     expect(() => config.setConfigValues([{ path: 'app.port', value: 70_000 }])).toThrow('不能大于');
