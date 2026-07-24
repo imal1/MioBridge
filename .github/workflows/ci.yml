@@ -124,6 +124,47 @@ jobs:
           sh -n dist/cli-release/install-agent.sh
           grep -F 'install-agent.sh' dist/cli-release/SHA256SUMS
 
+  coverage:
+    name: Coverage (v8)
+    needs: lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.2.13
+
+      # Vitest coverage providers need a real Node runtime (Bun lacks node:inspector),
+      # so the report is produced under Node even though the toolchain is otherwise Bun.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - run: bun install --frozen-lockfile
+
+      - run: bun run core:build
+      - run: bun run cli:build
+
+      - name: Core coverage
+        run: cd packages/core && npx --no-install vitest run --coverage --coverage.provider=v8 --coverage.all --coverage.include='src/**' --coverage.reporter=text --coverage.reporter=json-summary --coverage.reportsDirectory=coverage
+
+      - name: CLI coverage
+        run: cd packages/cli && npx --no-install vitest run --coverage --coverage.provider=v8 --coverage.all --coverage.include='src/**' --coverage.reporter=text --coverage.reporter=json-summary --coverage.reportsDirectory=coverage
+
+      - name: Upload coverage reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-reports
+          path: |
+            packages/core/coverage
+            packages/cli/coverage
+          if-no-files-found: warn
+          retention-days: 14
+
   build:
     name: Build (Vite SPA)
     needs: [typecheck, test]

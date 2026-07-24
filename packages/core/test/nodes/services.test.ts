@@ -1,6 +1,6 @@
 import { createHmac } from 'node:crypto';
 import { describe, expect, it, vi } from 'vitest';
-import { AgentClient, NodeAggregationService, NodeRepository, type NodeConfig, type StateStore } from '../../src/index.js';
+import { AgentClient, NodeAggregationService, NodeRepository, validateNodeKernels, type NodeConfig, type StateStore } from '../../src/index.js';
 
 function memoryStore(initial: string | null): StateStore {
   let value = initial;
@@ -239,5 +239,26 @@ describe('node core services', () => {
     expect(Date.now() - startedAt).toBeLessThan(100);
 
     releaseHung(); // 放行后台刷新，避免测试留下悬挂的 Promise。
+  });
+});
+
+describe('validateNodeKernels', () => {
+  it('normalizes and sorts kernels by canonical order, dropping absent configPath', () => {
+    expect(validateNodeKernels([{ type: 'xray' }, { type: 'sing-box', configPath: '/etc/sing-box/config.json' }]))
+      .toEqual([{ type: 'sing-box', configPath: '/etc/sing-box/config.json' }, { type: 'xray' }]);
+  });
+
+  it('rejects empty input only when allowEmpty is false', () => {
+    expect(validateNodeKernels([])).toEqual([]);
+    expect(() => validateNodeKernels([], false)).toThrow('至少选择一个内核');
+    expect(() => validateNodeKernels('nope')).toThrow('至少选择一个内核');
+  });
+
+  it('rejects malformed entries, unknown fields, bad types, duplicates, and bad paths', () => {
+    expect(() => validateNodeKernels([null])).toThrow('内核配置无效');
+    expect(() => validateNodeKernels([{ type: 'xray', extra: 1 }])).toThrow('未知字段');
+    expect(() => validateNodeKernels([{ type: 'nope' }])).toThrow('不支持的内核类型: nope');
+    expect(() => validateNodeKernels([{ type: 'xray' }, { type: 'xray' }])).toThrow('内核类型重复: xray');
+    expect(() => validateNodeKernels([{ type: 'xray', configPath: 'relative' }])).toThrow('内核配置路径无效: xray');
   });
 });

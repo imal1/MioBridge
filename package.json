@@ -63,6 +63,8 @@
   },
   "homepage": "https://github.com/imal1/miobridge#readme",
   "devDependencies": {
+    "@types/node": "^24.0.8",
+    "@vitest/coverage-v8": "4.1.9",
     "oxlint": "^1.6.0",
     "typescript": "^6.0.3"
   },
