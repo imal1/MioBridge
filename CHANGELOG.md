@@ -9,7 +9,7 @@
 - 控制台重设计：界面从 11 页收敛到 6 页，`/deploy` `/agents` `/runtimes`
   `/outputs` `/subscription-status` `/actions` 全部改为重定向，原页面成为节点
   详情面板的标签页。
-- cli dashboard HTTP 服务迁移到 Fastify（统一路由、请求体解析与错误信封）；
+- CLI dashboard HTTP 服务迁移到 Fastify（统一路由、请求体解析与错误信封）；
   `SshDeploymentService` 拆分为 `ssh/` 下的多个模块。
 
 ### Fixed
