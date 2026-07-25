@@ -38,8 +38,15 @@ async function successData<T>(response: APIResponse, status = 200): Promise<{ su
   return body as { success: true; data: T };
 }
 
-function card(page: Page, name: string, marker: string) {
-  return page.locator('.signal-core').filter({ hasText: name }).filter({ hasText: marker }).first();
+/**
+ * The former /agents and /runtimes pages are now tabs on the node detail panel,
+ * which is the `.mb-card` carrying the node name as a heading.
+ */
+async function openNodeTab(page: Page, nodeId: string, nodeName: string, tab: 'Agent' | '运行时') {
+  await page.goto(`/nodes?node=${encodeURIComponent(nodeId)}`);
+  const panel = page.locator('.mb-card').filter({ has: page.getByRole('heading', { name: nodeName, exact: true }) });
+  await panel.getByRole('button', { name: tab, exact: true }).click();
+  return panel;
 }
 
 async function waitForDeployment(request: APIRequestContext, taskId: string) {
@@ -115,10 +122,10 @@ test('E20 · 完整串行 SOP：节点 → Agent → 内核 → 订阅 → 产�
 
     await legacyResponse(await request.post('/api/cluster/agent/restart', { data: { nodeId } }));
     await legacyResponse(await request.get(`/api/cluster/health?node=${encodeURIComponent(nodeId)}`));
-    await page.goto(`/agents?node=${encodeURIComponent(nodeId)}`);
-    const agent = card(page, '完整 SOP 节点', '监听端口');
-    await expect(agent).toBeVisible();
-    await expect(agent.getByText('运行中', { exact: true })).toBeVisible();
+    const agent = await openNodeTab(page, nodeId, '完整 SOP 节点', 'Agent');
+    await expect(agent.getByText('监听端口', { exact: true })).toBeVisible();
+    // restart flipped the fixture online, which the node table reports as 在线.
+    await expect(page.getByText('在线', { exact: true }).first()).toBeVisible();
   });
 
   const kernelTaskId = await test.step('3. 部署 sing-box 并原子配置 Agent 监控', async () => {
@@ -137,10 +144,9 @@ test('E20 · 完整串行 SOP：节点 → Agent → 内核 → 订阅 → 产�
     }));
     expect(updated.data).toMatchObject({ id: nodeId });
 
-    await page.goto(`/runtimes?node=${encodeURIComponent(nodeId)}`);
-    const singBox = card(page, 'sing-box', '二进制路径');
-    await expect(singBox.getByText('sing-box', { exact: true })).toBeVisible();
-    await expect(singBox.getByText('/etc/sing-box/config.json', { exact: true })).toBeVisible();
+    const runtime = await openNodeTab(page, nodeId, '完整 SOP 节点', '运行时');
+    const singBox = runtime.locator('div.flex.flex-col.gap-2 > div').filter({ hasText: 'sing-box' }).first();
+    await expect(singBox).toContainText('/etc/sing-box/config.json');
     return started.data.taskId;
   });
 
