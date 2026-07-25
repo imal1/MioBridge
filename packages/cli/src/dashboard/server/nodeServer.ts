@@ -1,6 +1,6 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { randomUUID } from 'node:crypto';
-import Fastify, { type FastifyReply, type FastifyRequest } from 'fastify';
+import Fastify, { type FastifyInstance, type FastifyReply, type FastifyRequest } from 'fastify';
 import type { DashboardServerDependencies } from './composition.js';
 import { registerCompatRoutes } from './compatRoutes.js';
 import { registerCoreRoutes } from './coreRoutes.js';
@@ -20,9 +20,7 @@ import { serveStatic } from './staticServer.js';
 
 const MAX_BODY_BYTES = 1024 * 1024;
 
-export interface NodeDashboardServerOptions {
-  readonly host: string;
-  readonly port: number;
+export interface DashboardAppOptions {
   readonly root: string;
   readonly reservedPaths: readonly string[];
   readonly fallbackToIndex: boolean;
@@ -31,6 +29,13 @@ export interface NodeDashboardServerOptions {
   readonly extendRoutes?: (routes: DashboardRouteRegistrar) => void;
   /** Optional read-only observer used by diagnostics and HTTP contract harnesses. */
   readonly onRequest?: (request: DashboardRequest) => void | Promise<void>;
+  /** Integration tests drive the app through `inject()` and want a quiet logger. */
+  readonly logger?: boolean;
+}
+
+export interface NodeDashboardServerOptions extends DashboardAppOptions {
+  readonly host: string;
+  readonly port: number;
   readonly signal?: AbortSignal;
 }
 
@@ -100,12 +105,17 @@ function registerRoutes(routes: DashboardRouteRegistry, dependencies: DashboardS
   registerConvertRoutes(routes, dependencies);
 }
 
-export async function runNodeDashboardServer(options: NodeDashboardServerOptions): Promise<number> {
+/**
+ * Builds the dashboard Fastify instance without binding a socket, so both the
+ * CLI runtime and `app.inject()`-driven integration tests exercise the exact
+ * same routing, body-parsing, and error-envelope behaviour.
+ */
+export function createDashboardApp(options: DashboardAppOptions): FastifyInstance {
   const routes = new DashboardRouteRegistry();
   registerRoutes(routes, options.dependencies);
   options.extendRoutes?.(routes);
 
-  const app = Fastify({ logger: true, bodyLimit: MAX_BODY_BYTES, forceCloseConnections: true });
+  const app = Fastify({ logger: options.logger ?? true, bodyLimit: MAX_BODY_BYTES, forceCloseConnections: true });
 
   // Reproduce the previous readBody() semantics: empty → undefined, JSON parsed
   // (invalid → 400 envelope), any other content type passed through as a raw
@@ -177,6 +187,11 @@ export async function runNodeDashboardServer(options: NodeDashboardServerOptions
   };
   app.all('/', handler);
   app.all('/*', handler);
+  return app;
+}
+
+export async function runNodeDashboardServer(options: NodeDashboardServerOptions): Promise<number> {
+  const app = createDashboardApp(options);
 
   const signals = ['SIGINT', 'SIGTERM', 'SIGHUP'] as const;
   const close = () => { void app.close(); };

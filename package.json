@@ -19,6 +19,8 @@
     "cli:release": "bun run --cwd packages/cli build:release",
     "cli:test": "bun run --cwd packages/cli test",
     "cli:typecheck": "bun run --cwd packages/cli typecheck",
+    "integration:test": "bun run --cwd packages/integration test",
+    "integration:typecheck": "bun run --cwd packages/integration typecheck",
     "e2e:setup": "bun install --frozen-lockfile && bun run --cwd packages/e2e browser:install:deps && bun run e2e:prepare && bun run --cwd packages/e2e typecheck",
     "e2e:prepare": "bun run cli:build && bun run build",
     "e2e:typecheck": "bun run cli:build && bun run --cwd packages/e2e typecheck",
@@ -66,7 +68,8 @@
     "@types/node": "^24.0.8",
     "@vitest/coverage-v8": "4.1.9",
     "oxlint": "^1.6.0",
-    "typescript": "^6.0.3"
+    "typescript": "^6.0.3",
+    "vitest": "4.1.9"
   },
   "engines": {
     "node": ">=18.0.0",
