@@ -5,12 +5,14 @@
  */
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import {
-  createDashboardApp,
-  type DashboardRouteRegistry,
-  type DashboardServerDependencies,
-  type OperationsResult,
-} from '@miobridge/cli';
+// Imported from source rather than the built package so coverage attributes to
+// packages/cli/src, matching how the CLI's own unit tests import it.
+import { createDashboardApp } from '../../../cli/src/dashboard/server/nodeServer.js';
+import type { DashboardRouteRegistry } from '../../../cli/src/dashboard/server/http.js';
+import type {
+  DashboardServerDependencies,
+  OperationsResult,
+} from '../../../cli/src/dashboard/server/composition.js';
 
 const NOW = () => new Date().toISOString();
 

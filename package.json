@@ -68,7 +68,8 @@
     "@types/node": "^24.0.8",
     "@vitest/coverage-v8": "4.1.9",
     "oxlint": "^1.6.0",
-    "typescript": "^6.0.3"
+    "typescript": "^6.0.3",
+    "vitest": "4.1.9"
   },
   "engines": {
     "node": ">=18.0.0",

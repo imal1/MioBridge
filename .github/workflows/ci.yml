@@ -152,20 +152,18 @@ jobs:
       - run: bun run core:build
       - run: bun run cli:build
 
-      - name: Core coverage
-        run: cd packages/core && npx --no-install vitest run --coverage --coverage.provider=v8 --coverage.all --coverage.include='src/**' --coverage.reporter=text --coverage.reporter=json-summary --coverage.reportsDirectory=coverage
+      # One run over core + cli + integration (see vitest.config.ts): the
+      # dashboard routes are exercised from packages/integration, so measuring
+      # each package alone understates cli.
+      - name: Coverage
+        run: npx --no-install vitest run --coverage
 
-      - name: CLI coverage
-        run: cd packages/cli && npx --no-install vitest run --coverage --coverage.provider=v8 --coverage.all --coverage.include='src/**' --coverage.reporter=text --coverage.reporter=json-summary --coverage.reportsDirectory=coverage
-
-      - name: Upload coverage reports
+      - name: Upload coverage report
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: coverage-reports
-          path: |
-            packages/core/coverage
-            packages/cli/coverage
+          path: coverage
           if-no-files-found: warn
           retention-days: 14
 

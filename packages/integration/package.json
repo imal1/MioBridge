@@ -4,11 +4,11 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "test": "bun run --cwd ../cli build && vitest run",
+    "test": "bun run --cwd ../core build && vitest run",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "devDependencies": {
-    "@miobridge/cli": "workspace:*",
+    "@miobridge/core": "workspace:*",
     "@types/node": "^24.0.8",
     "ajv": "^8.20.0",
     "typescript": "^6.0.3",
