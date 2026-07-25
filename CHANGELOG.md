@@ -2,6 +2,68 @@
 
 本文档记录 MioBridge 的重要变更。版本号遵循语义化版本规范。
 
+## [1.2.19] — 2026-07-26
+
+### Changed
+
+- 控制台重设计：界面从 11 页收敛到 6 页，`/deploy` `/agents` `/runtimes`
+  `/outputs` `/subscription-status` `/actions` 全部改为重定向，原页面成为节点
+  详情面板的标签页。
+- cli dashboard HTTP 服务迁移到 Fastify（统一路由、请求体解析与错误信封）；
+  `SshDeploymentService` 拆分为 `ssh/` 下的多个模块。
+
+### Fixed
+
+- Windows 上 dashboard 对所有路径回 403：`staticServer` 路径归一化只剥了 `/`，
+  `normalize('/nodes')` 得到的 `\nodes` 会 resolve 到根目录之外，现已修正。
+- 方法不匹配时不再误报 404：命中路径但方法不支持改回 405 + `Allow` 头。
+
+### Accessibility
+
+- 订阅、日志、转换等表单补齐 `aria-label`；订阅策略加载完成前禁用输入，避免
+  在 policy 为 null 时把整条输入丢弃。
+
+## [1.2.18] — 2026-07-22
+
+### Changed
+
+- 检测到新装内核后经运行时重新探测直接采用，去掉确认弹窗。
+
+## [1.2.17] — 2026-07-22
+
+### Fixed
+
+- 生成的 Clash 配置现可真正通过 mihomo 校验。
+
+## [1.2.16] — 2026-07-22
+
+### Added
+
+- 健康检查在发现可用内核时重新提示采用。
+
+### Fixed
+
+- 生成 Clash 配置不再要求本机已安装 mihomo。
+
+## [1.2.15] — 2026-07-22
+
+### Changed
+
+- 集群状态改为 stale-while-revalidate 返回，并在检测到内核时自动采用。
+
+## [1.2.14] — 2026-07-22
+
+### Fixed
+
+- 缓存集群状态扇出请求，消除请求卡顿。
+
+## [1.2.13] — 2026-07-22
+
+### Changed
+
+- 前端数据层迁移到 TanStack Query：新增读/写查询钩子、`Skeleton` 与
+  `QueryBoundary`，页面隐藏时暂停轮询，减少冗余请求。
+
 ## [1.2.12] — 2026-07-21
 
 ### Changed
