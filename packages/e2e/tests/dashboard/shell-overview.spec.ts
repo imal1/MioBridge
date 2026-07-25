@@ -111,12 +111,14 @@ test.describe('E00–E01 · 全局壳层与总览', () => {
 
   test('总览准确呈现就绪度、节点计数和三项正式产物', async ({ page }) => {
     await page.goto('/');
+    // 侧栏常驻显示 mihomo 版本，就绪检查里也有一份，断言必须限定在主区。
+    const main = page.locator('#main-content');
 
-    await expect(page.getByText('1 个节点待部署', { exact: true })).toBeVisible();
-    await expect(page.getByText('1/1 可用', { exact: true })).toBeVisible();
-    await expect(page.getByText('v1.19.0-e2e', { exact: true })).toBeVisible();
-    await expect(page.getByText('三个输出产物均可用', { exact: true })).toBeVisible();
-    await expect(page.getByText('节点在线').locator('..')).toContainText('1/2');
+    await expect(main.getByText('1 个节点待部署', { exact: true })).toBeVisible();
+    await expect(main.getByText('1/1 可用', { exact: true })).toBeVisible();
+    await expect(main.getByText('v1.19.0-e2e', { exact: true })).toBeVisible();
+    await expect(main.getByText('三个输出产物均可用', { exact: true })).toBeVisible();
+    await expect(main.getByText('节点在线').locator('..')).toContainText('1/2');
 
     const artifacts = page.getByRole('table');
     for (const name of ['raw.txt', 'subscription.txt', 'clash.yaml']) {

@@ -254,7 +254,7 @@ export default function SubscriptionPage() {
             <div className="mb-2.5 flex items-center justify-between">
               <h2 style={{ margin: 0, fontSize: 14.5, fontWeight: 700 }}>定时生成策略</h2>
               <button
-                onClick={() => setPolicy(p => p ? { ...p, enabled: !p.enabled } : p)}
+                onClick={() => setPolicy(p => p ? { ...p, enabled: !p.enabled } : p)} disabled={!policy}
                 style={{ position: 'relative', width: 36, height: 20, border: 'none', borderRadius: 99, cursor: 'pointer', transition: 'background .2s', background: policy?.enabled ? 'var(--primary)' : 'var(--border)', padding: 0 }}
                 aria-pressed={Boolean(policy?.enabled)} aria-label="启用定时生成"
               >
@@ -262,10 +262,10 @@ export default function SubscriptionPage() {
               </button>
             </div>
             <div className="grid gap-2" style={{ gridTemplateColumns: '1fr 1fr' }}>
-              <PolicyField label="Cron" value={policy?.cron ?? ''} onChange={v => setPolicy(p => p ? { ...p, cron: v } : p)} />
-              <PolicyField label="新鲜度目标（小时）" value={String(policy?.freshnessHours ?? '')} onChange={v => setPolicy(p => p ? { ...p, freshnessHours: Number(v) || 0 } : p)} />
-              <PolicyField label="节点突降阈值（%）" value={String(policy?.nodeDropPercent ?? '')} onChange={v => setPolicy(p => p ? { ...p, nodeDropPercent: Number(v) || 0 } : p)} />
-              <PolicyField label="重试间隔（分钟）" value={(policy?.retryDelaysMinutes ?? []).join(', ')} onChange={v => setPolicy(p => p ? { ...p, retryDelaysMinutes: v.split(',').map(x => Number(x.trim())).filter(Number.isFinite) } : p)} />
+              <PolicyField label="Cron" value={policy?.cron ?? ''} disabled={!policy} onChange={v => setPolicy(p => p ? { ...p, cron: v } : p)} />
+              <PolicyField label="新鲜度目标（小时）" value={String(policy?.freshnessHours ?? '')} disabled={!policy} onChange={v => setPolicy(p => p ? { ...p, freshnessHours: Number(v) || 0 } : p)} />
+              <PolicyField label="节点突降阈值（%）" value={String(policy?.nodeDropPercent ?? '')} disabled={!policy} onChange={v => setPolicy(p => p ? { ...p, nodeDropPercent: Number(v) || 0 } : p)} />
+              <PolicyField label="重试间隔（分钟）" value={(policy?.retryDelaysMinutes ?? []).join(', ')} disabled={!policy} onChange={v => setPolicy(p => p ? { ...p, retryDelaysMinutes: v.split(',').map(x => Number(x.trim())).filter(Number.isFinite) } : p)} />
             </div>
             <p style={{ margin: '10px 0 0', fontSize: 11, color: 'var(--muted-foreground)' }}>备份保留 {policy?.backupRetention ?? 30} 份</p>
             <button onClick={savePolicy} disabled={!policy || updatePolicy.isPending} className="mb-pill-btn primary" style={{ marginTop: 10, height: 30, fontSize: 11.5 }}>保存策略</button>
@@ -276,11 +276,14 @@ export default function SubscriptionPage() {
   )
 }
 
-function PolicyField({ label, value, onChange }: { label: string; value: string; onChange: (v: string) => void }) {
+// disabled 直到策略加载完成：onChange 在 policy 还是 null 时会把输入整条丢掉，
+// 可编辑的空输入框等于静默吞掉用户先行输入。
+function PolicyField({ label, value, disabled, onChange }: { label: string; value: string; disabled?: boolean; onChange: (v: string) => void }) {
   return (
     <div>
       <label style={{ display: 'block', fontSize: 10.5, fontWeight: 700, color: 'var(--muted-foreground)', marginBottom: 4 }}>{label}</label>
       <input
+        aria-label={label} disabled={disabled}
         value={value} onChange={e => onChange(e.target.value)}
         className="signal-mono"
         style={{ width: '100%', height: 30, padding: '0 10px', border: '1px solid var(--border)', borderRadius: 8, background: 'var(--card)', color: 'var(--foreground)', fontSize: 11.5, outline: 'none', boxSizing: 'border-box' }}

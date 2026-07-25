@@ -142,7 +142,10 @@ function nodeRow(page: Page, name: string): Locator {
 /** 部署/Agent/运行时都是详情标签页，只在选中节点行后存在。 */
 async function openTab(page: Page, name: string, tab: DetailTab): Promise<Locator> {
   const panel = detailPanel(page, name)
-  // 点击行会切换选中状态，所以已经打开时不能再点一次。
+  // 先等表格行出现：行渲染出来说明集群数据已到，面板要开也已经在同一次渲染里开了。
+  // 少了这一步就会抢跑——面板还没渲染时判定为未选中，去点一个已经选中的行，
+  // 而点击是切换语义，等于把面板收起来。
+  await expect(nodeRow(page, name)).toBeVisible()
   if (!(await panel.isVisible())) await nodeRow(page, name).click()
   await expect(panel).toBeVisible()
   await panel.getByRole('button', { name: tab, exact: true }).click()

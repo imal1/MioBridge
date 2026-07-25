@@ -207,7 +207,8 @@ test('E20 · 完整串行 SOP：节点 → Agent → 内核 → 订阅 → 产�
 
     await page.goto(`/logs?source=deployment&taskId=${encodeURIComponent(kernelTaskId)}`);
     await expect(page.getByRole('heading', { level: 1, name: '日志' })).toBeVisible();
-    await expect(page.locator('.signal-terminal:visible')).not.toHaveText('暂无日志内容');
+    // 日志正文现在是 pre.signal-mono，不再有 .signal-terminal 这层皮。
+    await expect(page.locator('#main-content pre')).not.toHaveText('暂无日志内容');
   });
 
   await test.step('8. 动态 API 契约仍可作为集成入口', async () => {

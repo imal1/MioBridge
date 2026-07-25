@@ -117,25 +117,26 @@ export default function LogsPage() {
       ) : null}
 
       <div className="mb-3 flex flex-wrap gap-2">
-        <select value={source} onChange={e => setSource(e.target.value as LogSource)} style={selectStyle}>
+        <select aria-label="日志来源" value={source} onChange={e => setSource(e.target.value as LogSource)} style={selectStyle}>
           {SOURCES.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
         </select>
         {source === 'agent' ? (
-          <select value={nodeId} onChange={e => setNodeId(e.target.value)} style={selectStyle}>
+          <select aria-label="节点" value={nodeId} onChange={e => setNodeId(e.target.value)} style={selectStyle}>
             <option value="">选择节点</option>
             {nodes.map(n => <option key={n.nodeId} value={n.nodeId}>{n.name} · {n.location || n.nodeId}</option>)}
           </select>
         ) : null}
         {taskRequired ? (
-          <input value={taskId} onChange={e => setTaskId(e.target.value)} placeholder={source === 'deployment' ? '部署 taskId' : '订阅 jobId'} autoComplete="off" style={{ ...selectStyle, minWidth: 180 }} />
+          <input aria-label="任务 ID" value={taskId} onChange={e => setTaskId(e.target.value)} placeholder={source === 'deployment' ? '部署 taskId' : '订阅 jobId'} autoComplete="off" style={{ ...selectStyle, minWidth: 180 }} />
         ) : null}
-        <select value={component} onChange={e => setComponent(e.target.value)} style={selectStyle}>
+        <select aria-label="组件" value={component} onChange={e => setComponent(e.target.value)} style={selectStyle}>
           {COMPONENTS.map(c => <option key={c.value} value={c.value}>{c.label}</option>)}
         </select>
-        <select value={level} onChange={e => setLevel(e.target.value)} style={selectStyle}>
+        <select aria-label="日志级别" value={level} onChange={e => setLevel(e.target.value)} style={selectStyle}>
           {LEVELS.map(l => <option key={l.value} value={l.value}>{l.label}</option>)}
         </select>
         <input
+          aria-label="关键词"
           value={query} onChange={e => setQuery(e.target.value)} placeholder="关键词：错误、接口路径或消息内容…" autoComplete="off"
           style={{ flex: 1, minWidth: 220, height: 33, padding: '0 12px', border: '1px solid var(--border)', borderRadius: 10, background: 'var(--card)', color: 'var(--foreground)', fontSize: 12.5, fontFamily: 'inherit', outline: 'none', boxSizing: 'border-box' }}
         />

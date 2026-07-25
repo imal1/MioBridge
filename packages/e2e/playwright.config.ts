@@ -9,6 +9,11 @@ if (serverUrl.hostname !== '127.0.0.1') {
 }
 const serverPort = serverUrl.port || '80';
 
+// 本地用已装的系统 Chrome 跑，省掉 Playwright 自带 Chromium 的下载。
+// 录像依赖 Playwright 自带的 ffmpeg，同一份缓存里也没有，所以一并关掉；
+// trace 与失败截图不依赖外部二进制，仍然保留。CI 不设这个变量，走自带 Chromium。
+const systemChrome = process.env.MIOBRIDGE_E2E_CHROME === '1';
+
 export default defineConfig({
   testDir: './tests',
   outputDir: './.artifacts/test-results',
@@ -31,7 +36,7 @@ export default defineConfig({
     timezoneId: 'Asia/Shanghai',
     trace: 'retain-on-failure',
     screenshot: 'only-on-failure',
-    video: 'retain-on-failure',
+    video: systemChrome ? 'off' : 'retain-on-failure',
   },
   webServer: {
     command: 'bun run server',
@@ -47,12 +52,12 @@ export default defineConfig({
     {
       name: 'desktop-chromium',
       testIgnore: /responsive\.spec\.ts/,
-      use: { ...devices['Desktop Chrome'] },
+      use: { ...devices['Desktop Chrome'], ...(systemChrome ? { channel: 'chrome' as const } : {}) },
     },
     {
       name: 'mobile-chromium',
       testMatch: /responsive\.spec\.ts/,
-      use: { ...devices['Pixel 7'] },
+      use: { ...devices['Pixel 7'], ...(systemChrome ? { channel: 'chrome' as const } : {}) },
     },
   ],
 });
