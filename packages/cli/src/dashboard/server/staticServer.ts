@@ -35,7 +35,10 @@ export interface StaticServerOptions {
 function resolveSafe(root: string, pathname: string): string | null {
   // Reject traversal attempts before normalize strips them
   if (pathname.includes('..')) return null;
-  const normalized = normalize(pathname).replace(/^\/+/u, '');
+  // normalize() emits the platform separator, so on Windows '/nodes' becomes
+  // '\nodes' — root-relative, not relative. Stripping only '/' left it absolute
+  // and every request resolved outside root, i.e. 403 for the whole SPA.
+  const normalized = normalize(pathname).replace(/^[\\/]+/u, '');
   const candidate = resolve(root, normalized);
   const relativePath = relative(root, candidate);
   if (relativePath.startsWith(`..${sep}`) || relativePath === '..' || (sep !== '/' && relativePath.startsWith('..'))) {

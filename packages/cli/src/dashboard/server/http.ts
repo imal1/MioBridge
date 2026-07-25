@@ -74,6 +74,21 @@ export class DashboardRouteRegistry implements DashboardRouteRegistrar {
     return [...this.#routes.values()];
   }
 
+  /**
+   * Methods registered for a path, so the adapter can answer 405 + Allow
+   * instead of 404 when only the method is wrong (TRACE, a GET on a POST-only
+   * endpoint). 404 there reads as a typo'd URL and hides the real problem.
+   */
+  methodsFor(pathname: string): readonly DashboardHttpMethod[] {
+    const methods = new Set<DashboardHttpMethod>();
+    for (const route of this.#routes.values()) {
+      if (route.path === pathname || (route.path.includes(':') && matchPath(route.path, pathname))) {
+        methods.add(route.method);
+      }
+    }
+    return [...methods];
+  }
+
   async dispatch(request: DashboardRequest, response: DashboardResponse): Promise<boolean> {
     const route = this.#routes.get(`${request.method} ${request.path}`);
     if (route) {

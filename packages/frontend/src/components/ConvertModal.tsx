@@ -104,6 +104,7 @@ const ConvertModal = ({ isOpen, onClose }: ConvertModalProps) => {
               </Button>
             </div>
             <Textarea
+              aria-label="原始订阅文本"
               className="flex-1 min-h-[420px] font-mono text-sm resize-none rounded-xl"
               value={inputText}
               onChange={(e) => setInputText(e.target.value)}

@@ -341,11 +341,13 @@ export default function NodesPage() {
         <div className="relative max-w-[340px] flex-1">
           <Icon icon="ph:magnifying-glass-light" style={{ position: 'absolute', left: 11, top: 9, fontSize: 15, color: 'var(--muted-foreground)' }} />
           <input
+            aria-label="搜索节点"
             value={query} onChange={e => setQuery(e.target.value)} placeholder="搜索名称、主机、地域…"
             style={{ width: '100%', height: 33, padding: '0 12px 0 32px', border: '1px solid var(--border)', borderRadius: 10, background: 'var(--card)', color: 'var(--foreground)', fontSize: 12.5, fontFamily: 'inherit', outline: 'none', boxSizing: 'border-box' }}
           />
         </div>
         <select
+          aria-label="筛选节点"
           value={filter} onChange={e => setFilter(e.target.value as Filter)}
           style={{ height: 33, padding: '0 10px', border: '1px solid var(--border)', borderRadius: 10, background: 'var(--card)', color: 'var(--foreground)', fontSize: 12.5, fontFamily: 'inherit', outline: 'none' }}
         >

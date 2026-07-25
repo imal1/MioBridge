@@ -167,6 +167,17 @@ export function createDashboardApp(options: DashboardAppOptions): FastifyInstanc
         });
         if (served) return;
       }
+      const allowed = routes.methodsFor(request.path);
+      if (allowed.length) {
+        response.status(405).header('Allow', allowed.join(', ')).json({
+          success: false,
+          error: { code: 'METHOD_NOT_ALLOWED', message: `${method} 不被支持；允许 ${allowed.join('、')}`, retryable: false },
+          timestamp: new Date().toISOString(),
+          requestId,
+          role: 'admin',
+        });
+        return;
+      }
       if (!reply.raw.writableEnded) reply.raw.statusCode = 404;
       if (!reply.raw.writableEnded) reply.raw.end('Not Found');
     } catch (error) {

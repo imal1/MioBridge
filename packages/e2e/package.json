@@ -17,7 +17,7 @@
   },
   "devDependencies": {
     "@miobridge/cli": "workspace:*",
-    "@playwright/test": "1.61.1",
+    "@playwright/test": "1.62.0",
     "@types/node": "^24.0.8",
     "typescript": "^6.0.3",
     "yaml": "^2.8.1"

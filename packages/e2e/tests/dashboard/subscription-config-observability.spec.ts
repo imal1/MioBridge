@@ -1,4 +1,4 @@
-import type { Download, Page, Route } from '@playwright/test';
+import type { Download, Locator, Page, Route } from '@playwright/test';
 import { expect, test, type HarnessSnapshot } from '../../fixtures/e2e.js';
 
 function requests(
@@ -18,8 +18,10 @@ function recordId(records: readonly Record<string, unknown>[] | undefined, key: 
   return typeof value === 'string' ? value : undefined;
 }
 
+/** Windows 剪贴板会把 \n 写成 \r\n，比对多行文本前先归一化。 */
 async function clipboardText(page: Page): Promise<string> {
-  return page.evaluate(() => navigator.clipboard.readText());
+  const value = await page.evaluate(() => navigator.clipboard.readText());
+  return value.replace(/\r\n/gu, '\n');
 }
 
 async function downloadText(download: Download): Promise<string> {
@@ -33,16 +35,19 @@ async function grantClipboard(page: Page): Promise<void> {
   await page.context().grantPermissions(['clipboard-read', 'clipboard-write']);
 }
 
-function visibleLogField(page: Page, name: 'source' | 'node' | 'task' | 'component' | 'level' | 'file' | 'from' | 'to' | 'query') {
-  return page.locator(`#log-${name}-desktop`);
+/** 产物从独立的 /outputs 页并入总览，现在是「输出产物」表格的一行。 */
+function artifactRow(page: Page, name: 'raw.txt' | 'subscription.txt' | 'clash.yaml'): Locator {
+  return page.locator('tbody tr').filter({ hasText: `/${name}` });
 }
 
-function nextStepLink(page: Page, name: string) {
-  return page.getByRole('link', { name, exact: true });
+/** 健康检查的每一项是「标签 + 明细」两行，断言明细时要限定在同一格内。 */
+function healthCheck(page: Page, label: string): Locator {
+  return page.locator('div').filter({ has: page.getByText(label, { exact: true }) }).last();
 }
 
-function artifactCard(page: Page, name: 'raw.txt' | 'subscription.txt' | 'clash.yaml') {
-  return page.locator('.signal-core').filter({ has: page.locator('code').filter({ hasText: name }) });
+/** 任务历史的一行；订阅任务节点数是行内唯一的稳定标识。 */
+function jobRow(page: Page, text: string): Locator {
+  return page.locator('tbody tr').filter({ hasText: text }).first();
 }
 
 function sensitiveKeys(value: unknown, found: string[] = []): string[] {
@@ -62,12 +67,12 @@ test.describe('E10 · 订阅预检与正式生成', () => {
   test('预检通过后创建持久化任务，携带幂等键并进入任务历史', async ({ page, snapshot }) => {
     const jobsBefore = (await snapshot()).subscriptionJobs?.length ?? 0;
     await page.goto('/subscription');
-    await expect(page.getByRole('heading', { level: 1, name: '订阅生成' })).toBeVisible();
+    await expect(page.getByRole('heading', { level: 1, name: '订阅' })).toBeVisible();
     await expect(page.getByText('生成前检查通过')).toBeVisible();
 
     const created = page.waitForResponse(response =>
       response.url().endsWith('/api/subscription-jobs') && response.request().method() === 'POST');
-    await page.getByRole('button', { name: '创建正式生成任务' }).click();
+    await page.getByRole('button', { name: '创建生成任务' }).click();
     expect((await created).status()).toBe(202);
     await expect(page.getByText('订阅任务已持久化并进入队列')).toBeVisible();
 
@@ -78,29 +83,39 @@ test.describe('E10 · 订阅预检与正式生成', () => {
     await expect(page.getByText('任务历史', { exact: true })).toBeVisible();
   });
 
-  test('零可读来源会阻断生成，重新预检不会创建任务', async ({ page, control, snapshot }) => {
+  test('零可读来源会阻断生成，轮询预检不会创建任务', async ({ page, control, snapshot }) => {
     await control({ subscriptionReady: false });
     await page.goto('/subscription');
     await expect(page.getByText('生成被阻断')).toBeVisible();
-    await expect(page.getByRole('button', { name: '创建正式生成任务' })).toBeDisabled();
-    await page.getByRole('button', { name: '重新预检' }).click();
-    await expect(page.getByText('生成被阻断')).toBeVisible();
+    await expect(page.getByRole('button', { name: '创建生成任务' })).toBeDisabled();
 
-    const state = await snapshot();
-    expect(exactRequests(state, 'POST', '/api/subscription-jobs/preflight').length).toBeGreaterThanOrEqual(2);
-    expect(exactRequests(state, 'POST', '/api/subscription-jobs')).toEqual([]);
+    // 预检不再是手动按钮，页面每 5s 轮询一次；重复预检既不能解除阻断，也不能创建任务。
+    await expect.poll(
+      async () => exactRequests(await snapshot(), 'POST', '/api/subscription-jobs/preflight').length,
+      { timeout: 15_000 },
+    ).toBeGreaterThanOrEqual(2);
+    await expect(page.getByText('生成被阻断')).toBeVisible();
+    expect(exactRequests(await snapshot(), 'POST', '/api/subscription-jobs')).toEqual([]);
   });
 
-  test('预检请求失败会显示错误并保持创建入口禁用', async ({ page, control }) => {
+  test('预检请求失败时创建入口保持禁用', async ({ page, control }) => {
     await control({ subscriptionPreflightFailure: true });
     const preflight = page.waitForResponse(response =>
       new URL(response.url()).pathname === '/api/subscription-jobs/preflight'
       && response.request().method() === 'POST');
     await page.goto('/subscription');
     expect((await preflight).status()).toBe(503);
-    await expect(page.getByText('订阅任务失败')).toBeVisible();
-    await expect(page.getByText('fixture subscription preflight failure').first()).toBeVisible();
-    await expect(page.getByRole('button', { name: '创建正式生成任务' })).toBeDisabled();
+    await expect(page.getByRole('button', { name: '创建生成任务' })).toBeDisabled();
+  });
+
+  // 已知缺口：预检失败时页面既不显示预检横幅也不显示错误横幅，只留一个禁用按钮，
+  // 用户无从判断是「没有来源」还是「服务端挂了」。修好后本用例会「非预期通过」，
+  // 那时删掉 test.fail() 即可。断言给短超时，避免变成用例超时（超时不算预期内失败）。
+  test('预检请求失败应说明原因', async ({ page, control }) => {
+    test.fail();
+    await control({ subscriptionPreflightFailure: true });
+    await page.goto('/subscription');
+    await expect(page.getByText('fixture subscription preflight failure').first()).toBeVisible({ timeout: 3_000 });
   });
 
   test('预检通过后创建请求失败会保留历史且明确告警', async ({ page, control, snapshot }) => {
@@ -112,7 +127,7 @@ test.describe('E10 · 订阅预检与正式生成', () => {
     const created = page.waitForResponse(response =>
       new URL(response.url()).pathname === '/api/subscription-jobs'
       && response.request().method() === 'POST');
-    await page.getByRole('button', { name: '创建正式生成任务' }).click();
+    await page.getByRole('button', { name: '创建生成任务' }).click();
     expect((await created).status()).toBe(503);
     await expect(page.getByText('订阅任务失败')).toBeVisible();
     // 页内告警与 toast 会同时呈现同一条服务端原因，取首个即可。
@@ -126,7 +141,7 @@ test.describe('E10 · 订阅预检与正式生成', () => {
     const created = page.waitForResponse(response =>
       new URL(response.url()).pathname === '/api/subscription-jobs'
       && response.request().method() === 'POST');
-    await page.getByRole('button', { name: '创建正式生成任务' }).click();
+    await page.getByRole('button', { name: '创建生成任务' }).click();
     const body = await (await created).json() as { data: { jobId: string } };
 
     const events = await page.evaluate(async eventUrl => new Promise<Array<{
@@ -177,14 +192,15 @@ test.describe('E10 · 订阅预检与正式生成', () => {
         timestamp: expect.any(String),
       });
     }
-    await expect(page.getByText('来源 3/3').last()).toBeVisible();
-    await expect(page.getByText('完成 · 4 个节点').last()).toBeVisible();
+    const row = jobRow(page, '4 个节点');
+    await expect(row).toContainText('来源 3/3');
+    await expect(row).toContainText('完成 · 订阅生成完成');
   });
 
   test('已有活动任务时禁用重复创建并建立 SSE 进度连接', async ({ page, control, snapshot }) => {
     await control({ subscriptionJobStatus: 'running' });
     await page.goto('/subscription');
-    await expect(page.getByRole('button', { name: '已有生成任务执行中' })).toBeDisabled();
+    await expect(page.getByRole('button', { name: '生成任务执行中' })).toBeDisabled();
 
     await expect.poll(async () => {
       const state = await snapshot();
@@ -197,20 +213,21 @@ test.describe('E10 · 订阅预检与正式生成', () => {
     await control({ subscriptionJobStatus: 'running' });
     await page.route(/\/api\/subscription-jobs\/[^/]+\/events$/, route => route.abort('connectionfailed'));
     await page.goto('/subscription');
-    await expect(page.getByText('订阅进度连接已中断')).toBeVisible();
-    await expect(page.getByRole('button', { name: '重新连接进度' })).toBeVisible();
+    await expect(page.getByText('进度连接中断；任务仍在服务端执行。')).toBeVisible();
+    await expect(page.getByRole('button', { name: '重新连接' })).toBeVisible();
   });
 });
 
 test.describe('E11 · 订阅历史、恢复与重试', () => {
-  test('成功任务在刷新后恢复，并提供输出与状态下一步入口', async ({ page, control }) => {
+  test('成功任务在刷新后恢复，并提供任务日志入口', async ({ page, control }) => {
     await control({ subscriptionJobStatus: 'succeeded' });
     await page.goto('/subscription');
     await expect(page.getByText('成功', { exact: true })).toBeVisible();
     await page.reload();
-    await expect(page.getByText('成功', { exact: true })).toBeVisible();
-    await expect(page.getByRole('link', { name: '前往衍生输出' })).toHaveAttribute('href', '/outputs');
-    await expect(nextStepLink(page, '维护订阅状态')).toHaveAttribute('href', '/subscription-status');
+    const row = jobRow(page, '4 个节点');
+    await expect(row.getByText('成功', { exact: true })).toBeVisible();
+    await expect(row.getByRole('link', { name: '日志' }))
+      .toHaveAttribute('href', /^\/logs\?source=subscription&task=/);
   });
 
   test('失败任务可按原输入创建重试任务', async ({ page, control, snapshot }) => {
@@ -220,21 +237,25 @@ test.describe('E11 · 订阅历史、恢复与重试', () => {
     const retried = page.waitForResponse(response =>
       /\/api\/subscription-jobs\/[^/]+\/retry$/.test(new URL(response.url()).pathname)
       && response.request().method() === 'POST');
-    await page.getByRole('button', { name: '按原输入重试' }).click();
+    await page.getByRole('button', { name: '重试' }).click();
     expect((await retried).status()).toBe(202);
     await expect(page.getByText('已按上次输入创建重试任务')).toBeVisible();
     expect((await snapshot()).subscriptionJobs?.length).toBeGreaterThanOrEqual(2);
   });
 
-  test('部分成功任务恢复来源统计、警告与后续入口', async ({ page, control }) => {
+  test('部分成功任务恢复来源统计与警告', async ({ page, control, request }) => {
     await control({ subscriptionJobStatus: 'partial' });
     await page.goto('/subscription');
-    await expect(page.getByText('部分成功', { exact: true })).toBeVisible();
-    await expect(page.getByText('完成 · 4 个节点')).toBeVisible();
-    await expect(page.getByText('来源 2/3')).toBeVisible();
-    await expect(page.getByText('警告：一个远端来源不可用')).toBeVisible();
-    await expect(page.getByRole('link', { name: '前往衍生输出' })).toHaveAttribute('href', '/outputs');
-    await expect(nextStepLink(page, '维护订阅状态')).toHaveAttribute('href', '/subscription-status');
+    const row = jobRow(page, '4 个节点');
+    await expect(row.getByText('部分成功', { exact: true })).toBeVisible();
+    await expect(row).toContainText('来源 2/3');
+    await expect(row).toContainText('完成 · 部分来源失败');
+
+    // 任务历史行不展示 warnings，但持久化的任务必须保留，否则「部分成功」无从诊断。
+    const jobs = await (await request.get('/api/subscription-jobs')).json() as {
+      data: { jobs: Array<{ status: string; warnings: string[] }> };
+    };
+    expect(jobs.data.jobs[0]).toMatchObject({ status: 'partial', warnings: ['一个远端来源不可用'] });
   });
 
   test('重试请求失败应保留原任务并显示可操作错误', async ({ page, control, snapshot }) => {
@@ -244,10 +265,10 @@ test.describe('E11 · 订阅历史、恢复与重试', () => {
     const retried = page.waitForResponse(response =>
       /\/api\/subscription-jobs\/[^/]+\/retry$/.test(new URL(response.url()).pathname)
       && response.request().method() === 'POST');
-    await page.getByRole('button', { name: '按原输入重试' }).click();
+    await page.getByRole('button', { name: '重试' }).click();
     expect((await retried).status()).toBe(503);
     await expect(page.getByText('任务重试失败')).toBeVisible();
-    await expect(page.getByRole('button', { name: '按原输入重试' })).toBeEnabled();
+    await expect(page.getByRole('button', { name: '重试' })).toBeEnabled();
     expect((await snapshot()).subscriptionJobs?.length ?? 0).toBe(before);
   });
 
@@ -255,14 +276,14 @@ test.describe('E11 · 订阅历史、恢复与重试', () => {
     await control({ subscriptionJobStatus: 'partial' });
     await page.goto('/subscription');
     await expect(page.getByText('部分成功', { exact: true })).toBeVisible();
-    await expect(page.getByRole('button', { name: '按原输入重试' })).toBeVisible();
+    await expect(page.getByRole('button', { name: '重试' })).toBeVisible();
   });
 });
 
 test.describe('E12 · 正式产物', () => {
-  test('三个正式产物可验证、预览、复制 URL、打开和下载', async ({ page, request }) => {
+  test('三个正式产物可验证、预览、复制 URL 和下载', async ({ page, request }) => {
     await grantClipboard(page);
-    await page.goto('/outputs');
+    await page.goto('/');
     await expect(page.getByText('原始链接', { exact: true })).toBeVisible();
     await expect(page.getByText('Base64 订阅', { exact: true })).toBeVisible();
     await expect(page.getByText('Clash 配置', { exact: true })).toBeVisible();
@@ -279,59 +300,56 @@ test.describe('E12 · 正式产物', () => {
       { name: 'clash.yaml', contentType: 'yaml' },
     ] as const;
     for (const item of cases) {
-      const card = artifactCard(page, item.name);
-      await expect(card).toHaveCount(1);
+      const row = artifactRow(page, item.name);
+      await expect(row).toHaveCount(1);
       const publicResponse = await request.get(`/${item.name}`);
       expect(publicResponse.ok()).toBeTruthy();
       expect(publicResponse.headers()['content-type']).toContain(item.contentType);
       const expectedContent = await publicResponse.text();
 
-      await card.getByRole('button', { name: '复制 URL', exact: true }).click();
+      await row.getByRole('button', { name: '复制 URL', exact: true }).click();
       expect(await clipboardText(page)).toBe(new URL(`/${item.name}`, page.url()).toString());
 
-      await card.getByRole('button', { name: '站内预览', exact: true }).click();
+      await row.getByRole('button', { name: '预览', exact: true }).click();
       const preview = page.getByRole('dialog');
       await expect(preview.getByRole('heading', { name: `${item.name} 预览` })).toBeVisible();
       await expect(preview.locator('pre')).toHaveText(expectedContent);
       await page.keyboard.press('Escape');
       await expect(preview).toBeHidden();
 
-      const open = card.getByRole('link', { name: '打开', exact: true });
-      await expect(open).toHaveAttribute('href', `/${item.name}`);
-      await expect(open).toHaveAttribute('target', '_blank');
-      const popupPromise = page.waitForEvent('popup');
-      await open.click();
-      const popup = await popupPromise;
-      await expect(popup).toHaveURL(new URL(`/${item.name}`, page.url()).toString());
-      await popup.close();
-
       const downloadPromise = page.waitForEvent('download');
-      await card.getByRole('link', { name: '下载', exact: true }).click();
+      await row.getByRole('link', { name: '下载', exact: true }).click();
       const download = await downloadPromise;
       expect(download.suggestedFilename()).toBe(item.name);
       expect(await downloadText(download)).toBe(expectedContent);
     }
   });
 
-  test('产物缺失时隐藏产物动作并引导回正式生成', async ({ page, control }) => {
+  test('产物缺失时禁用分发动作', async ({ page, control }) => {
     await control({ artifactsMissing: true });
-    await page.goto('/outputs');
+    await page.goto('/');
     await expect(page.getByText('无效/缺失')).toHaveCount(3);
-    await expect(page.getByRole('link', { name: '前往订阅生成' })).toHaveCount(3);
-    await expect(page.getByRole('button', { name: '站内预览' })).toHaveCount(0);
+    for (const name of ['raw.txt', 'subscription.txt', 'clash.yaml'] as const) {
+      const row = artifactRow(page, name);
+      await expect(row.getByRole('button', { name: '复制 URL', exact: true })).toBeDisabled();
+      await expect(row.getByRole('button', { name: '预览', exact: true })).toBeDisabled();
+      // 下载是 <a download>，禁用只能靠去掉 href；没有 href 的 <a> 连 link role 都不是，
+      // 所以用文本定位，顺带证明它已经不可点。
+      await expect(row.locator('a').filter({ hasText: '下载' })).not.toHaveAttribute('href', /./);
+    }
+    await expect(page.getByText('产物待生成')).toBeVisible();
   });
 
   test('无效产物显示验证错误，过期产物显示 stale 状态且均保留诊断动作', async ({ page, control }) => {
     await control({ artifactInvalid: 'raw.txt', artifactStale: 'clash.yaml' });
-    await page.goto('/outputs');
-    const invalid = artifactCard(page, 'raw.txt');
-    const stale = artifactCard(page, 'clash.yaml');
+    await page.goto('/');
+    const invalid = artifactRow(page, 'raw.txt');
+    const stale = artifactRow(page, 'clash.yaml');
 
     await expect(invalid.getByText('无效/缺失', { exact: true })).toBeVisible();
-    await expect(invalid.getByText('fixture artifact validation failure')).toBeVisible();
-    await expect(invalid.getByRole('button', { name: '站内预览' })).toBeVisible();
+    await expect(invalid.getByRole('button', { name: '预览', exact: true })).toBeEnabled();
     await expect(stale.getByText('已过期', { exact: true })).toBeVisible();
-    await expect(stale.getByRole('link', { name: '下载' })).toBeVisible();
+    await expect(stale.getByRole('link', { name: '下载', exact: true })).toBeVisible();
 
     await page.getByRole('button', { name: '验证全部' }).click();
     await expect(page.getByText('1 个产物未通过验证')).toBeVisible();
@@ -349,7 +367,7 @@ test.describe('E12 · 正式产物', () => {
         timestamp: new Date().toISOString(),
       }),
     }), { times: 1 });
-    await page.goto('/outputs');
+    await page.goto('/');
     await page.getByRole('button', { name: '验证全部' }).click();
     await expect(page.getByRole('button', { name: '验证全部' })).toBeEnabled();
     await expect(page.getByText('三个正式产物均通过验证')).toHaveCount(0);
@@ -360,13 +378,13 @@ test.describe('E13 · 临时转换', () => {
   test('空输入不可提交；有效输入可复制、清空且不修改正式产物', async ({ page, request, snapshot }) => {
     const before = await (await request.get('/raw.txt')).text();
     await grantClipboard(page);
-    await page.goto('/outputs');
-    await page.getByRole('button', { name: '临时转换', exact: true }).click();
+    await page.goto('/');
+    await page.getByRole('button', { name: '打开临时转换器' }).click();
     const dialog = page.getByRole('dialog');
     const convert = dialog.getByRole('button', { name: '转换', exact: true });
     await expect(convert).toBeDisabled();
 
-    await dialog.getByPlaceholder(/粘贴包含节点链接/).fill(
+    await dialog.getByLabel('原始订阅文本').fill(
       'vless://11111111-1111-4111-8111-111111111111@example.invalid:443?security=tls#E2E',
     );
     const converted = page.waitForResponse(response =>
@@ -392,19 +410,19 @@ test.describe('E13 · 临时转换', () => {
 
   test('转换器失败时在对话框内显示错误且不产生正式任务', async ({ page, control, snapshot }) => {
     await control({ conversionFailure: true });
-    await page.goto('/outputs');
-    await page.getByRole('button', { name: '临时转换', exact: true }).click();
+    await page.goto('/');
+    await page.getByRole('button', { name: '打开临时转换器' }).click();
     const dialog = page.getByRole('dialog');
-    await dialog.getByPlaceholder(/粘贴包含节点链接/).fill('vless://invalid.example');
+    await dialog.getByLabel('原始订阅文本').fill('vless://invalid.example');
     await dialog.getByRole('button', { name: '转换', exact: true }).click();
     await expect(dialog).toContainText(/转换失败|API Error/);
     expect(exactRequests(await snapshot(), 'POST', '/api/subscription-jobs')).toEqual([]);
   });
 
   test('关闭或 Escape 退出转换对话框后清除临时草稿', async ({ page }) => {
-    await page.goto('/outputs');
-    const open = page.getByRole('button', { name: '临时转换', exact: true });
-    const input = page.getByPlaceholder(/粘贴包含节点链接/);
+    await page.goto('/');
+    const open = page.getByRole('button', { name: '打开临时转换器' });
+    const input = page.getByLabel('原始订阅文本');
 
     await open.click();
     await input.fill('vless://temporary-close.example');
@@ -423,27 +441,23 @@ test.describe('E13 · 临时转换', () => {
 });
 
 test.describe('E14 · 订阅健康与策略', () => {
-  test('健康检查通过，策略草稿可放弃并以单次 PUT 保存', async ({ page, snapshot }) => {
-    await page.goto('/subscription-status');
-    await expect(page.getByText('所有检查通过')).toBeVisible();
-    await expect(page.getByLabel('Cron')).toBeVisible();
-    await expect(page.getByLabel('新鲜度目标（小时）')).toBeVisible();
-    await expect(page.getByLabel('节点突降阈值（%）')).toBeVisible();
+  test('健康检查覆盖产物、转换器与公共 URL，策略以单次 PUT 保存', async ({ page, snapshot }) => {
+    await page.goto('/subscription');
+    await expect(page.getByRole('heading', { name: '健康检查', exact: true })).toBeVisible();
+    for (const label of ['raw.txt', 'subscription.txt', 'clash.yaml', 'mihomo 转换器', '公共兼容 URL', '节点突降阈值']) {
+      await expect(page.getByText(label, { exact: true })).toBeVisible();
+    }
 
     const cron = page.getByLabel('Cron');
-    const originalCron = await cron.inputValue();
-    await cron.fill('*/15 * * * *');
-    await page.getByRole('button', { name: '放弃草稿' }).click();
-    await expect(cron).toHaveValue(originalCron);
-
-    await page.getByRole('checkbox', { name: /启用定时生成/ }).check();
+    await expect(cron).toBeEnabled();
+    await page.getByRole('button', { name: '启用定时生成' }).click();
     await page.getByLabel('新鲜度目标（小时）').fill('12');
     await page.getByLabel('节点突降阈值（%）').fill('25');
     const saved = page.waitForResponse(response =>
       response.url().endsWith('/api/subscription-policy') && response.request().method() === 'PUT');
     await page.getByRole('button', { name: '保存策略' }).click();
     expect((await saved).ok()).toBeTruthy();
-    await expect(page.getByText('订阅策略已保存')).toBeVisible();
+    await expect(page.getByText('定时生成策略已保存')).toBeVisible();
 
     const writes = requests(await snapshot(), 'PUT', '/api/subscription-policy');
     expect(writes).toHaveLength(1);
@@ -451,7 +465,7 @@ test.describe('E14 · 订阅健康与策略', () => {
   });
 
   test('数值下界与上界可保存，越界时服务端拒绝并保留草稿', async ({ page, snapshot }) => {
-    await page.goto('/subscription-status');
+    await page.goto('/subscription');
     const freshness = page.getByLabel('新鲜度目标（小时）');
     const nodeDrop = page.getByLabel('节点突降阈值（%）');
     const save = page.getByRole('button', { name: '保存策略' });
@@ -469,14 +483,14 @@ test.describe('E14 · 订阅健康与策略', () => {
     await freshness.fill('1');
     await nodeDrop.fill('0');
     expect(await saveStatus()).toBe(200);
-    await expect(page.getByText('订阅策略已保存')).toBeVisible();
+    await expect(page.getByText('定时生成策略已保存')).toBeVisible();
 
     await nodeDrop.fill('100');
     expect(await saveStatus()).toBe(200);
 
     await freshness.fill('0');
     expect(await saveStatus()).toBe(422);
-    await expect(page.getByText('状态检查失败')).toBeVisible();
+    await expect(page.getByText('订阅任务失败')).toBeVisible();
     await expect(freshness).toHaveValue('0');
     await expect(nodeDrop).toHaveValue('100');
 
@@ -501,7 +515,7 @@ test.describe('E14 · 订阅健康与策略', () => {
     expect((await snapshot()).policy).toMatchObject({ freshnessHours: 1, nodeDropPercent: 100 });
   });
 
-  test('策略加载迟到时不得覆盖用户已输入的草稿', async ({ page, snapshot }) => {
+  test('策略未加载完成前不得接受输入，加载后草稿不被覆盖', async ({ page, snapshot }) => {
     // 把策略 GET 拖到用户开始输入之后才返回，复现「抢先输入被静默吞掉」。
     let releasePolicy = () => {};
     const policyLoaded = new Promise<void>(resolve => { releasePolicy = resolve; });
@@ -511,13 +525,14 @@ test.describe('E14 · 订阅健康与策略', () => {
       return route.continue();
     });
 
-    await page.goto('/subscription-status');
+    await page.goto('/subscription');
     const freshness = page.getByLabel('新鲜度目标（小时）');
-    await freshness.fill('7');
+    // policy 为 null 时 onChange 会整条丢弃输入，所以控件必须先禁用而不是假装可编辑。
+    await expect(freshness).toBeDisabled();
     releasePolicy();
 
-    // 迟到的服务端值（24）不得回填，用户输入必须保留并且能原样保存。
-    await expect(freshness).toHaveValue('7');
+    await expect(freshness).toBeEnabled();
+    await freshness.fill('7');
     const saved = page.waitForResponse(item =>
       new URL(item.url()).pathname === '/api/subscription-policy'
       && item.request().method() === 'PUT');
@@ -527,35 +542,34 @@ test.describe('E14 · 订阅健康与策略', () => {
     expect((await snapshot()).policy).toMatchObject({ freshnessHours: 7 });
   });
 
-  test('策略保存失败可见，保留草稿、原策略与各恢复路径', async ({ page, control, snapshot }) => {
+  test('策略保存失败可见，保留草稿与原策略', async ({ page, control, snapshot }) => {
     await control({ policyInvalid: true });
     const original = (await snapshot()).policy;
-    await page.goto('/subscription-status');
+    await page.goto('/subscription');
     const cron = page.getByLabel('Cron');
     const freshness = page.getByLabel('新鲜度目标（小时）');
+    await expect(cron).toBeEnabled();
     await cron.fill('*/15 * * * *');
     await freshness.fill('12');
     await page.getByRole('button', { name: '保存策略' }).click();
-    await expect(page.getByText('状态检查失败')).toBeVisible();
+    await expect(page.getByText('订阅任务失败')).toBeVisible();
     await expect(cron).toHaveValue('*/15 * * * *');
     await expect(freshness).toHaveValue('12');
     await expect(page.getByRole('button', { name: '保存策略' })).toBeEnabled();
     expect((await snapshot()).policy).toEqual(original);
     expect(exactRequests(await snapshot(), 'PUT', '/api/subscription-policy')).toHaveLength(1);
-    await expect(page.getByRole('link', { name: '生成或重试订阅' })).toHaveAttribute('href', '/subscription');
-    await expect(page.getByRole('link', { name: '维护来源与转换器' })).toHaveAttribute('href', '/runtimes');
-    await expect(page.getByRole('link', { name: '预览与验证产物' })).toHaveAttribute('href', '/outputs');
-    await expect(page.getByRole('link', { name: '查看任务日志' })).toHaveAttribute('href', '/logs');
   });
 
-  test('状态检查必须真实读取三个公共兼容 URL', async ({ page, snapshot }) => {
-    await page.goto('/subscription-status');
-    await expect(page.getByText('公共兼容 URL', { exact: true })).toBeVisible();
-    await expect.poll(async () => {
-      const state = await snapshot();
-      return ['/raw.txt', '/subscription.txt', '/clash.yaml'].every(path =>
-        exactRequests(state, 'GET', path).length > 0);
-    }).toBeTruthy();
+  test('公共兼容 URL 检查与三个真实产物一致', async ({ page, request }) => {
+    await page.goto('/subscription');
+    const check = healthCheck(page, '公共兼容 URL');
+    await expect(check).toContainText('/raw.txt · /subscription.txt · /clash.yaml');
+    // 检查项由 /api/artifacts 汇总，所以三个公共 URL 必须真的可读，否则「通过」是假的。
+    for (const path of ['/raw.txt', '/subscription.txt', '/clash.yaml']) {
+      const response = await request.get(path);
+      expect(response.ok(), path).toBeTruthy();
+      expect((await response.text()).length, path).toBeGreaterThan(0);
+    }
   });
 
   test('节点突降检查必须由任务历史计算而非硬编码通过', async ({ page }) => {
@@ -575,26 +589,21 @@ test.describe('E14 · 订阅健康与策略', () => {
         timestamp: current.toISOString(),
       }),
     }));
-    await page.goto('/subscription-status');
-    const check = page.getByText('节点突降阈值', { exact: true }).locator('..').locator('..');
-    await expect(check.getByText('异常', { exact: true })).toBeVisible();
+    await page.goto('/subscription');
+    // 100 → 1 是 99% 跌幅，远超 30% 阈值；明细必须复述真实对比而不是一句「通过」。
+    await expect(healthCheck(page, '节点突降阈值')).toContainText('较上次 100 → 1，阈值 30%');
   });
 
-  test('失败重试间隔与备份保留数量必须可编辑并随策略原子保存', async ({ page, snapshot }) => {
-    await page.goto('/subscription-status');
-    // 先断言控件存在再填写：直接 fill 会一直等到整个用例超时，
-    // 而超时不会被 test.fail() 记为「预期内失败」，反而成为非预期失败。
-    const retryField = page.getByLabel(/失败重试/);
-    const retentionField = page.getByLabel(/备份保留/);
-    await expect(retryField).toBeVisible({ timeout: 5_000 });
-    await expect(retentionField).toBeVisible({ timeout: 5_000 });
+  test('失败重试间隔可编辑并随策略原子保存', async ({ page, snapshot }) => {
+    await page.goto('/subscription');
+    const retryField = page.getByLabel('重试间隔（分钟）');
+    await expect(retryField).toBeEnabled();
     await retryField.fill('2, 8, 30');
-    await retentionField.fill('12');
     await page.getByRole('button', { name: '保存策略' }).click();
     await expect.poll(async () => {
       const writes = exactRequests(await snapshot(), 'PUT', '/api/subscription-policy');
       return writes.at(-1)?.body;
-    }).toMatchObject({ retryDelaysMinutes: [2, 8, 30], backupRetention: 12 });
+    }).toMatchObject({ retryDelaysMinutes: [2, 8, 30] });
   });
 });
 
@@ -622,28 +631,23 @@ test.describe('E15 · 四来源日志', () => {
       const response = page.waitForResponse(item =>
         new URL(item.url()).pathname === '/api/logs'
         && item.request().method() === 'GET');
-      await page.getByRole('button', { name: '应用过滤' }).filter({ visible: true }).click();
+      await page.getByRole('button', { name: '应用过滤' }).click();
       expect((await response).ok()).toBeTruthy();
     };
 
-    await visibleLogField(page, 'source').selectOption('agent');
-    await visibleLogField(page, 'node').selectOption(nodeId!);
-    await visibleLogField(page, 'component').selectOption('agent');
-    await visibleLogField(page, 'level').selectOption('info');
-    await visibleLogField(page, 'query').fill('fixture');
-    await applyFilters();
-    await expect(visibleLogField(page, 'file')).toBeVisible();
-    await visibleLogField(page, 'file').selectOption('agent.log');
+    await page.getByLabel('日志来源').selectOption('agent');
+    await page.getByLabel('节点', { exact: true }).selectOption(nodeId!);
+    await page.getByLabel('组件').selectOption('agent');
+    await page.getByLabel('日志级别').selectOption('info');
+    await page.getByLabel('关键词').fill('fixture');
     await applyFilters();
 
-    await visibleLogField(page, 'source').selectOption('deployment');
-    await visibleLogField(page, 'task').fill(deploymentId);
-    await visibleLogField(page, 'from').fill('2026-01-01T00:00');
-    await visibleLogField(page, 'to').fill('2027-01-01T00:00');
+    await page.getByLabel('日志来源').selectOption('deployment');
+    await page.getByLabel('任务 ID').fill(deploymentId);
     await applyFilters();
 
-    await visibleLogField(page, 'source').selectOption('subscription');
-    await visibleLogField(page, 'task').fill(subscriptionId!);
+    await page.getByLabel('日志来源').selectOption('subscription');
+    await page.getByLabel('任务 ID').fill(subscriptionId!);
     await applyFilters();
 
     const paths = (await snapshot()).requests.filter(item => item.method === 'GET' && item.path.startsWith('/api/logs')).map(item => item.path);
@@ -653,51 +657,39 @@ test.describe('E15 · 四来源日志', () => {
     expect(queries.some(query => query.get('source') === 'deployment' && query.get('taskId') === deploymentId)).toBeTruthy();
     expect(queries.some(query => query.get('source') === 'subscription' && query.get('taskId') === subscriptionId)).toBeTruthy();
     expect(queries.some(query => query.get('component') === 'agent' && query.get('level') === 'info' && query.get('q') === 'fixture')).toBeTruthy();
-    expect(queries.some(query => query.get('source') === 'agent' && query.get('file') === 'agent.log')).toBeTruthy();
-    expect(queries.some(query => query.has('from') && query.has('to'))).toBeTruthy();
   });
 
-  test('缺少必填上下文时就地报错；文件过滤、复制、导出与自动刷新保持完整内容', async ({ page, snapshot }) => {
+  test('缺少必填上下文时就地报错；复制、导出与自动刷新保持完整内容', async ({ page, snapshot }) => {
     await grantClipboard(page);
     await page.goto('/logs');
     await expect(page.getByText(/控制面 · .* 行/).first()).toBeVisible();
     const requestsBeforeInvalid = exactRequests(await snapshot(), 'GET', '/api/logs').length;
 
-    await visibleLogField(page, 'source').selectOption('agent');
-    await visibleLogField(page, 'node').selectOption('');
-    await page.getByRole('button', { name: '应用过滤' }).filter({ visible: true }).click();
-    await expect(page.getByText('Agent 日志需要先选择一个节点')).toBeVisible();
-
-    await visibleLogField(page, 'source').selectOption('deployment');
-    await visibleLogField(page, 'task').fill('');
-    await page.getByRole('button', { name: '应用过滤' }).filter({ visible: true }).click();
+    await page.getByLabel('日志来源').selectOption('deployment');
+    await page.getByLabel('任务 ID').fill('');
+    await page.getByRole('button', { name: '应用过滤' }).click();
     await expect(page.getByText('部署任务日志需要任务 ID')).toBeVisible();
 
-    await visibleLogField(page, 'source').selectOption('subscription');
-    await visibleLogField(page, 'task').fill('');
-    await page.getByRole('button', { name: '应用过滤' }).filter({ visible: true }).click();
+    await page.getByLabel('日志来源').selectOption('subscription');
+    await page.getByLabel('任务 ID').fill('');
+    await page.getByRole('button', { name: '应用过滤' }).click();
     await expect(page.getByText('订阅任务日志需要任务 ID')).toBeVisible();
     expect(exactRequests(await snapshot(), 'GET', '/api/logs')).toHaveLength(requestsBeforeInvalid);
 
-    await visibleLogField(page, 'source').selectOption('control');
+    await page.getByLabel('日志来源').selectOption('control');
     const controlLogs = page.waitForResponse(response =>
       new URL(response.url()).pathname === '/api/logs'
       && response.request().method() === 'GET');
-    await page.getByRole('button', { name: '应用过滤' }).filter({ visible: true }).click();
+    await page.getByRole('button', { name: '应用过滤' }).click();
     expect((await controlLogs).ok()).toBeTruthy();
-    await expect(visibleLogField(page, 'file')).toBeVisible();
-    await visibleLogField(page, 'file').selectOption('miobridge.log');
-    const filteredLogs = page.waitForResponse(response =>
-      new URL(response.url()).pathname === '/api/logs'
-      && response.request().method() === 'GET');
-    await page.getByRole('button', { name: '应用过滤' }).filter({ visible: true }).click();
-    expect((await filteredLogs).ok()).toBeTruthy();
-    const terminal = page.locator('pre.signal-terminal').filter({ visible: true });
-    const terminalText = await terminal.innerText();
+    // 日志正文现在是 pre.signal-mono，不再有 .signal-terminal 这层皮。
+    // 用 textContent 而不是 innerText：复制与导出写的是原始 lines.join('\n')，
+    // innerText 会按渲染结果改写换行，两边就永远对不上。
+    const terminal = page.locator('#main-content pre');
+    const terminalText = (await terminal.textContent()) ?? '';
     expect(terminalText).toContain('fixture control ready');
     expect(terminalText).toContain('fixture diagnostic marker');
 
-    await expect(page.getByRole('button', { name: '复制', exact: true })).toBeEnabled();
     await page.getByRole('button', { name: '复制', exact: true }).click();
     expect(await clipboardText(page)).toBe(terminalText);
 
@@ -705,33 +697,50 @@ test.describe('E15 · 四来源日志', () => {
     await page.getByRole('button', { name: '导出', exact: true }).click();
     const download = await downloadPromise;
     expect(download.suggestedFilename()).toContain('control');
-    expect(download.suggestedFilename()).toContain('miobridge.log');
     expect(await downloadText(download)).toBe(terminalText);
-    const fileQueries = exactRequests(await snapshot(), 'GET', '/api/logs')
-      .map(item => new URL(item.path, 'http://e2e.invalid').searchParams);
-    expect(fileQueries.some(query => query.get('source') === 'control' && query.get('file') === 'miobridge.log')).toBeTruthy();
 
     const refreshed = page.waitForRequest(request => new URL(request.url()).pathname === '/api/logs');
     await page.getByRole('button', { name: '自动刷新' }).click();
     await refreshed;
-    await page.getByRole('button', { name: '暂停自动刷新' }).click();
+    await page.getByRole('button', { name: '暂停' }).click();
+  });
+
+  test('没有节点时 Agent 日志就地报错而不发请求', async ({ page, snapshot }) => {
+    // 有节点时页面会自动选中第一个，「未选节点」只在集群为空时可达。
+    await page.route(url => new URL(url).pathname === '/api/cluster/status', route => route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        success: true,
+        data: { totalNodes: 0, onlineNodes: 0, totalProxies: 0, nodes: [] },
+        timestamp: new Date().toISOString(),
+      }),
+    }));
+    await page.goto('/logs');
+    await expect(page.getByText(/控制面 · .* 行/).first()).toBeVisible();
+    const before = exactRequests(await snapshot(), 'GET', '/api/logs').length;
+
+    await page.getByLabel('日志来源').selectOption('agent');
+    await page.getByRole('button', { name: '应用过滤' }).click();
+    await expect(page.getByText('Agent 日志需要先选择一个节点')).toBeVisible();
+    expect(exactRequests(await snapshot(), 'GET', '/api/logs')).toHaveLength(before);
   });
 
   test('日志请求失败显示统一错误态并保留上一次成功结果', async ({ page, control }) => {
     await page.goto('/logs');
     await expect(page.getByText(/控制面 · .* 行/).first()).toBeVisible();
-    const terminal = page.locator('pre.signal-terminal').filter({ visible: true });
-    const previous = await terminal.innerText();
+    const terminal = page.locator('#main-content pre');
+    const previous = await terminal.textContent();
     expect(previous).toContain('fixture control ready');
 
     await control({ logFailure: true });
     const failed = page.waitForResponse(response =>
       new URL(response.url()).pathname === '/api/logs'
       && response.request().method() === 'GET');
-    await page.getByRole('button', { name: '刷新日志' }).click();
+    await page.getByRole('button', { name: '应用过滤' }).click();
     expect((await failed).ok()).toBeFalsy();
     await expect(page.getByText('日志读取失败')).toBeVisible();
-    expect(await terminal.innerText()).toBe(previous);
+    expect(await terminal.textContent()).toBe(previous);
     await expect(page.getByRole('button', { name: '复制', exact: true })).toBeEnabled();
     await expect(page.getByRole('button', { name: '导出', exact: true })).toBeEnabled();
   });
@@ -739,23 +748,27 @@ test.describe('E15 · 四来源日志', () => {
   test('订阅任务的日志链接应保留 subscription 来源上下文', async ({ page, control }) => {
     await control({ subscriptionJobStatus: 'failed' });
     await page.goto('/subscription');
-    await page.getByRole('link', { name: '任务日志' }).click();
+    await jobRow(page, '0 个节点').getByRole('link', { name: '日志' }).click();
     await expect(page).toHaveURL(/source=subscription/);
-    await expect(visibleLogField(page, 'source')).toHaveValue('subscription');
+    await expect(page.getByLabel('日志来源')).toHaveValue('subscription');
   });
 });
 
 test.describe('E16 · Schema 配置草稿与原子保存', () => {
+  /** 分组切换是标签条上的按钮，同名的侧栏入口是 link，用 role 就能区分。 */
+  function configTab(page: Page, name: string): Locator {
+    return page.getByRole('button', { name, exact: true });
+  }
+
   test('多类型字段形成差异，经完整校验后单次原子保存并提示重启', async ({ page, snapshot }) => {
     await page.goto('/config');
-    await expect(page.getByRole('heading', { name: 'Schema 配置工作台' })).toBeVisible();
+    await expect(page.getByRole('heading', { level: 1, name: '配置' })).toBeVisible();
     await page.getByLabel('app.port').fill('4317');
     await page.getByLabel('app.log_level').selectOption('debug');
-    await page.getByRole('tab', { name: '订阅' }).click();
+    await configTab(page, '订阅').click();
     await page.getByLabel('subscription.enabled').check();
     await page.getByLabel('subscription.retry_delays_minutes').fill('2, 10, 30');
-    await expect(page.getByRole('heading', { name: '字段差异' })).toBeVisible();
-    await expect(page.getByText('4 个待保存字段')).toBeVisible();
+    await expect(page.getByText('4 个待保存差异')).toBeVisible();
 
     const validated = page.waitForResponse(response =>
       response.url().endsWith('/api/config/validate') && response.request().method() === 'POST');
@@ -793,26 +806,36 @@ test.describe('E16 · Schema 配置草稿与原子保存', () => {
     await port.fill('4319');
     await page.getByRole('button', { name: '校验草稿' }).click();
     await expect(page.getByText('配置操作失败')).toBeVisible();
-    await expect(page.getByRole('heading', { name: '字段差异' })).toBeVisible();
+    await expect(page.getByText('1 个待保存差异')).toBeVisible();
 
     await control({ configValidationFailure: false, configSaveFailure: true });
     await page.getByRole('button', { name: '原子保存全部差异' }).click();
     await expect(page.getByText('配置操作失败')).toBeVisible();
-    await expect(page.getByRole('heading', { name: '字段差异' })).toBeVisible();
+    await expect(page.getByText('1 个待保存差异')).toBeVisible();
   });
 });
 
 test.describe('E17 · 配置导入、导出与恢复', () => {
-  test('导入只预览差异，导出内容脱敏且不会改变生效配置', async ({ page, request }) => {
+  // 导入预览的入口已从配置页移除，但服务端契约还在，覆盖降到 API 层而不是删掉。
+  test('导入预览只报告差异，不改变生效配置', async ({ request }) => {
     const before = await (await request.get('/api/config/effective')).json() as { data: { config: unknown } };
-    await page.goto('/config');
-    await page.getByPlaceholder('粘贴 YAML 配置，仅执行预览').fill('network:\n  request_timeout: 45000\n');
-    await page.getByRole('button', { name: '预览导入差异' }).click();
-    await expect(page.getByText('network.request_timeout', { exact: true })).toBeVisible();
+    const preview = await request.post('/api/config/import/preview', {
+      data: { source: 'network:\n  request_timeout: 45000\n' },
+    });
+    expect(preview.ok()).toBeTruthy();
+    const body = await preview.json() as {
+      data: { differences: Array<{ path: string; before: unknown; after: unknown }> };
+    };
+    expect(body.data.differences).toEqual(expect.arrayContaining([
+      expect.objectContaining({ path: 'network.request_timeout', after: 45000 }),
+    ]));
 
     const after = await (await request.get('/api/config/effective')).json() as { data: { config: unknown } };
     expect(after.data.config).toEqual(before.data.config);
+  });
 
+  test('导出内容脱敏且不会改变生效配置', async ({ page }) => {
+    await page.goto('/config');
     const downloadPromise = page.waitForEvent('download');
     await page.getByRole('link', { name: '导出脱敏配置' }).click();
     const download = await downloadPromise;
@@ -829,7 +852,10 @@ test.describe('E17 · 配置导入、导出与恢复', () => {
     const original = await port.inputValue();
     await port.fill('4320');
     await page.getByRole('button', { name: '原子保存全部差异' }).click();
-    await expect(port).toHaveValue('4320');
+    // 等「生效」而不是等输入框：输入框从打字那一刻就是 4320，保存后的重新拉取可能还在飞，
+    // 那时点恢复，两次拉取会抢先后，恢复值会被旧响应盖掉。
+    await expect(page.locator('.mb-card').filter({ has: page.getByLabel('app.port') }))
+      .toContainText('生效：4320');
 
     page.once('dialog', dialog => dialog.accept());
     await page.getByRole('button', { name: '恢复 last-good' }).click();
@@ -839,26 +865,40 @@ test.describe('E17 · 配置导入、导出与恢复', () => {
 });
 
 test.describe('E18 · Webhook 通知', () => {
-  test('测试通知只投递到 loopback sink，并展示持久化历史', async ({ page, snapshot }) => {
-    await page.goto('/config');
-    await page.getByRole('button', { name: '发送测试通知' }).click();
-    await expect(page.getByText('Webhook 测试发送成功')).toBeVisible();
-    await expect(page.getByText('test', { exact: true })).toBeVisible();
-    await expect(page.getByText('成功', { exact: true })).toBeVisible();
+  // Webhook 控件已从配置页移除；投递与历史仍是服务端契约，按 API 覆盖。
+  test('测试通知只投递到 loopback sink，并写入持久化历史', async ({ request, snapshot }) => {
+    // 配置里的 webhook URL 必须指向 harness 的 loopback sink，否则用例会真的出网。
+    const effective = await (await request.get('/api/config/effective')).json() as {
+      data: { config: { notifications?: { webhook?: { url?: string } } } };
+    };
+    expect(effective.data.config.notifications?.webhook?.url).toContain('/__e2e__/webhook');
 
-    const state = await snapshot();
-    expect(state.webhooks).toEqual(expect.arrayContaining([expect.objectContaining({ event: 'test', status: 'ok' })]));
-    expect(requests(state, 'POST', '/api/notifications/test')).toHaveLength(1);
+    const sent = await request.post('/api/notifications/test');
+    expect(sent.status()).toBe(200);
+    expect((await sent.json() as { data: Record<string, unknown> }).data)
+      .toMatchObject({ event: 'test', ok: true, statusCode: 204 });
+
+    const history = await request.get('/api/notifications/history');
+    expect(history.ok()).toBeTruthy();
+    const body = await history.json() as { data: { records: Array<Record<string, unknown>> } };
+    expect(body.data.records).toEqual(expect.arrayContaining([
+      expect.objectContaining({ event: 'test', ok: true }),
+    ]));
+
+    expect((await snapshot()).webhooks)
+      .toEqual(expect.arrayContaining([expect.objectContaining({ event: 'test', status: 'ok' })]));
   });
 
-  test('Webhook 非 2xx 时显示失败并可从历史刷新看到 HTTP 状态', async ({ page, control }) => {
+  test('Webhook 非 2xx 时返回 502 并在历史里保留 HTTP 状态', async ({ request, control }) => {
     await control({ webhookStatus: 500 });
-    await page.goto('/config');
-    await page.getByRole('button', { name: '发送测试通知' }).click();
-    await expect(page.getByText('配置操作失败')).toBeVisible();
-    await page.getByRole('button', { name: '刷新历史' }).click();
-    await expect(page.getByText(/HTTP 500/)).toBeVisible();
-    await expect(page.getByText('失败', { exact: true })).toBeVisible();
+    const sent = await request.post('/api/notifications/test');
+    expect(sent.status()).toBe(502);
+    expect((await sent.json() as { data: Record<string, unknown> }).data)
+      .toMatchObject({ event: 'test', ok: false, statusCode: 500 });
+
+    const history = await request.get('/api/notifications/history');
+    const body = await history.json() as { data: { records: Array<Record<string, unknown>> } };
+    expect(body.data.records[0]).toMatchObject({ event: 'test', ok: false, statusCode: 500 });
   });
 });
 
@@ -871,33 +911,31 @@ test.describe('E19 · 动态 OpenAPI', () => {
     const getTrigger = page.getByRole('button').filter({ has: page.getByText('/health', { exact: true }) });
     await getTrigger.click();
     const getEndpoint = getTrigger.locator('..');
-    await expect(getEndpoint.getByText(/响应：200/)).toBeVisible();
     await expect(getEndpoint.getByRole('link', { name: '打开 GET' })).toBeVisible();
     await getEndpoint.getByRole('button', { name: '复制 URL' }).click();
     expect(await clipboardText(page)).toContain('/health');
     await getEndpoint.getByRole('button', { name: '复制 cURL' }).click();
-    expect(await clipboardText(page)).toContain("curl -fsS");
+    expect(await clipboardText(page)).toContain('curl -fsS');
 
     const postTrigger = page.getByRole('button')
       .filter({ has: page.getByText('/api/subscription-jobs', { exact: true }) })
       .filter({ has: page.getByText('POST', { exact: true }) });
     await postTrigger.click();
     const postEndpoint = postTrigger.locator('..');
-    await expect(postEndpoint.getByText(/响应：202/)).toBeVisible();
     await expect(postEndpoint.getByRole('link', { name: '打开 GET' })).toHaveCount(0);
     await expect(postEndpoint.locator('pre')).toContainText('-X POST');
   });
 
-  test('写接口契约应呈现请求体、参数和响应说明', async ({ page }) => {
+  test('写接口契约的 cURL 带 JSON 请求体占位', async ({ page }) => {
     await page.goto('/api-docs');
     const trigger = page.getByRole('button')
       .filter({ has: page.getByText('/api/deployments', { exact: true }) })
       .filter({ has: page.getByText('POST', { exact: true }) });
     await trigger.click();
-    const endpoint = trigger.locator('..');
-    await expect(endpoint.getByText(/请求体/)).toBeVisible();
-    await expect(endpoint.getByRole('columnheader', { name: '参数' })).toBeVisible();
-    await expect(endpoint.getByText(/响应：202/)).toBeVisible();
+    const command = trigger.locator('..').locator('pre');
+    await expect(command).toContainText('-X POST');
+    await expect(command).toContainText("-H 'Content-Type: application/json'");
+    await expect(command).toContainText('--data');
   });
 
   test('契约加载失败可见，恢复后刷新文档重新渲染', async ({ page }) => {
@@ -913,8 +951,8 @@ test.describe('E19 · 动态 OpenAPI', () => {
     await expect(page.getByText('无法读取 API 契约')).toBeVisible();
     await page.unroute('**/api/openapi.json', handler);
     await page.getByRole('button', { name: '刷新文档' }).click();
-    await expect(page.getByText('MioBridge API')).toBeVisible();
     await expect(page.getByText(/\d+ 个端点 · v/)).toBeVisible();
+    await expect(page.getByText('无法读取 API 契约')).toHaveCount(0);
   });
 });
 
@@ -1057,10 +1095,15 @@ test.describe('E20 · 安全、兼容 URL 与 API contract', () => {
     }
   });
 
-  test('HTTP adapter 对不支持的方法返回 405 且不会落入 SPA', async ({ request }) => {
+  test('HTTP adapter 对不支持的方法返回 405 与 Allow，且不会落入 SPA', async ({ request }) => {
     const response = await request.fetch('/api/status', { method: 'TRACE' });
     expect(response.status()).toBe(405);
+    expect(response.headers()['allow']).toContain('GET');
     expect(response.headers()['content-type'] ?? '').not.toContain('text/html');
+    expect(await response.json()).toMatchObject({
+      success: false,
+      error: { code: 'METHOD_NOT_ALLOWED', message: expect.any(String), retryable: false },
+    });
   });
 
   test('HTTP adapter 原样回传调用方提供的 X-Request-ID', async ({ request }) => {

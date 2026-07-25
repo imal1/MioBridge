@@ -1,17 +1,32 @@
+/**
+ * Global shell and overview.
+ *
+ * The redesign collapsed 11 pages into 6: 部署 / Agent / 运行时 became tabs on
+ * the node detail panel, 衍生输出 folded into 总览, and 订阅状态 folded into 订阅.
+ * The six retired paths are now redirects (see app.tsx), so they are asserted as
+ * redirects instead of as pages. Sidebar entries mark the current page with an
+ * `active` class rather than an inline background.
+ */
 import { expect, test } from '../../fixtures/e2e.js';
 
+/** Every real page, keyed by its h1 — identical to PAGE_TITLES in navigation.ts. */
 const pages = [
   ['/', '总览'],
   ['/nodes', '节点'],
-  ['/deploy', '部署中心'],
-  ['/agents', 'Agent 维护'],
-  ['/runtimes', '运行时'],
-  ['/subscription', '订阅生成'],
-  ['/outputs', '衍生输出'],
-  ['/subscription-status', '订阅状态'],
+  ['/subscription', '订阅'],
   ['/logs', '日志'],
   ['/config', '配置'],
   ['/api-docs', 'API'],
+] as const;
+
+/** Retired paths and the anchor each one lands on. */
+const redirects = [
+  ['/deploy', '/nodes', '节点'],
+  ['/agents', '/nodes', '节点'],
+  ['/runtimes', '/nodes', '节点'],
+  ['/outputs', '/', '总览'],
+  ['/subscription-status', '/subscription', '订阅'],
+  ['/actions', '/subscription', '订阅'],
 ] as const;
 
 test.describe('E00–E01 · 全局壳层与总览', () => {
@@ -23,34 +38,31 @@ test.describe('E00–E01 · 全局壳层与总览', () => {
     });
   }
 
-  test('/actions 兼容入口重定向到订阅页', async ({ page }) => {
-    await page.goto('/actions');
-    await expect(page).toHaveURL(/\/subscription$/);
-    await expect(page.getByRole('heading', { level: 1, name: '订阅生成' })).toBeVisible();
-  });
+  for (const [path, target, heading] of redirects) {
+    test(`${path} 兼容入口重定向到 ${target}`, async ({ page }) => {
+      await page.goto(path);
+      await expect(page).toHaveURL(new RegExp(`${target === '/' ? '/$' : `${target}$`}`));
+      await expect(page.getByRole('heading', { level: 1, name: heading })).toBeVisible();
+    });
+  }
 
-  test('桌面侧栏遍历全部 11 个唯一入口并标记当前页', async ({ page }) => {
+  test('桌面侧栏遍历全部 6 个唯一入口并标记当前页', async ({ page }) => {
     await page.goto('/');
+    // 主区与系统区是两个 <nav>，链接总数覆盖两者。
     const navigation = page.locator('aside nav');
-    await expect(navigation.getByRole('link')).toHaveCount(11);
+    await expect(navigation.getByRole('link')).toHaveCount(pages.length);
 
     for (const [path, heading] of pages) {
-      const label = path === '/' ? '总览'
-        : path === '/deploy' ? '部署中心'
-          : path === '/agents' ? 'Agent 维护'
-            : path === '/outputs' ? '衍生输出'
-              : path === '/subscription-status' ? '订阅状态'
-                : path === '/api-docs' ? 'API'
-                  : heading.replace('生成', '').replace('中心', '');
-      const link = navigation.getByRole('link', { name: label, exact: true });
+      // 「节点」入口带节点数徽章，可访问名是「节点 2」，所以不能要求 exact。
+      const link = navigation.getByRole('link', { name: heading });
       await link.click();
       await expect(page).toHaveURL(new RegExp(`${path === '/' ? '/$' : `${path}$`}`));
       await expect(page.getByRole('heading', { level: 1, name: heading })).toBeVisible();
-      expect(await link.evaluate(element => element.style.background)).toBe('var(--sidebar-accent)');
+      await expect(link).toHaveClass(/active/);
     }
   });
 
-  test('baseline 11 页没有浏览器 JS 异常或 console.error', async ({ page }) => {
+  test('baseline 6 页没有浏览器 JS 异常或 console.error', async ({ page }) => {
     const pageErrors: string[] = [];
     const consoleErrors: string[] = [];
     page.on('pageerror', error => pageErrors.push(error.stack ?? error.message));
@@ -73,20 +85,19 @@ test.describe('E00–E01 · 全局壳层与总览', () => {
 
   test('主题切换写入持久化设置，刷新后保持', async ({ page }) => {
     await page.goto('/');
-    const toggle = page.getByRole('button', { name: '切换到夜间模式' });
-    await toggle.click();
+    // 桌面壳层的切换在侧栏底部，按钮文案即目标模式。
+    await page.getByRole('button', { name: '深色模式', exact: true }).click();
     await expect(page.locator('html')).toHaveClass(/dark/);
     await page.reload();
     await expect(page.locator('html')).toHaveClass(/dark/);
-    await expect(page.getByRole('button', { name: '切换到日间模式' })).toBeVisible();
+    await expect(page.getByRole('button', { name: '浅色模式', exact: true })).toBeVisible();
   });
 
-  test('总览刷新和 24h/7d/30d 指标窗口均命中真实路由', async ({ page, snapshot }) => {
+  test('总览 24h/7d/30d 指标窗口均命中真实路由', async ({ page, snapshot }) => {
     await page.goto('/');
-    await expect(page.getByText('从节点到可用订阅')).toBeVisible();
-    await page.getByRole('button', { name: '7d' }).click();
-    await page.getByRole('button', { name: '30d' }).click();
-    await page.getByRole('button', { name: '刷新摘要' }).click();
+    await expect(page.getByRole('heading', { level: 1, name: '总览' })).toBeVisible();
+    await page.getByRole('button', { name: '7d', exact: true }).click();
+    await page.getByRole('button', { name: '30d', exact: true }).click();
 
     await expect.poll(async () => {
       const state = await snapshot();
@@ -100,39 +111,37 @@ test.describe('E00–E01 · 全局壳层与总览', () => {
 
   test('总览准确呈现就绪度、节点计数和三项正式产物', async ({ page }) => {
     await page.goto('/');
+    // 侧栏常驻显示 mihomo 版本，就绪检查里也有一份，断言必须限定在主区。
+    const main = page.locator('#main-content');
 
-    await expect(page.getByText('1 个节点待部署', { exact: true })).toBeVisible();
-    await expect(page.getByText('1/1 可用', { exact: true })).toBeVisible();
-    await expect(page.getByText('v1.19.0-e2e', { exact: true })).toBeVisible();
-    await expect(page.getByText('输出产物可用', { exact: true })).toBeVisible();
-    await expect(page.getByText('节点在线').locator('..')).toContainText('1/2');
+    await expect(main.getByText('1 个节点待部署', { exact: true })).toBeVisible();
+    await expect(main.getByText('1/1 可用', { exact: true })).toBeVisible();
+    await expect(main.getByText('v1.19.0-e2e', { exact: true })).toBeVisible();
+    await expect(main.getByText('三个输出产物均可用', { exact: true })).toBeVisible();
+    await expect(main.getByText('节点在线').locator('..')).toContainText('1/2');
 
     const artifacts = page.getByRole('table');
     for (const name of ['raw.txt', 'subscription.txt', 'clash.yaml']) {
       const row = artifacts.getByRole('row').filter({ hasText: name });
       await expect(row).toBeVisible();
-      await expect(row.getByText('可用', { exact: true })).toBeVisible();
+      // 产物状态显示新鲜度而不是笼统的“可用”，缺失/无效必须缺席。
+      await expect(row.getByText('无效/缺失', { exact: true })).toHaveCount(0);
+      await expect(row.getByRole('link', { name: '下载' })).toBeVisible();
     }
   });
 
-  test('总览四步导航只做上下文跳转，不产生写请求', async ({ page, snapshot }) => {
-    // '添加节点' 落地即打开添加节点对话框，模态框会把页面内容标记为 aria-hidden，
-    // 此时页面 h1 不在无障碍树里，只能断言对话框本身。
+  test('总览页头导航只做上下文跳转，不产生写请求', async ({ page, snapshot }) => {
     const workflow = [
-      ['添加节点', '/nodes?intent=add', 'dialog', '添加节点'],
-      ['部署运行环境', '/deploy', 'heading', '部署中心'],
-      ['生成订阅', '/subscription', 'heading', '订阅生成'],
-      ['维护订阅状态', '/subscription-status', 'heading', '订阅状态'],
+      ['添加节点', '/nodes', '节点'],
+      ['生成订阅', '/subscription', '订阅'],
     ] as const;
 
-    for (const [label, href, landmark, name] of workflow) {
+    for (const [label, href, heading] of workflow) {
       await page.goto('/');
       const link = page.getByRole('link', { name: label, exact: true });
       await expect(link).toHaveAttribute('href', href);
       await link.click();
-      await expect(landmark === 'dialog'
-        ? page.getByRole('dialog', { name })
-        : page.getByRole('heading', { level: 1, name })).toBeVisible();
+      await expect(page.getByRole('heading', { level: 1, name: heading })).toBeVisible();
       const current = new URL(page.url());
       expect(`${current.pathname}${current.search}`).toBe(href);
     }
