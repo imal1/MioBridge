@@ -92,6 +92,10 @@ jobs:
 
       - run: bun run cli:test
 
+      # Dashboard HTTP contract tests drive the real Fastify app via inject().
+      - run: bun run integration:typecheck
+      - run: bun run integration:test
+
       - name: Build and inspect release archives
         env:
           MIOBRIDGE_RELEASE_VERSION: 0.0.0-ci
