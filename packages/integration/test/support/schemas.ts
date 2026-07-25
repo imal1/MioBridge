@@ -59,6 +59,9 @@ export const healthEnvelope: Schema = {
   },
 };
 
+const validateApplication = ajv.compile(applicationEnvelope);
+const validateLegacy = ajv.compile(legacyEnvelope);
+
 /** Validates `body` and fails with ajv's messages instead of a bare boolean. */
 export function assertSchema(schema: Schema, body: unknown, label: string): void {
   const validate = ajv.compile(schema);
@@ -69,9 +72,6 @@ export function assertSchema(schema: Schema, body: unknown, label: string): void
 
 /** Either dialect is acceptable; the caller only cares that it is one of them. */
 export function assertEnvelope(body: unknown, label: string): void {
-  const application = ajv.compile(applicationEnvelope);
-  if (application(body)) return;
-  const legacy = ajv.compile(legacyEnvelope);
-  if (legacy(body)) return;
-  expect.fail(`${label} matched neither envelope dialect: ${ajv.errorsText(legacy.errors)}\n${JSON.stringify(body)}`);
+  if (validateApplication(body) || validateLegacy(body)) return;
+  expect.fail(`${label} matched neither envelope dialect: ${ajv.errorsText(validateLegacy.errors)}\n${JSON.stringify(body)}`);
 }

@@ -8,7 +8,7 @@ import { afterAll, describe, expect, it } from 'vitest';
 import { createTestApp } from './support/app.js';
 import { applicationEnvelope, assertEnvelope, assertSchema, healthEnvelope } from './support/schemas.js';
 
-const app = createTestApp();
+const { app, registered } = createTestApp();
 await app.ready();
 afterAll(async () => { await app.close(); });
 
@@ -27,6 +27,8 @@ const STREAMING = (path: string) => path.endsWith('/events');
 const NON_JSON = new Set([
   '/raw.txt', '/subscription.txt', '/clash.yaml', '/health',
   '/api/deployments/{id}/logs', '/api/config/export',
+  // Artifact bodies and the OpenAPI document itself are not enveloped.
+  '/api/file/raw', '/api/file/subscription', '/api/file/clash', '/api/openapi.json',
 ]);
 
 const document = (await app.inject({ method: 'GET', url: '/api/openapi.json' })).json() as {
@@ -62,6 +64,72 @@ describe('openapi document', () => {
     const response = await app.inject({ method: 'GET', url: concrete(path) });
     expect(response.headers['content-type']).toContain('application/json');
     assertEnvelope(response.json(), `GET ${path}`);
+  });
+});
+
+/**
+ * The document only covers part of the registry, so the sweep above cannot see
+ * the rest. These tests work from the registry itself and pin the gap, so an
+ * endpoint added without a document entry shows up here instead of shipping
+ * undocumented.
+ */
+describe('registered routes outside the openapi document', () => {
+  const documented = new Set(declared.map(entry => `${entry.method} ${entry.path}`));
+  const asDocumented = ({ method, path }: { method: string; path: string }) =>
+    `${method} ${path.replace(/:(\w+)/gu, '{$1}')}`;
+
+  const undocumented = registered
+    .filter(route => !documented.has(asDocumented(route)))
+    .map(route => ({ method: route.method, path: route.path }));
+
+  it('pins the undocumented set so it cannot grow unnoticed', () => {
+    expect(undocumented.map(asDocumented).sort()).toEqual([
+      'DELETE /api/cluster/nodes',
+      'GET /api/cluster/deploy/progress',
+      'GET /api/cluster/deploy/status',
+      'GET /api/cluster/deployments',
+      'GET /api/cluster/health',
+      'GET /api/configs',
+      'GET /api/diagnose/mihomo',
+      'GET /api/file/clash',
+      'GET /api/file/raw',
+      'GET /api/file/subscription',
+      'GET /api/openapi.json',
+      'GET /api/status',
+      'GET /api/test/protocols',
+      'GET /api/yaml/config',
+      'GET /api/yaml/frontend',
+      'GET /api/yaml/validate',
+      'PATCH /api/cluster/nodes',
+      'POST /api/cluster/agent/restart',
+      'POST /api/cluster/agent/start',
+      'POST /api/cluster/agent/stop',
+      'POST /api/cluster/agent/uninstall',
+      'POST /api/cluster/agent/update',
+      'POST /api/cluster/deploy',
+      'POST /api/cluster/deployments',
+      'POST /api/cluster/kernel/action',
+      'POST /api/cluster/kernel/detect',
+      'POST /api/cluster/kernel/install',
+      'POST /api/cluster/kernel/uninstall',
+      'POST /api/cluster/nodes/preflight',
+      'POST /api/cluster/update',
+      'POST /api/configs',
+      'POST /api/convert',
+      'POST /api/yaml/generate',
+      'PUT /api/cluster/nodes',
+    ]);
+  });
+
+  const undocumentedJsonGets = undocumented.filter(route =>
+    route.method === 'GET' && !route.path.includes(':')
+      && !STREAMING(route.path) && !NON_JSON.has(route.path));
+
+  it.each(undocumentedJsonGets)('$method $path still answers with a known envelope dialect', async ({ method, path }) => {
+    const response = await app.inject({ method: method as 'GET', url: path });
+    expect(response.statusCode, `${method} ${path} -> ${response.body.slice(0, 200)}`).not.toBe(404);
+    expect(response.headers['content-type']).toContain('application/json');
+    assertEnvelope(response.json(), `${method} ${path}`);
   });
 });
 
