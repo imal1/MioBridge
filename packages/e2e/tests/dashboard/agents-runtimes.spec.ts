@@ -27,7 +27,7 @@ function detailPanel(page: Page, nodeName: string): Locator {
 }
 
 async function openNode(page: Page, nodeId: string, nodeName: string, tab: DetailTab): Promise<Locator> {
-  await page.goto(`/nodes?node=${nodeId}`);
+  await page.goto(`/nodes?node=${encodeURIComponent(nodeId)}`);
   const panel = detailPanel(page, nodeName);
   await panel.getByRole('button', { name: tab, exact: true }).click();
   return panel;
