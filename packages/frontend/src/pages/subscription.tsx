@@ -171,7 +171,7 @@ export default function SubscriptionPage() {
         </div>
       ) : null}
 
-      <section className="grid items-start gap-[14px]" style={{ gridTemplateColumns: 'minmax(0,1.15fr) minmax(0,1fr)' }}>
+      <section className="grid grid-cols-1 items-start gap-[14px] lg:[grid-template-columns:minmax(0,1.15fr)_minmax(0,1fr)]">
         {/* left */}
         <div className="flex min-w-0 flex-col gap-[14px]">
           {/* 健康检查 */}
@@ -261,7 +261,7 @@ export default function SubscriptionPage() {
                 <span style={{ position: 'absolute', top: 2, left: policy?.enabled ? 18 : 2, width: 16, height: 16, borderRadius: 99, background: '#fff', transition: 'left .2s', boxShadow: '0 1px 3px rgba(0,0,0,.25)' }} />
               </button>
             </div>
-            <div className="grid gap-2" style={{ gridTemplateColumns: '1fr 1fr' }}>
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
               <PolicyField label="Cron" value={policy?.cron ?? ''} disabled={!policy} onChange={v => setPolicy(p => p ? { ...p, cron: v } : p)} />
               <PolicyField label="新鲜度目标（小时）" value={String(policy?.freshnessHours ?? '')} disabled={!policy} onChange={v => setPolicy(p => p ? { ...p, freshnessHours: Number(v) || 0 } : p)} />
               <PolicyField label="节点突降阈值（%）" value={String(policy?.nodeDropPercent ?? '')} disabled={!policy} onChange={v => setPolicy(p => p ? { ...p, nodeDropPercent: Number(v) || 0 } : p)} />

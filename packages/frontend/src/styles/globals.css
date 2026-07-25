@@ -616,7 +616,11 @@ button, input, textarea, select {
 
 .mb-main {
   box-sizing: border-box;
-  margin-left: 212px;
+  /* Center the fixed 1160 column in the area right of the 212px rail instead of
+     left-anchoring it. max(212px, 50vw - 474px) keeps it flush to the rail until
+     the viewport is wide enough to center; margin-right:auto absorbs the rest. */
+  margin-left: max(212px, calc(50vw - 474px));
+  margin-right: auto;
   max-width: 1160px;
   padding: 24px 28px 40px;
 }

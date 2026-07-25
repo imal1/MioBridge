@@ -191,7 +191,7 @@ export default function ConfigPage({ initialConfigs, frontendConfig, initialErro
         })}
       </div>
 
-      <div className="grid gap-2.5" style={{ gridTemplateColumns: '1fr 1fr' }}>
+      <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2">
         {tabFields.map(field => {
           const value = draft[field.path] ?? ''
           const changed = changes.some(c => c.path === field.path)

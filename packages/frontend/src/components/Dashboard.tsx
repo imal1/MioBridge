@@ -171,11 +171,11 @@ export default function Dashboard({ initialCluster = null, initialStatus = null,
         </div>
       ) : null}
 
-      <section className="mb-[14px] grid gap-2.5" style={{ gridTemplateColumns: 'repeat(4,1fr)' }}>
+      <section className="mb-[14px] grid grid-cols-2 gap-2.5 lg:grid-cols-4">
         {statCells.map(c => <StatCell key={c.label} {...c} />)}
       </section>
 
-      <section className="grid items-start gap-[14px]" style={{ gridTemplateColumns: 'minmax(0,1.5fr) minmax(0,1fr)' }}>
+      <section className="grid grid-cols-1 items-start gap-[14px] lg:[grid-template-columns:minmax(0,1.5fr)_minmax(0,1fr)]">
         {/* 输出产物 */}
         <div className="mb-card overflow-hidden">
           <div className="flex items-center justify-between px-[18px] pb-2.5 pt-[14px]">
@@ -267,7 +267,7 @@ export default function Dashboard({ initialCluster = null, initialStatus = null,
                 })}
               </div>
             </div>
-            <div className="grid gap-2" style={{ gridTemplateColumns: '1fr 1fr' }}>
+            <div className="grid grid-cols-2 gap-2">
               {metricCells.map(([label, value, suffix]) => (
                 <div key={label} style={{ padding: '9px 12px', borderRadius: 10, background: 'var(--card2)' }}>
                   <p style={{ margin: 0, fontSize: 11, color: 'var(--muted-foreground)' }}>{label}</p>
