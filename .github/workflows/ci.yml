@@ -152,11 +152,11 @@ jobs:
       - run: bun run core:build
       - run: bun run cli:build
 
-      # One run over core + cli + integration (see vitest.config.ts): the
-      # dashboard routes are exercised from packages/integration, so measuring
-      # each package alone understates cli.
+      # One run over core + cli + integration (see vitest.coverage.config.ts):
+      # the dashboard routes are exercised from packages/integration, so
+      # measuring each package alone understates cli.
       - name: Coverage
-        run: npx --no-install vitest run --coverage
+        run: npx --no-install vitest run --coverage --config vitest.coverage.config.ts
 
       - name: Upload coverage report
         if: always()
