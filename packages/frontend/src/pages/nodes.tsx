@@ -355,7 +355,7 @@ export default function NodesPage() {
         </select>
       </div>
 
-      <div className="grid items-start gap-[14px]" style={{ gridTemplateColumns: hasSel ? 'minmax(0,1fr) 400px' : '1fr' }}>
+      <div className={`grid grid-cols-1 items-start gap-[14px]${hasSel ? ' lg:[grid-template-columns:minmax(0,1fr)_400px]' : ''}`}>
         {/* node table */}
         <div className="mb-card min-w-0 overflow-hidden">
           <div className="overflow-x-auto">
