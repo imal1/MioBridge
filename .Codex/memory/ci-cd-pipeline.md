@@ -7,6 +7,12 @@ metadata:
 
 # CI/CD Pipeline
 
+## 2026-07-26 — Release packaging does not depend on Docker
+
+`release.yml` builds, tests, inspects, and installer-verifies release artifacts
+without starting a Docker/systemd host. Live user-systemd lifecycle coverage
+remains owned by the standalone `cli-systemd-e2e.yml` workflow on `main`.
+
 ## 2026-07-19 — Installer release assets
 
 Release packaging copies both `scripts/install.sh` and `scripts/install-agent.sh`
