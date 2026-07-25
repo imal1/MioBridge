@@ -45,7 +45,8 @@ test.describe('E07 · Agent 运行维护', () => {
     await expect(panel.getByText('3001', { exact: true })).toBeVisible();
 
     await panel.getByRole('button', { name: '停止', exact: true }).click();
-    await expect(page.getByText('Agent 维护操作完成')).toBeVisible();
+    // 停止/启动/重启共用同一条成功文案，前一条还没消失就会有多个同名 toast。
+    await expect(page.getByText('Agent 维护操作完成').first()).toBeVisible();
     // The fixture flips agent.status to stopped, so the control swaps to 启动.
     const start = panel.getByRole('button', { name: '启动', exact: true });
     await expect(start).toBeVisible();
@@ -54,10 +55,10 @@ test.describe('E07 · Agent 运行维护', () => {
     await expect(panel.getByRole('button', { name: '停止', exact: true })).toBeVisible();
 
     await panel.getByRole('button', { name: '重启', exact: true }).click();
-    await expect(page.getByText('Agent 维护操作完成')).toBeVisible();
+    await expect(page.getByText('Agent 维护操作完成').first()).toBeVisible();
 
     await panel.getByRole('button', { name: '健康检查', exact: true }).click();
-    await expect(page.getByText('健康检查完成')).toBeVisible();
+    await expect(page.getByText('健康检查完成').first()).toBeVisible();
 
     const state = await snapshot();
     for (const path of [

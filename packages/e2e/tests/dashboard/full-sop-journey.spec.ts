@@ -182,8 +182,9 @@ test('E20 · 完整串行 SOP：节点 → Agent → 内核 → 订阅 → 产�
       expect(response.headers()['content-type']).toContain(contentType);
       expect((await response.text()).length).toBeGreaterThan(0);
     }
-    await page.goto('/outputs');
-    await expect(page.getByText('3/3 个产物有效')).toBeVisible();
+    // 衍生输出页已并入总览，产物就绪度显示在「就绪检查」里。
+    await page.goto('/');
+    await expect(page.getByText('三个输出产物均可用', { exact: true })).toBeVisible();
   });
 
   await test.step('6. 保存订阅策略并验证持久化回读', async () => {

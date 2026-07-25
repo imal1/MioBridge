@@ -1,4 +1,17 @@
-import type { APIRequestContext, Page, Request } from '@playwright/test'
+/**
+ * Node profiles, SSH preflight and the deployment contract.
+ *
+ * The standalone /deploy page is gone: 部署 is now a tab on the node detail
+ * panel, which only exists once a node row is selected. Every UI flow therefore
+ * selects the node first (see `openTab`). Deployment tasks render as table rows
+ * under 部署任务 instead of `<article>` cards, with 取消 / 重试 / 日志 controls.
+ *
+ * Three affordances the redesign removed kept their server behaviour, so those
+ * tests now drive the endpoint directly instead of being deleted along with the
+ * button: the 先卸载再删除 guard, the manual-install YAML download, and the
+ * deployment event timeline (streamed but no longer rendered).
+ */
+import type { APIRequestContext, Locator, Page, Request } from '@playwright/test'
 import { expect, test } from '../../fixtures/e2e.js'
 
 const COMPONENTS = ['agent', 'mihomo', 'sing-box', 'xray', 'v2ray'] as const
@@ -14,6 +27,8 @@ const PREFLIGHT_CHECKS = [
   '下载工具',
   '管理员权限',
 ] as const
+
+type DetailTab = '概览' | '部署' | 'Agent' | '运行时'
 
 const PRIVATE_KEY = `-----BEGIN OPENSSH PRIVATE KEY-----
 e2e-fixture-private-key
@@ -76,7 +91,6 @@ type FixtureSnapshot = {
   readonly nodes: readonly SnapshotNode[]
   readonly deploymentTasks: readonly DeploymentTask[] | Readonly<Record<string, DeploymentTask>>
   readonly requests: readonly RecordedRequest[]
-  readonly downloadedManualConfigs?: readonly unknown[] | Readonly<Record<string, unknown>> | number
 }
 
 function fixtureSnapshot(value: unknown): FixtureSnapshot {
@@ -105,12 +119,6 @@ function tasks(state: FixtureSnapshot): readonly DeploymentTask[] {
     : Object.values(state.deploymentTasks ?? {})
 }
 
-function manualDownloadCount(state: FixtureSnapshot): number {
-  if (typeof state.downloadedManualConfigs === 'number') return state.downloadedManualConfigs
-  if (Array.isArray(state.downloadedManualConfigs)) return state.downloadedManualConfigs.length
-  return Object.keys(state.downloadedManualConfigs ?? {}).length
-}
-
 function requestPath(request: RecordedRequest): string {
   return pathname(request.path ?? request.url ?? '/')
 }
@@ -120,6 +128,33 @@ function expectNoSensitiveFields(value: unknown): void {
   for (const key of ['secret', 'password', 'sudoPassword', 'sshPassword', 'privateKey', 'sshPrivateKey', 'credentialRef', 'sudoCredentialRef']) {
     expect(serialized).not.toMatch(new RegExp(`"${key}"\\s*:`, 'i'))
   }
+}
+
+/** 详情面板是把节点名当作 heading 的那张卡片；节点表格里节点名只是纯文本。 */
+function detailPanel(page: Page, name: string): Locator {
+  return page.locator('.mb-card').filter({ has: page.getByRole('heading', { name, exact: true }) })
+}
+
+function nodeRow(page: Page, name: string): Locator {
+  return page.locator('tbody tr').filter({ hasText: name }).first()
+}
+
+/** 部署/Agent/运行时都是详情标签页，只在选中节点行后存在。 */
+async function openTab(page: Page, name: string, tab: DetailTab): Promise<Locator> {
+  const panel = detailPanel(page, name)
+  // 点击行会切换选中状态，所以已经打开时不能再点一次。
+  if (!(await panel.isVisible())) await nodeRow(page, name).click()
+  await expect(panel).toBeVisible()
+  await panel.getByRole('button', { name: tab, exact: true }).click()
+  return panel
+}
+
+function taskTable(page: Page): Locator {
+  return page.locator('section.mb-card').filter({ has: page.getByRole('heading', { name: '部署任务', exact: true }) })
+}
+
+function taskRow(page: Page, label: string): Locator {
+  return taskTable(page).locator('tbody tr').filter({ hasText: label }).first()
 }
 
 async function fillPasswordNodeForm(page: Page, input: {
@@ -235,7 +270,9 @@ test.describe('E02 — 添加节点与 SSH 预检', () => {
       node.name === 'E2E 密码节点' &&
       node.host === 'password-node.e2e.invalid')).toBe(true)
     expect(tasks(after)).toEqual(tasks(before))
-    expect(after.requests.filter(request => requestPath(request) === '/api/deployments')).toHaveLength(0)
+    // 节点页会轮询 GET /api/deployments 渲染任务表，只有写请求才算创建了部署。
+    expect(after.requests.filter(request =>
+      request.method === 'POST' && requestPath(request) === '/api/deployments')).toHaveLength(0)
   })
 
   test('私钥认证：只从文件读取密钥，预检与保存响应不泄露敏感字段', async ({ page }) => {
@@ -374,9 +411,7 @@ test.describe('E02 — 添加节点与 SSH 预检', () => {
 })
 
 test.describe('E03 — 节点档案管理', () => {
-  test('搜索、筛选、编辑、启停、删除，以及已部署 Agent 的卸载引导', async ({ page, snapshot }) => {
-    const baseline = fixtureSnapshot(await snapshot())
-    const deployed = remoteNode(baseline, node => node.agent?.deployed === true)
+  test('搜索、筛选、编辑、启停、删除', async ({ page, snapshot }) => {
     const created = await createPasswordNode(page, {
       name: 'E2E 管理节点',
       host: 'managed-node.e2e.invalid',
@@ -388,11 +423,13 @@ test.describe('E03 — 节点档案管理', () => {
     await search.fill('不存在的节点')
     await expect(page.getByText('没有匹配的节点。')).toBeVisible()
     await search.fill('E2E 管理节点')
-    await expect(page.getByText('E2E 管理节点', { exact: true })).toBeVisible()
+    await expect(nodeRow(page, 'E2E 管理节点')).toBeVisible()
     await page.getByLabel('筛选节点').selectOption('enabled')
-    await expect(page.getByText('E2E 管理节点', { exact: true })).toBeVisible()
+    await expect(nodeRow(page, 'E2E 管理节点')).toBeVisible()
 
-    await page.getByRole('button', { name: '编辑档案' }).click()
+    // 创建成功后新节点已被选中并停在部署标签页，档案操作在概览标签页。
+    let panel = await openTab(page, 'E2E 管理节点', '概览')
+    await panel.getByRole('button', { name: '编辑档案' }).click()
     const editor = page.getByRole('dialog', { name: '编辑节点档案' })
     await editor.getByLabel('名称', { exact: true }).fill('E2E 管理节点（已编辑）')
     await editor.getByLabel('主机', { exact: true }).fill('managed-node-updated.e2e.invalid')
@@ -408,37 +445,48 @@ test.describe('E03 — 节点档案管理', () => {
       location: 'LAB-UPDATED',
     })
     await expect(editor).toBeHidden()
-    await expect(page.getByText('E2E 管理节点（已编辑）', { exact: true })).toBeVisible()
+    await expect(nodeRow(page, 'E2E 管理节点（已编辑）')).toBeVisible()
 
     const editedState = fixtureSnapshot(await snapshot())
     const editedNode = remoteNode(editedState, node => nodeId(node) === created.id)
     expect(editedNode.sshHostKey ?? editedNode.ssh?.hostKey ?? '').toBe('')
 
+    panel = detailPanel(page, 'E2E 管理节点（已编辑）')
     await page.getByLabel('筛选节点').selectOption('all')
     const pauseRequest = page.waitForRequest(request =>
       request.method() === 'PATCH' && pathname(request.url()) === '/api/cluster/nodes')
-    await page.getByRole('button', { name: '暂停纳管' }).click()
+    await panel.getByRole('button', { name: '暂停纳管' }).click()
     expect((await pauseRequest).postDataJSON()).toMatchObject({ nodeId: created.id, enabled: false })
-    // 排除筛选下拉里的同名 <option>，只断言节点卡片上的状态徽章。
-    await expect(page.getByText('已暂停', { exact: true }).and(page.locator(':not(option)'))).toBeVisible()
+    await expect(panel.getByText('已暂停', { exact: true })).toBeVisible()
     await page.getByLabel('筛选节点').selectOption('disabled')
-    await expect(page.getByText('E2E 管理节点（已编辑）', { exact: true })).toBeVisible()
+    await expect(nodeRow(page, 'E2E 管理节点（已编辑）')).toBeVisible()
 
     await page.getByLabel('筛选节点').selectOption('all')
-    await page.getByRole('button', { name: '启用纳管' }).click()
-    await expect(page.getByText('纳管中', { exact: true })).toBeVisible()
+    await panel.getByRole('button', { name: '启用纳管' }).click()
+    await expect(panel.getByText('纳管中', { exact: true })).toBeVisible()
     page.once('dialog', dialog => dialog.accept())
     const deleteRequest = page.waitForRequest(request =>
       request.method() === 'DELETE' && pathname(request.url()) === '/api/cluster/nodes')
-    await page.getByRole('button', { name: '删除' }).click()
+    await panel.getByRole('button', { name: '删除' }).click()
     expect((await deleteRequest).postDataJSON()).toMatchObject({ nodeId: created.id, force: false })
     await expect(page.getByText('E2E 管理节点（已编辑）', { exact: true })).toHaveCount(0)
+  })
 
-    await search.fill(deployed.name)
-    const uninstall = page.getByRole('link', { name: '先卸载再删除' })
-    await expect(uninstall).toBeVisible()
-    await expect(uninstall).toHaveAttribute('href', new RegExp(`/deploy\\?node=${encodeURIComponent(nodeId(deployed))}.*operation=uninstall`))
-    await expect(page.getByRole('button', { name: '删除' })).toHaveCount(0)
+  test('已安装 Agent 的节点必须先卸载才能删除', async ({ request, snapshot }) => {
+    // 旧界面用一个「先卸载再删除」链接顶掉删除按钮；重设计移除了那个链接，
+    // 但服务端的互斥仍然是删除节点的真实边界。
+    const before = fixtureSnapshot(await snapshot())
+    const deployed = remoteNode(before, node => node.agent?.deployed === true)
+    const response = await request.delete('/api/cluster/nodes', {
+      data: { nodeId: nodeId(deployed), force: false },
+    })
+    expect(response.status()).toBeGreaterThanOrEqual(400)
+    expect(await response.json()).toMatchObject({
+      success: false,
+      error: expect.stringMatching(/Agent/),
+    })
+    const after = fixtureSnapshot(await snapshot())
+    expect(after.nodes.some(node => nodeId(node) === nodeId(deployed))).toBe(true)
   })
 
   test('节点编辑覆盖 SSH user、port、认证方式与替换凭据', async ({ page, snapshot }) => {
@@ -447,7 +495,8 @@ test.describe('E03 — 节点档案管理', () => {
 
     await page.goto('/nodes')
     await page.getByLabel('搜索节点').fill(target.name)
-    await page.getByRole('button', { name: '编辑档案' }).click()
+    const panel = await openTab(page, target.name, '概览')
+    await panel.getByRole('button', { name: '编辑档案' }).click()
     const editor = page.getByRole('dialog', { name: '编辑节点档案' })
 
     await expect.soft(editor.getByLabel('用户名', { exact: true })).toHaveValue(target.sshUser ?? 'root')
@@ -477,12 +526,13 @@ test.describe('E03 — 节点档案管理', () => {
 
     await page.goto('/nodes')
     await page.getByLabel('搜索节点').fill(local.name)
-    await page.getByRole('button', { name: '编辑档案' }).click()
+    const panel = await openTab(page, local.name, '概览')
+    await panel.getByRole('button', { name: '编辑档案' }).click()
     const editor = page.getByRole('dialog', { name: '编辑节点档案' })
     await expect(editor.getByLabel('用户名', { exact: true })).toBeVisible()
     const password = editor.getByLabel('密码', { exact: true })
     await expect(password).toHaveValue('')
-    await expect(password).toHaveAttribute('placeholder', /root 密码仅供下一次部署使用，不保存/)
+    await expect(password).toHaveAttribute('placeholder', /root 凭据仅供下一次部署使用，不保存/)
     await password.fill('fixture-password')
     const editRequest = page.waitForRequest(request =>
       request.method() === 'PATCH' && pathname(request.url()) === '/api/cluster/nodes')
@@ -505,7 +555,8 @@ test.describe('E03 — 节点档案管理', () => {
 
     await page.goto('/nodes')
     await page.getByLabel('搜索节点').fill('E2E 私钥节点')
-    await page.getByRole('button', { name: '编辑档案' }).click()
+    const panel = await openTab(page, 'E2E 私钥节点', '概览')
+    await panel.getByRole('button', { name: '编辑档案' }).click()
     const editor = page.getByRole('dialog', { name: '编辑节点档案' })
     // 界面必须反映节点真实的认证方式，而不是一律显示密码。
     await expect(editor.getByLabel('私钥', { exact: true })).toBeVisible()
@@ -535,16 +586,17 @@ test.describe('E03 — 节点档案管理', () => {
 
     await page.goto('/nodes')
     await page.getByLabel('搜索节点').fill(target.name)
+    const panel = await openTab(page, target.name, '概览')
     const updateResponse = page.waitForResponse(response =>
       response.request().method() === 'PATCH' && pathname(response.url()) === '/api/cluster/nodes')
-    await page.getByRole('button', { name: '暂停纳管' }).click()
+    await panel.getByRole('button', { name: '暂停纳管' }).click()
     const response = await updateResponse
     expect(response.status()).toBe(200)
     expect(await response.json()).toMatchObject({ success: false })
 
     await expect.soft(page.getByText('节点操作失败', { exact: true })).toBeVisible()
     await expect.soft(page.getByText('节点已暂停纳管', { exact: true })).toHaveCount(0)
-    await expect.soft(page.getByText('纳管中', { exact: true })).toBeVisible()
+    await expect.soft(panel.getByText('纳管中', { exact: true })).toBeVisible()
     const after = fixtureSnapshot(await snapshot())
     expect(remoteNode(after, node => nodeId(node) === nodeId(target)).enabled).toBe(target.enabled)
   })
@@ -703,11 +755,12 @@ test.describe('E04 — 五组件 × 五操作部署 API contract', () => {
     await control({ nodePreflightFailure: 'ssh', deploymentHoldAt: 'queued' })
     const before = fixtureSnapshot(await snapshot())
     const target = remoteNode(before, node => node.agent?.deployed !== true)
-    await page.goto(`/deploy?node=${encodeURIComponent(nodeId(target))}&component=agent&operation=install`)
-    await page.getByRole('button', { name: '执行 SSH 预检' }).click()
+    await page.goto(`/nodes?node=${encodeURIComponent(nodeId(target))}`)
+    const panel = await openTab(page, target.name, '部署')
+    await panel.getByRole('button', { name: 'SSH 预检', exact: true }).click()
     await expect(page.getByText('预检完成，存在阻断项', { exact: true })).toBeVisible()
 
-    const create = page.getByRole('button', { name: '创建部署任务' })
+    const create = panel.getByRole('button', { name: '创建部署任务' })
     await expect.soft(create).toBeDisabled()
     if (await create.isEnabled()) {
       await create.click()
@@ -735,9 +788,10 @@ test.describe('E04 — 五组件 × 五操作部署 API contract', () => {
       })
     })
 
-    await page.goto(`/deploy?node=${encodeURIComponent(nodeId(target))}&component=agent&operation=install`)
-    await page.getByRole('button', { name: '创建部署任务' }).click()
-    await expect(page.getByText('部署操作失败', { exact: true })).toBeVisible()
+    await page.goto(`/nodes?node=${encodeURIComponent(nodeId(target))}`)
+    const panel = await openTab(page, target.name, '部署')
+    await panel.getByRole('button', { name: '创建部署任务' }).click()
+    await expect(page.getByText('节点操作失败', { exact: true })).toBeVisible()
     await expect(page.getByText('部署任务创建失败', { exact: true })).toBeVisible()
     await expect(page.getByText('部署任务已进入队列', { exact: true })).toHaveCount(0)
     expect(tasks(fixtureSnapshot(await snapshot()))).toEqual(tasks(before))
@@ -749,12 +803,12 @@ test.describe('E05 — 部署 UI、取消与重试', () => {
     await control({ deploymentHoldAt: 'queued' })
     const state = fixtureSnapshot(await snapshot())
     const target = remoteNode(state, node => node.agent?.deployed !== true)
-    await page.goto(`/deploy?node=${encodeURIComponent(nodeId(target))}&component=agent&operation=install`)
-    await expect(page.getByRole('heading', { name: '部署中心' })).toBeVisible()
+    await page.goto(`/nodes?node=${encodeURIComponent(nodeId(target))}`)
+    const panel = await openTab(page, target.name, '部署')
 
     const createRequest = page.waitForRequest(request =>
       request.method() === 'POST' && pathname(request.url()) === '/api/deployments')
-    await page.getByRole('button', { name: '创建部署任务' }).click()
+    await panel.getByRole('button', { name: '创建部署任务' }).click()
     const create = await createRequest
     expect(create.headers()['idempotency-key']).toEqual(expect.any(String))
     expect(create.postDataJSON()).toMatchObject({
@@ -764,21 +818,21 @@ test.describe('E05 — 部署 UI、取消与重试', () => {
       options: { preserveConfig: true, preserveData: true },
     })
 
-    const taskCard = page.locator('article').filter({ hasText: `${target.name} · agent` }).first()
-    await expect(taskCard).toBeVisible()
-    await expect(taskCard.getByText('排队中', { exact: true })).toBeVisible()
+    const row = taskRow(page, `${target.name} · agent`)
+    await expect(row).toBeVisible()
+    await expect(row.getByText('排队中', { exact: true })).toBeVisible()
     const originalTask = tasks(fixtureSnapshot(await snapshot())).find(task =>
       task.nodeId === nodeId(target) && task.component === 'agent' && task.operation === 'install')!
 
     const cancelRequest = page.waitForRequest(request =>
       request.method() === 'POST' && pathname(request.url()) === `/api/deployments/${originalTask.taskId}/cancel`)
-    await taskCard.getByRole('button', { name: '取消任务' }).click()
+    await row.getByRole('button', { name: '取消', exact: true }).click()
     await cancelRequest
-    await expect(taskCard.getByText('已取消', { exact: true })).toBeVisible()
+    await expect(row.getByText('已取消', { exact: true })).toBeVisible()
 
     const retryRequest = page.waitForRequest(request =>
       request.method() === 'POST' && pathname(request.url()) === `/api/deployments/${originalTask.taskId}/retry`)
-    await taskCard.getByRole('button', { name: '按原输入重试' }).click()
+    await row.getByRole('button', { name: '重试', exact: true }).click()
     await retryRequest
     await expect(page.getByText('已按原始输入创建重试任务')).toBeVisible()
     await expect.poll(async () => {
@@ -791,16 +845,18 @@ test.describe('E05 — 部署 UI、取消与重试', () => {
     await control({ deploymentHoldAt: 'installing' })
     const state = fixtureSnapshot(await snapshot())
     const target = remoteNode(state, node => node.agent?.deployed !== true)
-    await page.goto(`/deploy?node=${encodeURIComponent(nodeId(target))}&component=sing-box&operation=install`)
-    await page.getByRole('button', { name: '创建部署任务' }).click()
+    await page.goto(`/nodes?node=${encodeURIComponent(nodeId(target))}`)
+    const panel = await openTab(page, target.name, '部署')
+    await panel.getByRole('button', { name: 'sing-box', exact: true }).click()
+    await panel.getByRole('button', { name: '创建部署任务' }).click()
 
     await expect.poll(async () => {
       const current = fixtureSnapshot(await snapshot())
       return tasks(current).find(task => task.nodeId === nodeId(target) && task.component === 'sing-box')?.step
     }).toBe('installing')
-    const taskCard = page.locator('article').filter({ hasText: `${target.name} · sing-box` }).first()
-    await expect(taskCard).toBeVisible()
-    await expect(taskCard.getByRole('button', { name: '取消任务' })).toHaveCount(0)
+    const row = taskRow(page, `${target.name} · sing-box`)
+    await expect(row).toBeVisible()
+    await expect(row.getByRole('button', { name: '取消', exact: true })).toHaveCount(0)
   })
 
   test('未知任务的读取、取消与重试均返回明确错误且不创建任务', async ({ request, snapshot }) => {
@@ -831,8 +887,10 @@ test.describe('E05 — 部署 UI、取消与重试', () => {
     await control({ deploymentOutcome: 'error' })
     const state = fixtureSnapshot(await snapshot())
     const target = remoteNode(state, node => node.agent?.deployed !== true)
-    await page.goto(`/deploy?node=${encodeURIComponent(nodeId(target))}&component=v2ray&operation=install`)
-    await page.getByRole('button', { name: '创建部署任务' }).click()
+    await page.goto(`/nodes?node=${encodeURIComponent(nodeId(target))}`)
+    const panel = await openTab(page, target.name, '部署')
+    await panel.getByRole('button', { name: 'V2Ray', exact: true }).click()
+    await panel.getByRole('button', { name: '创建部署任务' }).click()
 
     let failedTask: DeploymentTask | undefined
     await expect.poll(async () => {
@@ -848,13 +906,13 @@ test.describe('E05 — 部署 UI、取消与重试', () => {
       options: { preserveConfig: true, preserveData: true },
     })
 
-    await page.getByRole('button', { name: '刷新状态' }).click()
-    const failedCard = page.locator('article').filter({ hasText: `${target.name} · v2ray` }).first()
-    await expect(failedCard.getByText('失败', { exact: true })).toBeVisible()
+    // 任务表每 4 秒轮询一次，不再有手动刷新按钮。
+    const row = taskRow(page, `${target.name} · v2ray`)
+    await expect(row.getByText('失败', { exact: true })).toBeVisible()
     const retryResponse = page.waitForResponse(response =>
       response.request().method() === 'POST'
       && pathname(response.url()) === `/api/deployments/${failedTask!.taskId}/retry`)
-    await failedCard.getByRole('button', { name: '按原输入重试' }).click()
+    await row.getByRole('button', { name: '重试', exact: true }).click()
     expect((await retryResponse).status()).toBe(202)
     await expect(page.getByText('已按原始输入创建重试任务')).toBeVisible()
 
@@ -911,74 +969,72 @@ test.describe('E05 — 部署 UI、取消与重试', () => {
       expect(Date.parse(events[index]!.timestamp)).not.toBeNaN()
     }
 
-    await page.goto(`/deploy?node=${encodeURIComponent(nodeId(target))}&component=agent&operation=upgrade`)
-    const taskCard = page.locator('article').filter({ hasText: `${target.name} · agent` }).first()
-    await expect(taskCard.getByText('成功', { exact: true })).toBeVisible()
-    await expect(taskCard.getByText('版本 1.0.0-e2e → 1.0.1-e2e', { exact: true })).toBeVisible()
-    await expect(taskCard.getByRole('link', { name: '查看日志' })).toHaveAttribute(
+    await page.goto('/nodes')
+    const row = taskRow(page, `${target.name} · agent`)
+    await expect(row.getByText('成功', { exact: true })).toBeVisible()
+    await expect(row.getByRole('link', { name: '日志', exact: true })).toHaveAttribute(
       'href',
       `/logs?node=${encodeURIComponent(nodeId(target))}&task=${encodeURIComponent(body.data.taskId)}`,
     )
   })
 
-  test('部署任务渲染带时间戳的完整事件时间线', async ({ page, control, snapshot }) => {
+  test('活动任务的事件流带完整步骤与时间戳', async ({ page, request, control, snapshot }) => {
+    // 重设计不再渲染事件时间线（事件只写入 sessionStorage），但流本身仍是
+    // 进度与续传的唯一来源，因此在浏览器订阅的同时直接校验事件内容。
     await control({ deploymentHoldAt: 'installing' })
     const state = fixtureSnapshot(await snapshot())
     const target = remoteNode(state, node => node.agent?.deployed !== true)
     const eventRequests: Request[] = []
-    page.on('request', request => {
-      if (request.method() === 'GET' && /\/api\/deployments\/[^/]+\/events$/.test(pathname(request.url()))) {
-        eventRequests.push(request)
+    page.on('request', item => {
+      if (item.method() === 'GET' && /\/api\/deployments\/[^/]+\/events$/.test(pathname(item.url()))) {
+        eventRequests.push(item)
       }
     })
 
-    await page.goto(`/deploy?node=${encodeURIComponent(nodeId(target))}&component=xray&operation=install`)
-    await page.getByRole('button', { name: '创建部署任务' }).click()
+    const started = await postDeployment(request, {
+      nodeId: nodeId(target), component: 'xray', operation: 'install',
+      idempotencyKey: 'e2e-event-timeline', preserveConfig: true, preserveData: true,
+    })
+    expect(started.status()).toBe(202)
+    const taskId = (await started.json() as { data: { taskId: string } }).data.taskId
 
-    let taskId: string | undefined
-    await expect.poll(async () => {
-      const current = fixtureSnapshot(await snapshot())
-      taskId = tasks(current).find(task =>
-        task.nodeId === nodeId(target) && task.component === 'xray' && task.operation === 'install')?.taskId
-      return taskId
-    }).toEqual(expect.any(String))
-    if (!taskId) throw new Error('Fixture did not persist the xray deployment task')
+    await page.goto('/nodes')
+    await expect.poll(() => eventRequests.filter(item =>
+      pathname(item.url()) === `/api/deployments/${taskId}/events`).length).toBeGreaterThan(0)
 
-    const taskEventRequests = () => eventRequests.filter(request =>
-      pathname(request.url()) === `/api/deployments/${taskId}/events`)
-    await expect.poll(() => taskEventRequests().length).toBeGreaterThan(0)
-
-    const timeline = page.getByRole('region', { name: '部署任务事件' })
-    await expect(timeline).toBeVisible()
-    for (const message of ['任务已进入部署队列', '检查 SSH、架构与目标状态', '安装 xray']) {
-      await expect(timeline.getByText(message, { exact: true })).toBeVisible()
-    }
-    await expect(timeline.locator('time[datetime]').first()).toBeVisible()
+    const eventResponse = await request.get(`/api/deployments/${taskId}/events`, {
+      headers: { Accept: 'application/json' },
+    })
+    const events = (await eventResponse.json() as { data: { events: DeploymentEvent[] } }).data.events
+    expect(events.map(event => event.message)).toEqual(expect.arrayContaining([
+      '任务已进入部署队列',
+      '检查 SSH、架构与目标状态',
+      '安装 xray',
+    ]))
+    for (const event of events) expect(Date.parse(event.timestamp)).not.toBeNaN()
   })
 
-  test('刷新活动任务后使用 Last-Event-ID 续传 SSE', async ({ page, control, snapshot }) => {
+  test('刷新活动任务后使用 Last-Event-ID 续传 SSE', async ({ page, request, control, snapshot }) => {
     await control({ deploymentHoldAt: 'installing' })
     const state = fixtureSnapshot(await snapshot())
     const target = remoteNode(state, node => node.agent?.deployed !== true)
     const eventRequests: Request[] = []
-    page.on('request', request => {
-      if (request.method() === 'GET' && /\/api\/deployments\/[^/]+\/events$/.test(pathname(request.url()))) {
-        eventRequests.push(request)
+    page.on('request', item => {
+      if (item.method() === 'GET' && /\/api\/deployments\/[^/]+\/events$/.test(pathname(item.url()))) {
+        eventRequests.push(item)
       }
     })
 
-    await page.goto(`/deploy?node=${encodeURIComponent(nodeId(target))}&component=xray&operation=install`)
-    await page.getByRole('button', { name: '创建部署任务' }).click()
-    let taskId: string | undefined
-    await expect.poll(async () => {
-      taskId = tasks(fixtureSnapshot(await snapshot())).find(task =>
-        task.nodeId === nodeId(target) && task.component === 'xray' && task.operation === 'install')?.taskId
-      return taskId
-    }).toEqual(expect.any(String))
-    if (!taskId) throw new Error('Fixture did not persist the xray deployment task')
+    const started = await postDeployment(request, {
+      nodeId: nodeId(target), component: 'xray', operation: 'install',
+      idempotencyKey: 'e2e-sse-resume', preserveConfig: true, preserveData: true,
+    })
+    expect(started.status()).toBe(202)
+    const taskId = (await started.json() as { data: { taskId: string } }).data.taskId
 
-    const taskEventRequests = () => eventRequests.filter(request =>
-      pathname(request.url()) === `/api/deployments/${taskId}/events`)
+    const taskEventRequests = () => eventRequests.filter(item =>
+      pathname(item.url()) === `/api/deployments/${taskId}/events`)
+    await page.goto('/nodes')
     await expect.poll(() => taskEventRequests().length).toBeGreaterThan(0)
 
     const requestCountBeforeReload = taskEventRequests().length
@@ -991,44 +1047,20 @@ test.describe('E05 — 部署 UI、取消与重试', () => {
 })
 
 test.describe('E06 — 手动 Agent 配置与敏感字段边界', () => {
-  test('没有节点时禁用任务创建与手动 Agent 部署', async ({ page, control }) => {
+  test('没有节点时不提供任何部署入口', async ({ page, control }) => {
     await control({ nodesEmpty: true })
-    await page.goto('/deploy?component=agent&operation=install')
-    await expect(page.getByText('请先在节点页添加节点', { exact: true })).toBeVisible()
-    await expect(page.getByRole('button', { name: '创建部署任务' })).toBeDisabled()
-    await expect(page.getByRole('button', { name: '手动 Shell 部署' })).toBeDisabled()
+    await page.goto('/nodes')
+    await expect(page.getByText('没有匹配的节点。')).toBeVisible()
+    // 部署是详情标签页，没有节点就没有面板，添加节点是唯一的前进路径。
+    await expect(page.getByRole('button', { name: '创建部署任务' })).toHaveCount(0)
+    await expect(page.getByRole('button', { name: '添加节点' })).toBeEnabled()
   })
 
-  test('从部署页下载专用 YAML、复制安装命令，普通节点接口保持脱敏', async ({
-    page, context, request, snapshot,
-  }) => {
+  test('手动安装配置下发带 secret 的专用 YAML 且不泄露 SSH 凭据', async ({ request, snapshot }) => {
+    // 重设计删掉了「手动 Shell 部署」对话框，但接口仍是纯手工装机的唯一出口。
     const before = fixtureSnapshot(await snapshot())
     const target = remoteNode(before, node => node.agent?.deployed !== true)
     const id = nodeId(target)
-    await context.grantPermissions(['clipboard-read', 'clipboard-write'])
-    await page.goto(`/deploy?node=${encodeURIComponent(id)}&component=agent`)
-    await page.getByRole('button', { name: '手动 Shell 部署' }).click()
-
-    const dialog = page.getByRole('dialog', { name: '手动 Shell 部署 Agent' })
-    await expect(dialog).toBeVisible()
-    await expect(dialog.getByText(id, { exact: true })).toBeVisible()
-    await expect(dialog.getByText(target.name, { exact: true })).toBeVisible()
-    const configLink = dialog.getByRole('link', { name: '下载 Agent 配置' })
-    await expect(configLink).toHaveAttribute('href', `/api/deployments/agent/manual-config?nodeId=${encodeURIComponent(id)}`)
-
-    await dialog.getByRole('button', { name: '复制安装命令' }).click()
-    await expect(page.getByText('已复制安装命令')).toBeVisible()
-    await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toContain('install-agent.sh --config /tmp/miobridge-agent.yaml')
-    const installer = await page.evaluate(() => navigator.clipboard.readText())
-    expect(installer).not.toMatch(/\bbun\b|mihomo|sing-box|\bxray\b|\bv2ray\b|miobridge\s+(?:setup|deploy)/i)
-
-    const [download] = await Promise.all([
-      page.waitForEvent('download'),
-      configLink.click(),
-    ])
-    expect(download.suggestedFilename()).toMatch(/miobridge-agent-.*\.yaml|agent\.yaml/)
-    await expect.poll(async () => manualDownloadCount(fixtureSnapshot(await snapshot())))
-      .toBeGreaterThan(manualDownloadCount(before))
 
     const manual = await request.get(`/api/deployments/agent/manual-config?nodeId=${encodeURIComponent(id)}`)
     expect(manual.status()).toBe(200)
@@ -1041,6 +1073,7 @@ test.describe('E06 — 手动 Agent 配置与敏感字段边界', () => {
     expect(cluster.ok()).toBe(true)
     expectNoSensitiveFields(await cluster.json())
 
+    // 下载配置是只读动作：既不建任务，也不改节点。
     const after = fixtureSnapshot(await snapshot())
     expect(tasks(after)).toEqual(tasks(before))
     const beforeNode = remoteNode(before, node => nodeId(node) === id)
@@ -1050,26 +1083,5 @@ test.describe('E06 — 手动 Agent 配置与敏感字段边界', () => {
     expect(after.requests.filter(record =>
       ['POST', 'PUT', 'PATCH', 'DELETE'].includes(record.method ?? '')
       && (requestPath(record) === '/api/deployments' || requestPath(record).startsWith('/api/cluster/')))).toEqual([])
-  })
-
-  test('完成手动部署后立即调用目标节点健康检查并关闭对话框', async ({ page, snapshot }) => {
-    const state = fixtureSnapshot(await snapshot())
-    const target = remoteNode(state, node => node.agent?.deployed !== true)
-    const id = nodeId(target)
-    await page.goto(`/deploy?node=${encodeURIComponent(id)}&component=agent`)
-    await page.getByRole('button', { name: '手动 Shell 部署' }).click()
-    const dialog = page.getByRole('dialog', { name: '手动 Shell 部署 Agent' })
-    await expect(dialog).toBeVisible()
-    const healthRequests = (current: FixtureSnapshot) => current.requests.filter(record => {
-      if (record.method !== 'GET' || requestPath(record) !== '/api/cluster/health') return false
-      const url = new URL(record.path ?? record.url ?? '/', 'http://e2e.invalid')
-      return url.searchParams.get('node') === id
-    }).length
-    const beforeHealth = healthRequests(fixtureSnapshot(await snapshot()))
-
-    await dialog.getByRole('button', { name: '完成并检查健康' }).click()
-    await expect(dialog).toBeHidden()
-    await expect.poll(async () => healthRequests(fixtureSnapshot(await snapshot())), { timeout: 2_000 })
-      .toBeGreaterThan(beforeHealth)
   })
 })
