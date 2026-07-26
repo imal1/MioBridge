@@ -13,88 +13,7 @@ export interface MihomoAdapterOptions {
   readonly envPath?: string;
 }
 interface ProxyConfig { name: string; type: string; server: string; port: number; [key: string]: unknown }
-
-const DNS_CONFIG = {
-  enable: true,
-  listen: '0.0.0.0:53',
-  'default-nameserver': ['223.5.5.5', '119.29.29.29'],
-  'enhanced-mode': 'fake-ip',
-  'fake-ip-range': '198.18.0.1/16',
-  nameserver: ['https://doh.pub/dns-query', 'https://dns.alidns.com/dns-query'],
-} as const;
-
-// 内网 / 本机：非 GEOSITE 规则，geodata 未加载时仍可用，保证冷启动可 bootstrap 下载 geodata
-const DEFAULT_RULES = [
-  'DOMAIN-SUFFIX,local,DIRECT',
-  'IP-CIDR,127.0.0.0/8,DIRECT,no-resolve',
-  'IP-CIDR,169.254.0.0/16,DIRECT,no-resolve',
-  'IP-CIDR,172.16.0.0/12,DIRECT,no-resolve',
-  'IP-CIDR,192.168.0.0/16,DIRECT,no-resolve',
-  'IP-CIDR,10.0.0.0/8,DIRECT,no-resolve',
-  'IP-CIDR,100.64.0.0/10,DIRECT,no-resolve',
-  'IP-CIDR6,::1/128,DIRECT,no-resolve',
-  'IP-CIDR6,fc00::/7,DIRECT,no-resolve',
-  'IP-CIDR6,fe80::/10,DIRECT,no-resolve',
-  // 广告拦截
-  'GEOSITE,category-ads-all,REJECT',
-  // Google AI Studio / Gemini 精确入口（放 category-ai / google 之前）
-  'DOMAIN,aistudio.google.com,🤖 AI 服务',
-  'DOMAIN,gemini.google.com,🤖 AI 服务',
-  'DOMAIN,alkalimakersuite-pa.clients6.google.com,🤖 AI 服务',
-  'DOMAIN,generativelanguage.googleapis.com,🤖 AI 服务',
-  'DOMAIN,ai.google.dev,🤖 AI 服务',
-  // 海外 AI（Claude / OpenAI / Gemini / Perplexity / Mistral 等非中国大陆）
-  'GEOSITE,category-ai-!cn,🤖 AI 服务',
-  // Google 兜底（登录 / OAuth / APIs / gstatic 等）
-  'GEOSITE,google,🚀 节点选择',
-  // Cloudflare
-  'GEOSITE,cloudflare,🚀 节点选择',
-  // 开发服务
-  'GEOSITE,github,🚀 节点选择',
-  'GEOSITE,docker,🚀 节点选择',
-  // 常见海外服务
-  'GEOSITE,microsoft,🚀 节点选择',
-  'GEOSITE,telegram,🚀 节点选择',
-  'GEOSITE,discord,🚀 节点选择',
-  // 流媒体
-  'GEOSITE,youtube,🚀 节点选择',
-  'GEOSITE,netflix,🚀 节点选择',
-  'GEOSITE,spotify,🚀 节点选择',
-  // 境外社媒（含 twitter / tiktok / reddit 等）
-  'GEOSITE,category-social-media-!cn,🚀 节点选择',
-  // 加密货币（交易所 / 行情）
-  'GEOSITE,category-cryptocurrency,🚀 节点选择',
-  // 成人内容
-  'GEOSITE,category-porn,🚀 节点选择',
-  // 学术（IEEE / Springer / arXiv 等）
-  'GEOSITE,category-scholar-!cn,🚀 节点选择',
-  // Apple
-  'GEOSITE,apple-cn,DIRECT',
-  'GEOSITE,apple,DIRECT',
-  // 开发者站点（置于 apple 之后，避免 category-dev 内的 apple.com 覆盖上面的直连）
-  'GEOSITE,category-dev,🚀 节点选择',
-  // 国内域名和 IP
-  'GEOSITE,cn,DIRECT',
-  'GEOIP,CN,DIRECT,no-resolve',
-  // 漏网之鱼
-  'MATCH,🐟 漏网之鱼',
-] as const;
-
-// GeoData：MetaCubeX/meta-rules-dat，支持自动更新。
-// 用 jsdelivr 镜像而非 github releases：客户端首次加载 geodata 时代理尚未就绪（鸡生蛋），
-// github 直连在国内网络下载常超时（实测 90s 不完），jsdelivr 数秒即达；内容与 @release 分支一致。
-const GEO_CONFIG = {
-  'geodata-mode': true,
-  'geodata-loader': 'memconservative',
-  'geo-auto-update': true,
-  'geo-update-interval': 24,
-  'geox-url': {
-    geoip: 'https://testingcf.jsdelivr.net/gh/MetaCubeX/meta-rules-dat@release/geoip-lite.dat',
-    geosite: 'https://testingcf.jsdelivr.net/gh/MetaCubeX/meta-rules-dat@release/geosite.dat',
-    mmdb: 'https://testingcf.jsdelivr.net/gh/MetaCubeX/meta-rules-dat@release/country-lite.mmdb',
-    asn: 'https://testingcf.jsdelivr.net/gh/MetaCubeX/meta-rules-dat@release/GeoLite2-ASN.mmdb',
-  },
-} as const;
+const NODE_PLACEHOLDER = '__MIOBRIDGE_NODES__';
 
 function normalizedBinary(value: string | undefined): string | undefined {
   const trimmed = value?.trim();
@@ -131,6 +50,7 @@ export class MihomoAdapter {
     }
   }
   async checkHealth(): Promise<boolean> { return this.ensureMihomoAvailable(); }
+  getTemplatePath(): string { return this.options.paths.templateFile; }
   async getVersion(): Promise<{ version: string; build_time: string; commit: string } | null> {
     try {
       const executable = await this.findExecutable();
@@ -161,19 +81,53 @@ export class MihomoAdapter {
       used.add(name);
     }
     const names = proxies.map(proxy => proxy.name);
-    const yaml = YAML.stringify({ port: 7890, 'socks-port': 7891, 'allow-lan': false, mode: 'rule', 'log-level': 'info', 'external-controller': '127.0.0.1:9090', ...GEO_CONFIG, dns: DNS_CONFIG, proxies, 'proxy-groups': [
-      // 注意别把 '🤖 AI 服务' 加回来：AI 组已引用本组，互引会被 mihomo 判定 ProxyGroup loop 而拒绝整份配置。
-      { name: '🚀 节点选择', type: 'select', proxies: ['♻️ 自动选择', '🔯 故障转移', '🔮 负载均衡', '🎯 全球直连', ...names] },
-      { name: '🤖 AI 服务', type: 'select', proxies: ['♻️ 自动选择', '🔯 故障转移', '🚀 节点选择', ...names] },
-      { name: '♻️ 自动选择', type: 'url-test', proxies: names, url: 'http://cp.cloudflare.com/generate_204', interval: 300, tolerance: 50, lazy: true },
-      { name: '🔯 故障转移', type: 'fallback', proxies: names, url: 'http://cp.cloudflare.com/generate_204', interval: 300, lazy: true },
-      { name: '🔮 负载均衡', type: 'load-balance', proxies: names, url: 'http://cp.cloudflare.com/generate_204', interval: 300, lazy: true, strategy: 'round-robin' },
-      { name: '🎯 全球直连', type: 'select', proxies: ['DIRECT'] },
-      { name: '🐟 漏网之鱼', type: 'select', proxies: ['🚀 节点选择', '🎯 全球直连', '♻️ 自动选择'] },
-    ], rules: DEFAULT_RULES }, { lineWidth: 0 });
+    const document = await this.loadTemplate();
+    document.set('proxies', proxies);
+    this.injectProxyNames(document, names);
+    const yaml = document.toString({ lineWidth: 0 });
     const output = `# Clash 配置文件\n# 由 miobridge 生成，mihomo 可用时自动验证\n# 生成时间: ${new Date().toISOString()}\n# 节点数量: ${proxies.length}\n\n${yaml}`;
     await this.validate(output);
     return output;
+  }
+  private async loadTemplate(): Promise<YAML.Document.Parsed> {
+    const path = this.getTemplatePath();
+    if (!await this.options.fs.exists(path)) {
+      throw new Error(`Mihomo YAML 模板不存在: ${path}；请重新安装 MioBridge 或创建该文件`);
+    }
+    const source = await this.options.fs.readFile(path);
+    const document = YAML.parseDocument(source, { prettyErrors: true, uniqueKeys: true });
+    if (document.errors.length > 0) throw new Error(`Mihomo 模板 YAML 无效: ${document.errors[0]?.message}`);
+    const value = document.toJS({ maxAliasCount: 50 }) as unknown;
+    if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('Mihomo 模板根节点必须是对象');
+    const config = value as Record<string, unknown>;
+    if ('proxies' in config) throw new Error('Mihomo 模板字段 proxies 由 MioBridge 动态管理，请从模板中删除');
+    if (!Array.isArray(config['proxy-groups']) || config['proxy-groups'].length === 0) {
+      throw new Error('Mihomo 模板 proxy-groups 必须是非空数组');
+    }
+    if (!Array.isArray(config.rules) || config.rules.length === 0
+      || config.rules.some(rule => typeof rule !== 'string' || !rule.trim())) {
+      throw new Error('Mihomo 模板 rules 必须是非空字符串数组');
+    }
+    return document;
+  }
+  private injectProxyNames(document: YAML.Document.Parsed, names: readonly string[]): void {
+    const groups = document.get('proxy-groups', true);
+    if (!YAML.isSeq(groups)) throw new Error('Mihomo 模板 proxy-groups 必须是数组');
+    let placeholders = 0;
+    for (const group of groups.items) {
+      if (!YAML.isMap(group)) throw new Error('Mihomo 模板 proxy-groups 的每一项必须是对象');
+      const members = group.get('proxies', true);
+      if (!YAML.isSeq(members)) throw new Error('Mihomo 模板中每个策略组的 proxies 必须是数组');
+      for (let index = members.items.length - 1; index >= 0; index -= 1) {
+        const member = members.items[index];
+        if (!YAML.isScalar(member) || member.value !== NODE_PLACEHOLDER) continue;
+        members.items.splice(index, 1, ...names.map(name => document.createNode(name)));
+        placeholders += 1;
+      }
+    }
+    if (placeholders === 0) {
+      throw new Error(`Mihomo 模板至少需要一个 ${NODE_PLACEHOLDER} 节点占位符`);
+    }
   }
   private parse(line: string): ProxyConfig | null {
     try {

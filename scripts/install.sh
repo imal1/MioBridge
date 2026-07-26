@@ -102,6 +102,8 @@ tar -xzf "$tmp/$archive" -C "$tmp/extract"
   || { echo "release does not contain a dashboard provider" >&2; exit 1; }
 [ -f "$tmp/extract/dashboard/artifact/index.html" ] && [ ! -L "$tmp/extract/dashboard/artifact/index.html" ] \
   || { echo "release does not contain dashboard assets" >&2; exit 1; }
+[ -f "$tmp/extract/template.yaml" ] && [ ! -L "$tmp/extract/template.yaml" ] \
+  || { echo "release does not contain a regular template.yaml" >&2; exit 1; }
 if find "$tmp/extract/dashboard" -type l -print | grep -q .; then
   echo "release dashboard contains an unsupported symbolic link" >&2
   exit 1
@@ -111,6 +113,7 @@ chmod 0755 "$tmp/extract/miobridge"
 binary="$INSTALL_DIR/miobridge"
 metadata="$INSTALL_DIR/.miobridge-cli-version"
 dashboard="$CONFIG_DIR/dist/dashboard"
+template="$CONFIG_DIR/template.yaml"
 mkdir -p "$INSTALL_DIR"
 mkdir -p "$CONFIG_DIR/dist"
 candidate="$INSTALL_DIR/.miobridge.new.$$"
@@ -143,6 +146,11 @@ fi
 
 echo "MioBridge CLI $VERSION installed at $binary"
 echo "Dashboard provider installed at $dashboard"
+template_candidate="$CONFIG_DIR/.template.yaml.new.$$"
+cp "$tmp/extract/template.yaml" "$template_candidate"
+chmod 0644 "$template_candidate"
+mv -f "$template_candidate" "$template"
+echo "Template installed at $template"
 if [ "$RUN_SETUP" -eq 1 ]; then
   echo "Installing required runtime dependencies through the CLI..."
   if [ "$LOCAL_NODE" -eq 1 ]; then local_node_flag="--local-node"; else local_node_flag="--no-local-node"; fi

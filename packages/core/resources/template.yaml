@@ -1,0 +1,165 @@
+# MioBridge Mihomo 基础模板
+# 可直接修改 DNS、GeoData、路由规则和策略组。
+# proxies 由 MioBridge 根据订阅节点动态写入。
+# proxy-groups 中的 __MIOBRIDGE_NODES__ 会被替换为全部订阅节点。
+
+port: 7890
+socks-port: 7891
+allow-lan: false
+mode: rule
+log-level: info
+external-controller: 127.0.0.1:9090
+ipv6: true
+
+geodata-mode: true
+geodata-loader: memconservative
+geo-auto-update: true
+geo-update-interval: 24
+geox-url:
+  geoip: https://testingcf.jsdelivr.net/gh/MetaCubeX/meta-rules-dat@release/geoip-lite.dat
+  geosite: https://testingcf.jsdelivr.net/gh/MetaCubeX/meta-rules-dat@release/geosite.dat
+  mmdb: https://testingcf.jsdelivr.net/gh/MetaCubeX/meta-rules-dat@release/country-lite.mmdb
+  asn: https://testingcf.jsdelivr.net/gh/MetaCubeX/meta-rules-dat@release/GeoLite2-ASN.mmdb
+
+dns:
+  enable: true
+  ipv6: true
+  listen: 0.0.0.0:53
+  default-nameserver:
+    - 223.5.5.5
+    - 119.29.29.29
+  enhanced-mode: fake-ip
+  fake-ip-range: 198.18.0.1/16
+  nameserver:
+    - https://doh.pub/dns-query
+    - https://dns.alidns.com/dns-query
+
+# 纯 IPv4/IPv6 目标也尝试从 HTTP Host、TLS SNI 或 QUIC 恢复域名，
+# 避免 AI 流量只剩中国大陆 CDN IP 时误命中 GEOIP,CN。
+sniffer:
+  enable: true
+  force-dns-mapping: true
+  parse-pure-ip: true
+  override-destination: true
+  sniff:
+    HTTP:
+      ports:
+        - 80
+        - 8080-8880
+    TLS:
+      ports:
+        - 443
+        - 8443
+    QUIC:
+      ports:
+        - 443
+        - 8443
+
+proxy-groups:
+  - name: 🚀 节点选择
+    type: select
+    proxies:
+      - ♻️ 自动选择
+      - 🔯 故障转移
+      - 🔮 负载均衡
+      - 🎯 全球直连
+      - __MIOBRIDGE_NODES__
+  - name: 🤖 AI 服务
+    type: select
+    proxies:
+      - ♻️ 自动选择
+      - 🔯 故障转移
+      - 🚀 节点选择
+      - __MIOBRIDGE_NODES__
+  - name: ♻️ 自动选择
+    type: url-test
+    proxies:
+      - __MIOBRIDGE_NODES__
+    url: http://cp.cloudflare.com/generate_204
+    interval: 300
+    tolerance: 50
+    lazy: true
+  - name: 🔯 故障转移
+    type: fallback
+    proxies:
+      - __MIOBRIDGE_NODES__
+    url: http://cp.cloudflare.com/generate_204
+    interval: 300
+    lazy: true
+  - name: 🔮 负载均衡
+    type: load-balance
+    proxies:
+      - __MIOBRIDGE_NODES__
+    url: http://cp.cloudflare.com/generate_204
+    interval: 300
+    lazy: true
+    strategy: round-robin
+  - name: 🎯 全球直连
+    type: select
+    proxies:
+      - DIRECT
+  - name: 🐟 漏网之鱼
+    type: select
+    proxies:
+      - 🚀 节点选择
+      - 🎯 全球直连
+      - ♻️ 自动选择
+
+rules:
+  # 1. 内网 / 本机规则保证冷启动时可以直连下载 GeoData。
+  - DOMAIN-SUFFIX,local,DIRECT
+  - IP-CIDR,127.0.0.0/8,DIRECT,no-resolve
+  - IP-CIDR,169.254.0.0/16,DIRECT,no-resolve
+  - IP-CIDR,172.16.0.0/12,DIRECT,no-resolve
+  - IP-CIDR,192.168.0.0/16,DIRECT,no-resolve
+  - IP-CIDR,10.0.0.0/8,DIRECT,no-resolve
+  - IP-CIDR,100.64.0.0/10,DIRECT,no-resolve
+  - IP-CIDR6,::1/128,DIRECT,no-resolve
+  - IP-CIDR6,fc00::/7,DIRECT,no-resolve
+  - IP-CIDR6,fe80::/10,DIRECT,no-resolve
+
+  # 2. 广告优先拦截，避免被后面的国内域名直连规则放行。
+  - GEOSITE,category-ads-all,REJECT
+
+  # 3. AI 服务必须早于国内 geosite/GEOIP。
+  # 嗅探恢复出的 Claude 域名即使原始 IPv6 属于 CN，也会先进入 AI 策略组。
+  - DOMAIN-SUFFIX,anthropic.com,🤖 AI 服务
+  - DOMAIN-SUFFIX,anthropicusercontent.com,🤖 AI 服务
+  - DOMAIN-SUFFIX,claude.ai,🤖 AI 服务
+  - DOMAIN-SUFFIX,claude.com,🤖 AI 服务
+  - DOMAIN,aistudio.google.com,🤖 AI 服务
+  - DOMAIN,gemini.google.com,🤖 AI 服务
+  - DOMAIN,alkalimakersuite-pa.clients6.google.com,🤖 AI 服务
+  - DOMAIN,generativelanguage.googleapis.com,🤖 AI 服务
+  - DOMAIN,ai.google.dev,🤖 AI 服务
+  - GEOSITE,category-ai-!cn,🤖 AI 服务
+
+  # 4. 国内域名优先直连，必须放在 google/github/microsoft/category-dev 等泛分类前。
+  - GEOSITE,private,DIRECT
+  - GEOSITE,microsoft@cn,DIRECT
+  - GEOSITE,apple-cn,DIRECT
+  - GEOSITE,steam@cn,DIRECT
+  - GEOSITE,category-games@cn,DIRECT
+  - GEOSITE,cn,DIRECT
+
+  # 5. 明确的海外服务走代理。
+  - GEOSITE,google,🚀 节点选择
+  - GEOSITE,cloudflare,🚀 节点选择
+  - GEOSITE,github,🚀 节点选择
+  - GEOSITE,docker,🚀 节点选择
+  - GEOSITE,microsoft,🚀 节点选择
+  - GEOSITE,telegram,🚀 节点选择
+  - GEOSITE,discord,🚀 节点选择
+  - GEOSITE,youtube,🚀 节点选择
+  - GEOSITE,netflix,🚀 节点选择
+  - GEOSITE,spotify,🚀 节点选择
+  - GEOSITE,category-social-media-!cn,🚀 节点选择
+  - GEOSITE,category-cryptocurrency,🚀 节点选择
+  - GEOSITE,category-porn,🚀 节点选择
+  - GEOSITE,category-scholar-!cn,🚀 节点选择
+  - GEOSITE,apple,DIRECT
+  - GEOSITE,category-dev,🚀 节点选择
+
+  # 6. 只对已经是纯 IP 的连接做国内 IP 兜底；no-resolve 避免主动解析域名抢占上面的规则。
+  - GEOIP,CN,DIRECT,no-resolve
+  - MATCH,🐟 漏网之鱼

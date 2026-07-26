@@ -16,6 +16,7 @@ export interface RuntimePathsOptions {
 export interface RuntimePaths {
   readonly baseDir: string;
   readonly configFile: string;
+  readonly templateFile: string;
   readonly dataDir: string;
   readonly logDir: string;
   readonly backupDir: string;
@@ -50,6 +51,7 @@ export function createRuntimePaths(options: RuntimePathsOptions = {}): RuntimePa
   return Object.freeze({
     baseDir,
     configFile: containedPath(baseDir, 'config.yaml'),
+    templateFile: containedPath(baseDir, 'template.yaml'),
     dataDir: containedPath(baseDir, 'www'),
     logDir: containedPath(baseDir, 'log'),
     backupDir: containedPath(baseDir, 'backup'),

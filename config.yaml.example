@@ -3,6 +3,9 @@
 # ===============================================
 # 运行时由 miobridge CLI 读取。首次引导后，setup、update、dashboard 生命周期、
 # upgrade 和 uninstall 都通过 miobridge 命令完成，不依赖服务器端管理脚本。
+# Mihomo 静态配置、策略组和路由规则只位于同目录的 template.yaml；
+# template.yaml 是随版本更新的只读资源，升级会覆盖；proxies 由 MioBridge
+# 管理，节点填入 __MIOBRIDGE_NODES__。
 # ===============================================
 
 # 服务基础配置

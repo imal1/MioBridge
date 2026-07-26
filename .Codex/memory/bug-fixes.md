@@ -7,6 +7,10 @@ metadata:
 
 # Bug Fixes
 
+- 2026-07-26: The Mihomo YAML template enables IPv6 domain sniffing so pure-IP
+  Claude TLS/QUIC traffic can recover its hostname before `GEOIP,CN`; explicit
+  AI rules precede early `private`/`cn` geosite direct rules, which themselves
+  precede broad overseas categories to avoid proxying overlapping CN domains.
 - 2026-07-20: Per-config 233boy Agent collection passes config basenames to
   `url [name]`, preserving public endpoints for the loopback-managed local node;
   artifact publication also rejects loopback and unspecified proxy addresses.

@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { delimiter, join, resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import YAML from 'yaml';
@@ -13,6 +14,10 @@ import {
 } from '../../src/index.js';
 
 const logger = { debug() {}, info() {}, warn() {}, error() {} };
+const defaultMihomoTemplate = readFileSync(
+  resolve(import.meta.dirname, '../../resources/template.yaml'),
+  'utf8',
+);
 
 class MemoryFs implements KernelFileSystem {
   readonly files = new Map<string, string>();
@@ -35,6 +40,10 @@ class FakeProcess implements ProcessRunner {
     return { stdout: 'ok', stderr: '' };
   }
   async which() { return this.found; }
+}
+
+function seedMihomoTemplate(fs: MemoryFs, path: string): void {
+  fs.files.set(path, defaultMihomoTemplate);
 }
 
 describe('source normalization', () => {
@@ -107,19 +116,71 @@ describe('kernel adapters', () => {
   it('validates generated YAML with unchanged mihomo arguments and removes the temporary file', async () => {
     const paths = createRuntimePaths({ env: { MIOBRIDGE_CONFIG_DIR: '/state', PATH: '' }, applicationRoot: '/app' });
     const fs = new MemoryFs();
+    seedMihomoTemplate(fs, paths.templateFile);
     fs.files.set(paths.binaryCandidates('mihomo')[0]!, 'binary');
     const process = new FakeProcess();
     const adapter = new MihomoAdapter({ paths, process, fs, logger, runtimeDir: '/runtime' });
     const output = await adapter.convertToClashByContent('vless://id@example.com:443?type=tcp&security=tls#node');
     const tempConfig = join(paths.managedPath('mihomo'), 'temp-config.yaml');
     expect(YAML.parse(output).proxies[0]).toMatchObject({ name: 'node', type: 'vless' });
+    expect(fs.files.get(paths.templateFile)).toBe(defaultMihomoTemplate);
     expect(process.calls.at(-1)?.args).toEqual(['-d', '/runtime', '-t', '-f', tempConfig]);
     expect(fs.files.has(tempConfig)).toBe(false);
+  });
+
+  it('reads user-maintained YAML rules and preserves template comments in the generated artifact', async () => {
+    const paths = createRuntimePaths({ env: { MIOBRIDGE_CONFIG_DIR: '/state', PATH: '' }, applicationRoot: '/app' });
+    const fs = new MemoryFs();
+    const source = [
+      '# 用户自定义规则',
+      'mode: rule',
+      'dns:',
+      '  enable: false',
+      'proxy-groups:',
+      '  - name: custom',
+      '    type: select',
+      '    proxies:',
+      '      - __MIOBRIDGE_NODES__',
+      'rules:',
+      '  - DOMAIN,custom.example,DIRECT',
+      '  - MATCH,🐟 漏网之鱼',
+      '',
+    ].join('\n');
+    fs.files.set(paths.templateFile, source);
+    const adapter = new MihomoAdapter({ paths, process: new FakeProcess(), fs, logger, runtimeDir: '/runtime' });
+    const output = await adapter.convertToClashByContent('trojan://secret@ok.example:443#ok');
+
+    expect(output).toContain('# 用户自定义规则');
+    expect(YAML.parse(output)).toMatchObject({
+      dns: { enable: false },
+      rules: ['DOMAIN,custom.example,DIRECT', 'MATCH,🐟 漏网之鱼'],
+      proxies: [{ name: 'ok' }],
+    });
+    expect(fs.files.get(paths.templateFile)).toBe(source);
+  });
+
+  it('rejects invalid or dynamically managed fields in the Mihomo YAML template', async () => {
+    const paths = createRuntimePaths({ env: { MIOBRIDGE_CONFIG_DIR: '/state', PATH: '' }, applicationRoot: '/app' });
+    const fs = new MemoryFs();
+    const adapter = new MihomoAdapter({ paths, process: new FakeProcess(), fs, logger, runtimeDir: '/runtime' });
+    fs.files.set(paths.templateFile, 'rules: [MATCH,DIRECT\n');
+    await expect(adapter.convertToClashByContent('trojan://secret@ok.example:443#ok')).rejects.toThrow('模板 YAML 无效');
+
+    fs.files.set(paths.templateFile, 'rules:\n  - MATCH,DIRECT\nproxies: []\n');
+    await expect(adapter.convertToClashByContent('trojan://secret@ok.example:443#ok')).rejects.toThrow('proxies 由 MioBridge 动态管理');
+  });
+
+  it('requires the installed template.yaml instead of generating rules in code', async () => {
+    const paths = createRuntimePaths({ env: { MIOBRIDGE_CONFIG_DIR: '/state', PATH: '' }, applicationRoot: '/app' });
+    const adapter = new MihomoAdapter({ paths, process: new FakeProcess(), fs: new MemoryFs(), logger, runtimeDir: '/runtime' });
+    await expect(adapter.convertToClashByContent('trojan://secret@ok.example:443#ok'))
+      .rejects.toThrow('template.yaml');
   });
 
   it('preserves Reality and WebSocket parameters and uses safe default routing rules', async () => {
     const paths = createRuntimePaths({ env: { MIOBRIDGE_CONFIG_DIR: '/state', PATH: '' }, applicationRoot: '/app' });
     const fs = new MemoryFs();
+    seedMihomoTemplate(fs, paths.templateFile);
     fs.files.set('/state/bin/mihomo', 'binary');
     const adapter = new MihomoAdapter({ paths, process: new FakeProcess(), fs, logger, runtimeDir: '/runtime' });
     const output = YAML.parse(await adapter.convertToClashByContent(
@@ -138,6 +199,7 @@ describe('kernel adapters', () => {
   it('renders every input node into the complete Clash template without replacing routing rules', async () => {
     const paths = createRuntimePaths({ env: { MIOBRIDGE_CONFIG_DIR: '/state', PATH: '' }, applicationRoot: '/app' });
     const fs = new MemoryFs();
+    seedMihomoTemplate(fs, paths.templateFile);
     fs.files.set(paths.binaryCandidates('mihomo')[0]!, 'binary');
     const process = new FakeProcess();
     const adapter = new MihomoAdapter({ paths, process, fs, logger, runtimeDir: '/runtime' });
@@ -147,12 +209,35 @@ describe('kernel adapters', () => {
     ].join('\n')));
 
     expect(output.proxies).toHaveLength(2);
-    expect(output.dns).toMatchObject({ enable: true, 'enhanced-mode': 'fake-ip' });
+    expect(output).toMatchObject({
+      ipv6: true,
+      dns: { enable: true, ipv6: true, 'enhanced-mode': 'fake-ip' },
+      sniffer: {
+        enable: true,
+        'force-dns-mapping': true,
+        'parse-pure-ip': true,
+        'override-destination': true,
+      },
+    });
     expect(output['proxy-groups'].map((group: any) => group.name)).toEqual([
       '🚀 节点选择', '🤖 AI 服务', '♻️ 自动选择', '🔯 故障转移', '🔮 负载均衡', '🎯 全球直连', '🐟 漏网之鱼',
     ]);
     expect(output['proxy-groups'][0].proxies).toEqual(expect.arrayContaining(['hy2', 'trojan']));
     expect(output.rules).toContain('GEOSITE,category-ai-!cn,🤖 AI 服务');
+    expect(output.rules).toEqual(expect.arrayContaining([
+      'DOMAIN-SUFFIX,anthropic.com,🤖 AI 服务',
+      'DOMAIN-SUFFIX,claude.ai,🤖 AI 服务',
+      'GEOSITE,private,DIRECT',
+      'GEOSITE,cn,DIRECT',
+    ]));
+    expect(output.rules.indexOf('DOMAIN-SUFFIX,claude.ai,🤖 AI 服务'))
+      .toBeLessThan(output.rules.indexOf('GEOSITE,cn,DIRECT'));
+    expect(output.rules.indexOf('GEOSITE,cn,DIRECT'))
+      .toBeLessThan(output.rules.indexOf('GEOSITE,github,🚀 节点选择'));
+    expect(output.rules.indexOf('GEOSITE,cn,DIRECT'))
+      .toBeLessThan(output.rules.indexOf('GEOSITE,category-dev,🚀 节点选择'));
+    expect(output.rules.indexOf('GEOSITE,cn,DIRECT'))
+      .toBeLessThan(output.rules.indexOf('GEOIP,CN,DIRECT,no-resolve'));
     expect(output.rules.at(-1)).toBe('MATCH,🐟 漏网之鱼');
     // 首次校验可能要下载 geodata（GEOSITE 规则前置），30s 不够。
     expect(process.calls.at(-1)?.options.timeout).toBe(120_000);
@@ -161,6 +246,7 @@ describe('kernel adapters', () => {
   it('suffixes duplicate proxy names so mihomo does not reject the whole config', async () => {
     const paths = createRuntimePaths({ env: { MIOBRIDGE_CONFIG_DIR: '/state', PATH: '' }, applicationRoot: '/app' });
     const fs = new MemoryFs();
+    seedMihomoTemplate(fs, paths.templateFile);
     fs.files.set('/state/bin/mihomo', 'binary');
     const adapter = new MihomoAdapter({ paths, process: new FakeProcess(), fs, logger, runtimeDir: '/runtime' });
     // 同机多端口、ps 相同的 vmess 是真实场景（233boy 多协议脚本）——名字相同但确为不同代理。
@@ -176,6 +262,7 @@ describe('kernel adapters', () => {
   it('keeps proxy groups acyclic — mihomo rejects mutually referencing groups as a loop', async () => {
     const paths = createRuntimePaths({ env: { MIOBRIDGE_CONFIG_DIR: '/state', PATH: '' }, applicationRoot: '/app' });
     const fs = new MemoryFs();
+    seedMihomoTemplate(fs, paths.templateFile);
     fs.files.set('/state/bin/mihomo', 'binary');
     const adapter = new MihomoAdapter({ paths, process: new FakeProcess(), fs, logger, runtimeDir: '/runtime' });
     const output = YAML.parse(await adapter.convertToClashByContent('trojan://secret@ok.example:443#ok'));

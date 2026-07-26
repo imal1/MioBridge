@@ -1,6 +1,6 @@
 import { chmodSync, copyFileSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
-import { parse, stringify } from 'yaml';
+import { parseDocument, stringify } from 'yaml';
 import type { CoreLogger } from '../index.js';
 import type { RuntimePaths } from '../runtime/runtimePaths.js';
 import type { FullConfig } from '../types/config.js';
@@ -24,12 +24,12 @@ export class YamlService {
   getBaseDir(): string { return this.options.paths.baseDir; }
   getConfigPath(): string { return this.options.paths.configFile; }
   configExists(): boolean { return existsSync(this.options.paths.configFile); }
+  getConfigSource(): string { return this.configExists() ? readFileSync(this.options.paths.configFile, 'utf8') : ''; }
 
   validateConfig(): boolean {
     if (!this.configExists()) return false;
     try {
-      const value = parse(readFileSync(this.options.paths.configFile, 'utf8'));
-      if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('config root must be an object');
+      this.parseConfig(readFileSync(this.options.paths.configFile, 'utf8'));
       this.logger.info('YAML configuration validated');
       return true;
     } catch (error) {
@@ -68,12 +68,14 @@ export class YamlService {
       return this.readDocument(this.options.paths.configFile) as FullConfig;
     } catch (error) {
       this.logger.error('Failed to read YAML configuration', { error });
-      return {};
+      throw error;
     }
   }
 
   parseConfig(source: string): FullConfig {
-    const value = parse(source);
+    const document = parseDocument(source, { prettyErrors: true, uniqueKeys: true });
+    if (document.errors.length > 0) throw document.errors[0];
+    const value = document.toJS({ maxAliasCount: 50 }) as unknown;
     if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('config root must be an object');
     return value as FullConfig;
   }
@@ -85,6 +87,15 @@ export class YamlService {
   }
 
   replaceConfig(document: FullConfig): { backupPath?: string } {
+    return this.replaceSource(stringify(document, { lineWidth: 0 }));
+  }
+
+  replaceConfigSource(source: string): { backupPath?: string } {
+    this.parseConfig(source);
+    return this.replaceSource(source);
+  }
+
+  private replaceSource(source: string): { backupPath?: string } {
     const path = this.options.paths.configFile;
     const temporary = `${path}.tmp-${process.pid}`;
     const backupPath = `${path}.last-good`;
@@ -96,7 +107,7 @@ export class YamlService {
         chmodSync(backupPath, 0o600);
         hasBackup = true;
       }
-      writeFileSync(temporary, stringify(document, { lineWidth: 0 }), { encoding: 'utf8', mode: 0o600 });
+      writeFileSync(temporary, source, { encoding: 'utf8', mode: 0o600 });
       this.parseConfig(readFileSync(temporary, 'utf8'));
       renameSync(temporary, path);
       chmodSync(path, 0o600);
@@ -137,8 +148,6 @@ export class YamlService {
   }
 
   private readDocument(path: string): Record<string, unknown> {
-    const value = parse(readFileSync(path, 'utf8'));
-    if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('config root must be an object');
-    return value as Record<string, unknown>;
+    return this.parseConfig(readFileSync(path, 'utf8')) as Record<string, unknown>;
   }
 }

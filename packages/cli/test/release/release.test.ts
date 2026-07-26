@@ -78,11 +78,13 @@ describe('CLI release distribution', () => {
     const provider = join(sandbox, 'provider');
     mkdirSync(join(sandbox, 'scripts'), { recursive: true });
     mkdirSync(join(coreDir, 'dist'), { recursive: true });
+    mkdirSync(join(coreDir, 'resources'), { recursive: true });
     mkdirSync(join(sandbox, 'packages', 'cli', 'src'), { recursive: true });
     mkdirSync(join(provider, 'artifact'), { recursive: true });
     writeFileSync(join(provider, 'provider.json'), '{"schemaVersion":2,"dashboardVersion":"test","artifactRoot":"artifact","reservedPaths":[]}\n');
     writeFileSync(join(provider, 'artifact', 'index.html'), '<main>MioBridge</main>\n');
     writeFileSync(join(coreDir, 'dist', 'stale.js'), 'stale');
+    writeFileSync(join(coreDir, 'resources', 'template.yaml'), 'rules:\n  - MATCH,DIRECT\n');
     writeFileSync(join(sandbox, 'packages', 'cli', 'src', 'main.ts'), 'fixture');
     copyFileSync(packageScript, sandboxScript);
     copyFileSync(installer, join(sandbox, 'scripts', 'install.sh'));
@@ -131,6 +133,7 @@ describe('CLI release distribution', () => {
       const listing = execFileSync('tar', ['-tvzf', join(release, archive)], { encoding: 'utf8' });
       const binaryLine = listing.split('\n').find((line) => line.endsWith(' miobridge'));
       expect(binaryLine?.startsWith('-rwx')).toBe(true);
+      expect(listing).toContain(' template.yaml');
       expect(statSync(join(release, `miobridge-agent-1.2.3-linux-${arch}.gz`)).size).toBeGreaterThan(0);
     }
     expect(sums).toContain('install.sh');
@@ -153,6 +156,7 @@ describe('CLI release distribution', () => {
     expect(execFileSync(join(installDir, 'miobridge'), { encoding: 'utf8' }).trim()).toBe(`${expected}-v1`);
     expect(statSync(join(installDir, 'miobridge')).mode & 0o111).not.toBe(0);
     expect(readFileSync(join(dir, '.config/miobridge/dist/dashboard/artifact/index.html'), 'utf8')).toContain('MioBridge');
+    expect(readFileSync(join(dir, '.config/miobridge/template.yaml'), 'utf8')).toContain('rules:');
   });
 
   it('rejects a bad checksum without replacing the installed version', () => {
@@ -184,7 +188,7 @@ describe('CLI release distribution', () => {
     expect(execFileSync(join(installDir, 'miobridge'), { encoding: 'utf8' }).trim()).toBe('x64-v1');
   });
 
-  it('replaces only CLI-owned files and preserves user configuration', () => {
+  it('preserves user config while refreshing the release-owned template', () => {
     const { dir } = fixture();
     const installDir = join(dir, 'installed');
     const configDir = join(dir, '.config/miobridge');
@@ -193,11 +197,14 @@ describe('CLI release distribution', () => {
     writeFileSync(join(installDir, 'miobridge'), 'owned');
     writeFileSync(join(installDir, '.miobridge-cli-version'), '1.2.3\n');
     writeFileSync(join(configDir, 'config.yaml'), 'preserve: true\n');
+    writeFileSync(join(configDir, 'template.yaml'), 'rules:\n  - DOMAIN,custom.example,DIRECT\n');
     const { release } = fixture();
     execFileSync('sh', [installer, '--version', '1.2.3', '--base-url', `file://${release}`, '--install-dir', installDir, '--skip-setup'], {
       env: { ...process.env, HOME: dir, PATH: fakePlatform(dir, 'x86_64') },
     });
     expect(readFileSync(join(configDir, 'config.yaml'), 'utf8')).toContain('preserve');
+    expect(readFileSync(join(configDir, 'template.yaml'), 'utf8')).not.toContain('custom.example');
+    expect(readFileSync(join(configDir, 'template.yaml'), 'utf8')).toContain('GEOSITE,cn,DIRECT');
     expect(execFileSync(join(installDir, 'miobridge'), { encoding: 'utf8' }).trim()).toBe('x64-v1');
   });
 });

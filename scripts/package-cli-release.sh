@@ -89,13 +89,14 @@ build_one() {
   chmod 0755 "$binary"
   printf '%s\n' "$VERSION" > "$stage/VERSION"
   cp -R "$DASHBOARD_PROVIDER_DIR" "$stage/dashboard"
+  cp "$ROOT_DIR/packages/core/resources/template.yaml" "$stage/template.yaml"
   # Normalize inputs so repeated packaging produces stable archives on GNU tar.
   find "$stage/dashboard" -exec touch -t 197001010000 {} + 2>/dev/null || true
-  touch -t 197001010000 "$binary" "$stage/VERSION" 2>/dev/null || true
+  touch -t 197001010000 "$binary" "$stage/VERSION" "$stage/template.yaml" 2>/dev/null || true
   if tar --version 2>/dev/null | grep -q 'GNU tar'; then
-    tar --sort=name --mtime='UTC 1970-01-01' --owner=0 --group=0 --numeric-owner -czf "$OUTPUT_DIR/$archive" -C "$stage" VERSION dashboard miobridge
+    tar --sort=name --mtime='UTC 1970-01-01' --owner=0 --group=0 --numeric-owner -czf "$OUTPUT_DIR/$archive" -C "$stage" VERSION dashboard miobridge template.yaml
   else
-    COPYFILE_DISABLE=1 tar -czf "$OUTPUT_DIR/$archive" -C "$stage" VERSION dashboard miobridge
+    COPYFILE_DISABLE=1 tar -czf "$OUTPUT_DIR/$archive" -C "$stage" VERSION dashboard miobridge template.yaml
   fi
   rm -rf "$stage"
   trap - RETURN

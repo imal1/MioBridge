@@ -158,4 +158,35 @@ describe('YamlService and ConfigService', () => {
     expect(() => config.restoreLastGood()).toThrow();
     expect(config.getConfigByPath('app.port')).toBe(4000);
   });
+
+  it('layers YAML syntax, document shape, and field semantics before replacing raw config', async () => {
+    const directory = await temporaryDirectory();
+    const paths = createRuntimePaths({ env: { MIOBRIDGE_CONFIG_DIR: directory } });
+    const yaml = new YamlService({ paths });
+    const config = new ConfigService(yaml, paths, '1.0.0');
+    const original = '# 保留此注释\napp:\n  port: 3000\nprotocols:\n  sing_box_configs:\n    - default\n';
+
+    expect(config.validate('app: [not, an, object]\n')).toMatchObject({
+      valid: false,
+      issues: expect.arrayContaining([{ path: 'app', message: '必须是对象' }]),
+    });
+    expect(config.validate('app:\n  prot: 3000\n')).toMatchObject({
+      valid: false,
+      issues: expect.arrayContaining([{ path: 'app.prot', message: '未知配置字段' }]),
+    });
+    expect(config.validate('app:\n  port: 70000\n')).toMatchObject({
+      valid: false,
+      issues: expect.arrayContaining([{ path: 'app.port', message: '不能大于 65535' }]),
+    });
+    expect(config.validate('app:\n  port: 3000\napp:\n  port: 4000\n').valid).toBe(false);
+
+    config.replaceSource(original);
+    expect(await readFile(paths.configFile, 'utf8')).toBe(original);
+    expect(config.getSource()).toBe(original);
+    expect(() => config.replaceSource('app:\n  port: 70000\n')).toThrow('app.port');
+    expect(await readFile(paths.configFile, 'utf8')).toBe(original);
+
+    expect(() => config.replaceSource('unknown_section:\n  enabled: true\n')).toThrow('unknown_section: 未知配置字段');
+    expect(await readFile(paths.configFile, 'utf8')).toBe(original);
+  });
 });

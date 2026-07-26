@@ -40,12 +40,14 @@ export class MioBridgeCore {
   preflightSubscription() { return this.artifacts.preflight(); }
   getStatus() { return this.status.getStatus(); }
   getConfigPath() { return this.config.getConfigPath(); }
+  getConfigSource() { return this.config.getSource(); }
   getEffectiveConfig() { return this.config.getFullConfig(); }
   getConfigValue(path: string) { return this.config.getConfigByPath(path); }
   async setConfigValue(path: string, value: unknown) { return this.config.setConfigByPath(path, value); }
   async setConfigValues(changes: readonly { path: string; value: unknown }[]) { return this.config.setConfigValues(changes); }
   async restoreLastGoodConfig() { return this.config.restoreLastGood(); }
   validateConfig(source?: string) { return this.config.validate(source); }
+  replaceConfigSource(source: string) { return this.config.replaceSource(source); }
   getLocalLogs(options: LocalLogQuery = {}) { return this.logs.query(options); }
   followLocalLogs(options: LocalLogQuery = {}) { return this.logs.follow(options); }
   getMetricsSnapshot() { return this.metrics.snapshot(); }

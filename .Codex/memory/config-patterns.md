@@ -19,6 +19,13 @@ metadata:
   `/etc/<kernel>/config.json`, and `/etc/<kernel>/conf` respectively.
 - Core parses and updates `config.yaml` directly; production does not require an
   external YAML executable.
+- Release-owned Mihomo static settings, policy groups, and rules live only in
+  `~/.config/miobridge/template.yaml`; it is a release-owned, runtime-read-only
+  resource that upgrades replace atomically. Core reads it without writing,
+  reserves `proxies`, and replaces `__MIOBRIDGE_NODES__` placeholders only in
+  the generated document.
+- Whole-document config writes pass YAML syntax, strict known-shape, and field
+  semantic validation before an atomic raw-source replacement.
 - `app.port` defaults the dashboard port. The user unit passes
   `MIOBRIDGE_DASHBOARD_HOST` and `MIOBRIDGE_DASHBOARD_PORT` explicitly.
 - SSH passwords and uploaded private keys use StateStore keys
