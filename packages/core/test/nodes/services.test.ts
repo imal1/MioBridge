@@ -22,6 +22,14 @@ describe('node core services', () => {
     expect(client.sign({ ...node, host: '127.0.0.1' }, 'GET', '/api/status')).toEqual({});
   });
 
+  // 真实故障：节点不可达时 TCP 连接停在 SYN-SENT，内核要 ~135s 才放弃，
+  // 而 abort() 在部分运行时并不会拆掉这条连接。只挂 AbortController 的实现
+  // 会把调用方一起拖住 135s，订阅预检因此长时间不返回。
+  it('gives up on an unreachable Agent even when abort does not settle the request', async () => {
+    const client = new AgentClient({ timeoutMs: 20, fetch: (() => new Promise(() => {})) as unknown as typeof fetch });
+    await expect(client.get(node, '/api/status')).rejects.toMatchObject({ name: 'AbortError', message: '请求超时' });
+  });
+
   it('reads nodes.yaml directly and filters disabled nodes', async () => {
     const repository = new NodeRepository(memoryStore(`nodes:\n  - id: node-a\n    name: A\n    host: example\n    secret: secret\n    kernels:\n      - type: xray\n    location: HK\n    enabled: true\n  - id: off\n    name: Off\n    host: off\n    secret: x\n    kernels: []\n    location: HK\n    enabled: false\n`));
     expect((await repository.list()).map(n => n.id)).toEqual(['node-a']);

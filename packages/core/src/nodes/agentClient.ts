@@ -33,17 +33,37 @@ export class AgentClient {
     return { 'X-Node-Id': node.id, 'X-Timestamp': timestamp, 'X-Signature': signature };
   }
 
+  /**
+   * 超时必须由调用方这一侧独立保证，不能只依赖 AbortController：节点不可达时 TCP 连接
+   * 停在 SYN-SENT，abort() 在部分运行时并不会拆掉它，promise 要等内核放弃（约 135s）才 settle。
+   * 因此这里把 fetch 和一个定时器 race —— abort 照发（好让 socket 最终释放），但调用方
+   * 到点就拿到「请求超时」，任何一个失联节点都不会再拖住整条扇出。
+   */
   async get(node: NodeConfig, path: string, timeoutMs = this.timeoutMs): Promise<unknown> {
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), timeoutMs);
+    let timeout: ReturnType<typeof setTimeout> | undefined;
+    const expired = new Promise<never>((_, reject) => {
+      timeout = setTimeout(() => {
+        controller.abort();
+        // status()/collectSources() 按 name === 'AbortError' 把失败翻译成「请求超时」，沿用同一形状。
+        const error = new Error('请求超时');
+        error.name = 'AbortError';
+        reject(error);
+      }, timeoutMs);
+    });
     try {
-      const port = node.port ?? node.agent?.port ?? 3001;
-      const response = await this.fetcher(`http://${node.host}:${port}${path}`, {
-        method: 'GET', headers: { 'Content-Type': 'application/json', ...this.sign(node, 'GET', path) }, signal: controller.signal,
-      });
-      if (!response.ok) throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-      return response.json();
+      return await Promise.race([this.fetchJson(node, path, controller.signal), expired]);
     } finally { clearTimeout(timeout); }
+  }
+
+  private async fetchJson(node: NodeConfig, path: string, signal: AbortSignal): Promise<unknown> {
+    const port = node.port ?? node.agent?.port ?? 3001;
+    const response = await this.fetcher(`http://${node.host}:${port}${path}`, {
+      method: 'GET', headers: { 'Content-Type': 'application/json', ...this.sign(node, 'GET', path) }, signal,
+    });
+    if (!response.ok) throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+    // await 而不是直接 return：否则 get() 的 finally 会在读 body 之前就清掉定时器，body 读取将不再有超时。
+    return await response.json();
   }
 
   validateKernelStatuses(value: unknown): KernelRuntimeStatus[] {
