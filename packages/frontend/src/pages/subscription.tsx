@@ -143,6 +143,7 @@ export default function SubscriptionPage() {
             {loading ? '创建中…'
               : activeJobs.length ? '生成任务执行中'
               : preflightQuery.isPending ? '预检中…'
+              : preflightQuery.isError ? '预检失败'
               : !preflight?.ready ? '预检未通过'
               : '创建生成任务'}
           </button>
