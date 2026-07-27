@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react'
 import { Icon } from '@iconify/react'
 import { toast } from 'sonner'
 import { useOpenApi } from '@/lib/queries'
+import { copyText } from '@/lib/clipboard'
 import PageHeader from '@/components/shared/PageHeader'
 
 const HTTP_METHODS = ['get', 'post', 'put', 'patch', 'delete', 'head', 'options'] as const
@@ -85,7 +86,10 @@ export default function ApiDocsPage() {
     return [...grouped.entries()]
   }, [endpoints])
   const serverUrl = document?.servers?.[0]?.url
-  const copy = async (value: string, label: string) => { await navigator.clipboard.writeText(value); toast.success(`已复制${label}`) }
+  const copy = async (value: string, label: string) => {
+    try { await copyText(value); toast.success(`已复制${label}`) }
+    catch { toast.error(`复制${label}失败，请手动复制`) }
+  }
 
   return (
     <>

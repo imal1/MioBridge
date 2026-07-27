@@ -4,6 +4,7 @@ import { useSearchParams } from 'react-router-dom'
 import { toast } from 'sonner'
 import { apiService, type LogsResult } from '@/lib/api'
 import { useClusterStatus } from '@/lib/queries'
+import { copyText } from '@/lib/clipboard'
 import PageHeader from '@/components/shared/PageHeader'
 
 type LogSource = 'control' | 'agent' | 'deployment' | 'subscription'
@@ -79,7 +80,10 @@ export default function LogsPage() {
     return () => window.clearInterval(timer)
   }, [autoRefresh, loadLogs])
 
-  const copyLogs = async () => { await navigator.clipboard.writeText(logs?.lines.join('\n') || ''); toast.success('已复制当前日志结果') }
+  const copyLogs = async () => {
+    try { await copyText(logs?.lines.join('\n') || ''); toast.success('已复制当前日志结果') }
+    catch { toast.error('复制失败，请手动复制') }
+  }
   const exportLogs = () => {
     const blob = new Blob([logs?.lines.join('\n') || ''], { type: 'text/plain;charset=utf-8' })
     const link = document.createElement('a')

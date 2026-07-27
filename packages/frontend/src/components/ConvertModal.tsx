@@ -9,6 +9,7 @@ import {
 } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
 import { apiService } from "@/lib/api";
+import { copyText } from "@/lib/clipboard";
 import { Icon } from "@iconify/react";
 import { Editor } from "@monaco-editor/react";
 import { useTheme } from "@/components/ThemeProvider";
@@ -58,7 +59,7 @@ const ConvertModal = ({ isOpen, onClose }: ConvertModalProps) => {
   const handleCopyOutput = useCallback(async () => {
     if (!outputYaml) return;
     try {
-      await navigator.clipboard.writeText(outputYaml);
+      await copyText(outputYaml);
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     } catch {

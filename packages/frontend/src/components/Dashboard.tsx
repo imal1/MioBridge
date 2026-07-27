@@ -5,6 +5,7 @@ import { toast } from 'sonner'
 import type { ApiStatus } from '@/lib/api'
 import type { ArtifactState, ClusterStatus } from '@/lib/types'
 import { apiService } from '@/lib/api'
+import { copyText } from '@/lib/clipboard'
 import {
   useArtifacts, useClusterStatus, useComponentDeployments, useMetrics, useStatus, useValidateArtifacts,
 } from '@/lib/queries'
@@ -122,8 +123,12 @@ export default function Dashboard({ initialCluster = null, initialStatus = null,
 
   const copyUrl = useCallback(async (name: string) => {
     const url = new URL(`/${name}`, window.location.origin).toString()
-    await navigator.clipboard.writeText(url)
-    toast.success('已复制公共产物 URL', { description: url })
+    try {
+      await copyText(url)
+      toast.success('已复制公共产物 URL', { description: url })
+    } catch {
+      toast.error('复制失败，请手动复制', { description: url })
+    }
   }, [])
 
   const openPreview = useCallback(async (name: ArtifactState['name']) => {
