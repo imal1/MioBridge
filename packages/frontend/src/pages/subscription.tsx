@@ -3,7 +3,6 @@ import { useQueryClient } from '@tanstack/react-query'
 import { Icon } from '@iconify/react'
 import { Link } from 'react-router-dom'
 import { toast } from 'sonner'
-import { apiService } from '@/lib/api'
 import { streamServerEvents } from '@/lib/sse'
 import {
   queryKeys, useArtifacts, useClusterStatus, useRetrySubscriptionJob, useStartSubscriptionJob,
@@ -42,7 +41,9 @@ export default function SubscriptionPage() {
   const queryClient = useQueryClient()
   const pollOptions = { refetchInterval: 5000, refetchIntervalInBackground: false } as const
   const clusterQuery = useClusterStatus(pollOptions)
-  const preflightQuery = useSubscriptionPreflight(pollOptions)
+  // 预检是一次对全部节点的实时扇出（还会在本机 spawn sing-box），耗时远超 5s 轮询间隔，
+  // 按 5s 轮它只会让请求互相叠压。它不是实时指标，30s 足够。
+  const preflightQuery = useSubscriptionPreflight({ ...pollOptions, refetchInterval: 30000 })
   const jobsQuery = useSubscriptionJobs(pollOptions)
   const artifactsQuery = useArtifacts()
   const statusQuery = useStatus()
@@ -87,8 +88,8 @@ export default function SubscriptionPage() {
   const generate = useCallback(async () => {
     setLoading(true); setError(null)
     try {
-      const check = await apiService.preflightSubscription()
-      if (!check.success || !check.data?.ready) throw new Error(check.data?.blockingErrors.join('；') || message(check.error, '没有可读来源'))
+      // 不在这里再预检一次：服务端 start() 本身就会跑预检并把 blockingErrors 作为错误抛回来。
+      // 多这一次调用只是把一次完整的节点扇出（不可达节点尤其慢）串在点击和任务创建之间。
       const response = await startJob.mutateAsync()
       if (!response.success) throw new Error(message(response.error, '创建订阅任务失败'))
       toast.success('订阅任务已持久化并进入队列', { description: response.data?.jobId })
@@ -136,7 +137,15 @@ export default function SubscriptionPage() {
         description="生成、健康状态与定时策略。产物的预览与下载在总览页。"
         actions={(
           <button onClick={generate} disabled={loading || !preflight?.ready || activeJobs.length > 0} className="mb-pill-btn primary">
-            <Icon icon="ph:play-circle-light" style={{ fontSize: 15 }} />{loading ? '创建中…' : activeJobs.length ? '生成任务执行中' : '创建生成任务'}
+            {/* 按钮被 preflight.ready 把着，预检没回来之前它是禁用的。标签必须说明原因，
+                否则用户只会看到一个「创建生成任务」按钮点了没反应。 */}
+            <Icon icon="ph:play-circle-light" style={{ fontSize: 15 }} />
+            {loading ? '创建中…'
+              : activeJobs.length ? '生成任务执行中'
+              : preflightQuery.isPending ? '预检中…'
+              : preflightQuery.isError ? '预检失败'
+              : !preflight?.ready ? '预检未通过'
+              : '创建生成任务'}
           </button>
         )}
       />
