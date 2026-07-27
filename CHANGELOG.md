@@ -2,6 +2,17 @@
 
 本文档记录 MioBridge 的重要变更。版本号遵循语义化版本规范。
 
+## [1.2.21] — 2026-07-27
+
+### Fixed
+
+- `miobridge upgrade` 现在会随 release 一起安装/刷新 `~/.config/miobridge/template.yaml`。
+  此前该模板只有 `scripts/install.sh` 会落盘，凡是用 `upgrade` 升级上来的机器都缺模板，
+  订阅生成一直停留在「部分成功」且 `clash.yaml` 不再更新。
+- 控制台的复制按钮在以 http:// 访问局域网主机名时不再无响应：非安全上下文中
+  `navigator.clipboard` 不存在，现统一走 `copyText()` 并降级到 `execCommand` 兜底，
+  失败时给出明确提示。
+
 ## [1.2.19] — 2026-07-26
 
 ### Changed
