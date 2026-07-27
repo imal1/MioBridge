@@ -143,6 +143,12 @@ export function createNodeSelfMaintenanceAdapters(): SelfMaintenanceAdapters {
     extractTarGzipEntry,
     installAtomic,
     installDashboard,
+    async writeFileAtomic(path, data) {
+      await mkdir(dirname(path), { recursive: true, mode: 0o755 });
+      const temporary = `${path}.tmp-${randomUUID()}`;
+      try { await writeFile(temporary, data, { mode: 0o644 }); await rename(temporary, path); }
+      catch (error) { await rm(temporary, { force: true }); throw error; }
+    },
     async probeVersion(path) {
       const result = await execFileAsync(path, ['--version'], { timeout: 15_000 });
       return result.stdout.trim();

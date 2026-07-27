@@ -17,6 +17,8 @@ export interface SelfMaintenanceAdapters {
   extractTarGzipEntry(data: Uint8Array, entry: string): Promise<Uint8Array>;
   installAtomic(path: string, data: Uint8Array, validate: (temporaryPath: string) => Promise<void>): Promise<void>;
   installDashboard(path: string, archive: Uint8Array): Promise<void>;
+  /** 原子写入普通文件（先写临时文件再 rename），已存在则覆盖。 */
+  writeFileAtomic(path: string, data: Uint8Array): Promise<void>;
   probeVersion(path: string): Promise<string>;
   writeVersion(path: string, version: string): Promise<void>;
   remove(path: string): Promise<void>;
@@ -116,9 +118,27 @@ export class SelfMaintenanceService {
       if (reported !== version) throw new Error(`Release version validation failed: expected ${version}, got ${reported}`);
     });
     await this.options.adapters.installDashboard(this.options.dashboardPath, archiveData);
+    await this.installTemplate(archiveData, progress);
     await this.options.adapters.writeVersion(join(dirname(this.options.executablePath), '.miobridge-cli-version'), version);
     const upgraded = `MioBridge and dashboard upgraded from ${this.options.currentVersion} to ${version}.`;
     return `${upgraded}${await this.handOverRunningDashboard(version, progress)}`;
+  }
+
+  /**
+   * Clash 产物依赖 `<configDir>/template.yaml`，而该文件此前只有 scripts/install.sh 会装：
+   * 用 `miobridge upgrade` 升上来的机器缺模板，订阅会一直「部分成功」且 clash.yaml 不更新。
+   * 模板归 release 所有，升级与安装一致地覆盖写入。
+   */
+  private async installTemplate(archiveData: Uint8Array, progress: (message: string) => void): Promise<void> {
+    const path = join(this.options.configDir, 'template.yaml');
+    try {
+      const template = await this.options.adapters.extractTarGzipEntry(archiveData, 'template.yaml');
+      await this.options.adapters.writeFileAtomic(path, template);
+      progress(`Mihomo template installed at ${path}`);
+    } catch (error) {
+      // 二进制和 dashboard 已经就位，模板补装失败只降级为警告。
+      progress(`Could not install the Mihomo template at ${path}: ${error instanceof Error ? error.message : String(error)}`);
+    }
   }
 
   /** 磁盘上的新版本就位后，处理还在跑旧版本的服务；返回追加到结果末尾的说明。 */

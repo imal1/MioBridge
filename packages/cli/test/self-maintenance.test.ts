@@ -19,6 +19,7 @@ function harness(
   const removed: string[] = [];
   const versions: string[] = [];
   const dashboards: string[] = [];
+  const written: string[] = [];
   const adapters: SelfMaintenanceAdapters = {
     platform: async () => ({ os: 'linux', architecture: 'x64', distro: 'test' }),
     latestVersion: async () => 'v1.2.3',
@@ -29,13 +30,14 @@ function harness(
     extractTarGzipEntry: async () => binaryData,
     installAtomic: async (path, _data, validate) => { await validate(`${path}.tmp`); installed.push(path); },
     installDashboard: async path => { dashboards.push(path); },
+    writeFileAtomic: async path => { written.push(path); },
     probeVersion: async () => '1.2.3',
     writeVersion: async (_path, version) => { versions.push(version); },
     remove: async path => { removed.push(path); },
     ...overrides,
   };
   const service = new SelfMaintenanceService({ currentVersion: '1.0.0', executablePath: '/home/user/.local/bin/miobridge', dashboardPath: '/home/user/.config/miobridge/dist/dashboard', configDir: '/home/user/.config/miobridge', adapters, ...options });
-  return { service, installed, removed, versions, dashboards };
+  return { service, installed, removed, versions, dashboards, written };
 }
 
 describe('CLI self maintenance', () => {
@@ -47,6 +49,24 @@ describe('CLI self maintenance', () => {
     expect(installed).toEqual(['/home/user/.local/bin/miobridge']);
     expect(dashboards).toEqual(['/home/user/.config/miobridge/dist/dashboard']);
     expect(versions).toEqual(['1.2.3']);
+  });
+
+  it('refreshes the release-owned Mihomo template so Clash generation keeps working', async () => {
+    const { service, written } = harness();
+    await service.upgrade();
+    expect(written).toEqual(['/home/user/.config/miobridge/template.yaml']);
+  });
+
+  it('finishes the upgrade even when the release has no template entry', async () => {
+    const events: string[] = [];
+    const { service } = harness({
+      extractTarGzipEntry: async (_data, entry) => {
+        if (entry === 'template.yaml') throw new Error('Release archive entry not found: template.yaml');
+        return binaryData;
+      },
+    }, { progress: message => events.push(message) });
+    await expect(service.upgrade()).resolves.toContain('upgraded from 1.0.0 to 1.2.3');
+    expect(events.some(event => event.startsWith('Could not install the Mihomo template'))).toBe(true);
   });
 
   it('does not replace the executable when checksum verification fails', async () => {
