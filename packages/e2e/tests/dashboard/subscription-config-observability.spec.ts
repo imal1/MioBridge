@@ -87,7 +87,8 @@ test.describe('E10 · 订阅预检与正式生成', () => {
     await control({ subscriptionReady: false });
     await page.goto('/subscription');
     await expect(page.getByText('生成被阻断')).toBeVisible();
-    await expect(page.getByRole('button', { name: '创建生成任务' })).toBeDisabled();
+    // 创建入口在被阻断时会把原因写进按钮标签，所以这里按当前状态的标签定位。
+    await expect(page.getByRole('button', { name: '预检未通过' })).toBeDisabled();
 
     // 预检不再是手动按钮，页面每 5s 轮询一次；重复预检既不能解除阻断，也不能创建任务。
     await expect.poll(
@@ -105,7 +106,7 @@ test.describe('E10 · 订阅预检与正式生成', () => {
       && response.request().method() === 'POST');
     await page.goto('/subscription');
     expect((await preflight).status()).toBe(503);
-    await expect(page.getByRole('button', { name: '创建生成任务' })).toBeDisabled();
+    await expect(page.getByRole('button', { name: '预检失败' })).toBeDisabled();
   });
 
   // 已知缺口：预检失败时页面既不显示预检横幅也不显示错误横幅，只留一个禁用按钮，
