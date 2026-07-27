@@ -90,10 +90,11 @@ test.describe('E10 · 订阅预检与正式生成', () => {
     // 创建入口在被阻断时会把原因写进按钮标签，所以这里按当前状态的标签定位。
     await expect(page.getByRole('button', { name: '预检未通过' })).toBeDisabled();
 
-    // 预检不再是手动按钮，页面每 5s 轮询一次；重复预检既不能解除阻断，也不能创建任务。
+    // 预检不再是手动按钮，页面自动重复执行（轮询间隔 30s，超过单个用例的超时，
+    // 这里用重新加载复现同一条路径）；重复预检既不能解除阻断，也不能创建任务。
+    await page.reload();
     await expect.poll(
       async () => exactRequests(await snapshot(), 'POST', '/api/subscription-jobs/preflight').length,
-      { timeout: 15_000 },
     ).toBeGreaterThanOrEqual(2);
     await expect(page.getByText('生成被阻断')).toBeVisible();
     expect(exactRequests(await snapshot(), 'POST', '/api/subscription-jobs')).toEqual([]);
