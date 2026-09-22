@@ -93,9 +93,9 @@ test.describe('E07 · Agent 运行维护', () => {
     await expect(panel.getByRole('link', { name: '查看日志' })).toHaveAttribute('href', '/logs?node=node-ready');
   });
 
-  test('Agent 标签展示最近错误，便于从异常状态进入恢复链路', async ({ page }) => {
+  test('在线 Agent 将最近错误标记为已恢复', async ({ page }) => {
     const panel = await openNode(page, 'node-ready', READY_NAME, 'Agent');
-    await expect(panel.getByText('最近错误', { exact: true })).toBeVisible();
+    await expect(panel.getByText('历史错误（当前已恢复）', { exact: true })).toBeVisible();
   });
 });
 
