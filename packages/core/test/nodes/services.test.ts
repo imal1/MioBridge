@@ -19,6 +19,8 @@ describe('node core services', () => {
     const client = new AgentClient({ now: () => 1234 });
     const headers = client.sign(node, 'GET', '/api/status');
     expect(headers).toEqual({ 'X-Node-Id': 'node-a', 'X-Timestamp': '1234', 'X-Signature': createHmac('sha256', 'secret').update('1234\nGET\n/api/status\n').digest('hex') });
+    const concurrent = client.sign(node, 'GET', '/api/urls');
+    expect(concurrent).toEqual({ 'X-Node-Id': 'node-a', 'X-Timestamp': '1235', 'X-Signature': createHmac('sha256', 'secret').update('1235\nGET\n/api/urls\n').digest('hex') });
     expect(client.sign({ ...node, host: '127.0.0.1' }, 'GET', '/api/status')).toEqual({});
   });
 
@@ -188,6 +190,23 @@ describe('node core services', () => {
     const status = await new NodeAggregationService(repository, client).getClusterStatus();
     // sing-box 已装未纳管 → 候选；xray 已纳管、v2ray 未检测 → 排除。
     expect(status.nodes[0]?.adoptableKernels).toEqual(['sing-box']);
+  });
+
+  it('keeps a node online when source extraction times out but the Agent health probe succeeds', async () => {
+    const repository = new NodeRepository(memoryStore(`nodes:\n  - id: node-a\n    name: A\n    host: agent.example\n    secret: secret\n    kernels:\n      - type: xray\n    location: HK\n    enabled: true\n`));
+    const paths: string[] = [];
+    const client = new AgentClient({ fetch: (async (input: string | URL | Request) => {
+      const path = new URL(String(input)).pathname;
+      paths.push(path);
+      if (path === '/health') return new Response(JSON.stringify({ status: 'healthy', uptime: 60, version: '1.2.21' }), { status: 200 });
+      return new Promise(() => {});
+    }) as typeof fetch });
+
+    const status = await new NodeAggregationService(repository, client, undefined, { statusProbeTimeoutMs: 20 }).getClusterStatus();
+
+    expect(paths.sort()).toEqual(['/api/urls', '/health']);
+    expect(status.nodes[0]).toMatchObject({ online: true, version: '1.2.21', uptime: 60 });
+    expect(status.nodes[0]?.error).toBeUndefined();
   });
 
   it('collapses concurrent and rapid cluster-status polls into a single fan-out', async () => {

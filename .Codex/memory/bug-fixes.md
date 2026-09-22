@@ -7,6 +7,10 @@ metadata:
 
 # Bug Fixes
 
+- 2026-09-22: Remote Agent deployment now enables and verifies systemd lingering,
+  heartbeats use lightweight `/health`, and HMAC replay protection distinguishes
+  exact replays from legitimate same-millisecond requests. Unreachable nodes with
+  stale Agent metadata can be explicitly force-deleted from the Dashboard.
 - 2026-07-26: The Mihomo YAML template enables IPv6 domain sniffing so pure-IP
   Claude TLS/QUIC traffic can recover its hostname before `GEOIP,CN`; explicit
   AI rules precede early `private`/`cn` geosite direct rules, which themselves

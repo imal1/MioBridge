@@ -567,7 +567,7 @@ export class SshDeploymentService {
         if (checked.code !== 0) throw new Error(`${kernel.type} 监控路径不可读: ${path}`);
       }
       replaced = await replaceAgentConfig(this.#transport, ssh, agentYaml(target, kernels));
-      await startAgent(this.#transport, ssh);
+      await startAgent(this.#transport, ssh, target);
       await verifyAgent(this.#transport, ssh, target);
       const updated = await this.composition.repository.update(nodeId, current => ({
         ...current,
@@ -621,7 +621,7 @@ export class SshDeploymentService {
       emit('agent', 'success', 'Agent 已安装', 80);
 
       emit('start', 'running', '启动 Agent 服务', 85);
-      await startAgent(this.#transport, ssh);
+      await startAgent(this.#transport, ssh, target);
       emit('start', 'success', 'Agent 已启动', 92);
 
       emit('verify', 'running', '验证 Agent 健康状态', 95);

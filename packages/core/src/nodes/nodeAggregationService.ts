@@ -5,7 +5,7 @@ import { NodeRepository } from './nodeRepository.js';
 import type { StateStore } from '../state/stateStore.js';
 import type { ClusterStatus, KernelRuntimeStatus, NodeConfig, NodeStatus } from './types.js';
 
-export interface RemoteSourceCollection { sources: CollectedProxySource[]; errors: string[] }
+export interface RemoteSourceCollection { sources: CollectedProxySource[]; errors: string[]; kernels?: KernelRuntimeStatus[] }
 
 const LAST_ERROR_PREFIX = 'node-last-error/';
 
@@ -89,8 +89,27 @@ export class NodeAggregationService {
 
   private async computeClusterStatus(): Promise<ClusterStatus> {
     const nodes = await this.repository.list({ enabledOnly: false });
-    const enabledNodes = nodes.filter(node => node.enabled);
-    const [statuses, collection] = await Promise.all([Promise.all(nodes.map(node => this.status(node, this.statusProbeTimeoutMs))), Promise.all(enabledNodes.map(node => this.collectSources(node, this.statusProbeTimeoutMs)))]);
+    const observations = await Promise.all(nodes.map(async node => {
+      const [status, collection] = await Promise.all([
+        this.status(node, this.statusProbeTimeoutMs),
+        node.enabled ? this.collectSources(node, this.statusProbeTimeoutMs) : Promise.resolve({ sources: [], errors: [] } as RemoteSourceCollection),
+      ]);
+      if (!collection.kernels) return { status, collection };
+      const kernelError = collection.kernels.find(kernel => kernel.error)?.error;
+      if (kernelError && kernelError !== status.lastError) await this.persistLastError(node.id, kernelError);
+      const adoptableKernels = collection.kernels.filter(kernel => kernel.detected && !kernel.monitored).map(kernel => kernel.type);
+      const merged: NodeStatus = {
+        ...status,
+        kernels: collection.kernels,
+        nodesCount: collection.kernels.reduce((sum, kernel) => sum + kernel.nodesCount, 0),
+        ...(kernelError ? { lastError: kernelError } : {}),
+        ...(adoptableKernels.length ? { adoptableKernels } : {}),
+      };
+      this.cache.set(node.id, merged);
+      return { status: merged, collection };
+    }));
+    const statuses = observations.map(item => item.status);
+    const collection = observations.map(item => item.collection);
     const sources = collection.flatMap(result => result.sources);
     return { totalNodes: statuses.length, onlineNodes: statuses.filter(s => s.online).length, totalProxies: dedupeProxySources(sources).length, nodes: statuses, lastUpdated: new Date().toISOString() };
   }
@@ -116,7 +135,7 @@ export class NodeAggregationService {
         }
       }
       for (const kernel of kernels) if (sources.filter(s => s.kernel === kernel.type).length !== kernel.nodesCount) throw new Error(`Agent 内核 ${kernel.type} 的来源数量与 nodesCount 不一致`);
-      return { sources: sources.sort((a,b) => KERNEL_TYPES.indexOf(a.kernel)-KERNEL_TYPES.indexOf(b.kernel)).map(s => ({ ...s, nodeId: node.id, location: node.location })), errors: kernels.filter(k => (k.monitored && !k.accessible) || k.error).map(k => this.error(node, `内核 ${k.type}: ${k.error || '已监控但不可访问'}`)) };
+      return { sources: sources.sort((a,b) => KERNEL_TYPES.indexOf(a.kernel)-KERNEL_TYPES.indexOf(b.kernel)).map(s => ({ ...s, nodeId: node.id, location: node.location })), errors: kernels.filter(k => (k.monitored && !k.accessible) || k.error).map(k => this.error(node, `内核 ${k.type}: ${k.error || '已监控但不可访问'}`)), kernels };
     } catch (error) { return { sources: [], errors: [this.error(node, error instanceof Error ? error.message : String(error))] }; }
   }
 
@@ -132,12 +151,12 @@ export class NodeAggregationService {
     // 但用户仍需要看到上一次失败的原因才能判断要不要进排障链路。
     const previousError = await this.loadLastError(node.id);
     try {
-      const json = await this.agent.get(node, '/api/status', timeoutMs) as Record<string, unknown>;
+      // 心跳必须是轻量探测。/api/status 会读取并导出协议核心配置，低配节点上
+      // 偶尔超过探测窗口；那是来源解析慢，不代表 Agent 已离线。
+      const json = await this.agent.get(node, '/health', timeoutMs) as Record<string, unknown>;
       const data = (json.data ?? json) as Record<string, unknown>;
-      const kernels = this.agent.validateKernelStatuses(data.kernels);
-      const kernelError = kernels.find(kernel => kernel.error)?.error;
-      if (kernelError && kernelError !== previousError) await this.persistLastError(node.id, kernelError);
-      const lastError = kernelError ?? previousError;
+      const kernels = this.cache.get(node.id)?.kernels ?? unavailable(node.kernels);
+      const lastError = previousError;
       const observedVersion = typeof data.version === 'string' ? data.version : undefined;
       const observedAgent = node.agent ? {
         ...node.agent,

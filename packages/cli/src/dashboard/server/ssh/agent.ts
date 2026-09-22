@@ -83,9 +83,19 @@ export async function installAgent(transport: SshTransport, ssh: DeploymentConne
   await writeUserFile(transport, ssh, 'miobridge-agent.service', systemdUnit(), 0o644, 'unit');
 }
 
-export async function startAgent(transport: SshTransport, ssh: DeploymentConnection): Promise<void> {
+export async function startAgent(transport: SshTransport, ssh: DeploymentConnection, target: SshTarget): Promise<void> {
   const legacy = await transport.exec(ssh, `test -x ${shellQuote(LEGACY_AGENT_PATH)} || test -f ${shellQuote(LEGACY_AGENT_SERVICE_PATH)} || test -f ${shellQuote(LEGACY_AGENT_CONFIG_PATH)}`);
   if (legacy.code === 0) throw new Error('检测到旧版系统级 Agent。请先由管理员执行 "sudo systemctl disable --now miobridge-agent" 并删除旧 unit，之后重试用户态部署。');
+  const userResult = await transport.exec(ssh, 'id -un');
+  const user = userResult.stdout.trim();
+  if (userResult.code !== 0 || !user) throw new Error('Agent 持久运行配置失败: 无法确定运行用户');
+  const linger = await transport.exec(ssh, `loginctl show-user ${shellQuote(user)} --property=Linger --value`);
+  if (linger.code !== 0 || linger.stdout.trim() !== 'yes') {
+    const enabled = await transport.execRoot(ssh, target, `loginctl enable-linger ${shellQuote(user)}`);
+    if (enabled.code !== 0) throw new Error(`Agent 持久运行配置失败: ${(enabled.stderr || enabled.stdout).trim() || 'loginctl enable-linger 执行失败'}`);
+    const verified = await transport.exec(ssh, `loginctl show-user ${shellQuote(user)} --property=Linger --value`);
+    if (verified.code !== 0 || verified.stdout.trim() !== 'yes') throw new Error('Agent 持久运行配置失败: lingering 未生效');
+  }
   const started = await transport.exec(ssh, `${userSystemctl('daemon-reload')} && ${userSystemctl('enable', '--now', 'miobridge-agent.service')} && ${userSystemctl('restart', 'miobridge-agent.service')}`);
   if (started.code !== 0) throw new Error(`Agent 启动失败: ${(started.stderr || started.stdout).trim()}`);
 }

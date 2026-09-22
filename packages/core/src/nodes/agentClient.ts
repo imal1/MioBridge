@@ -20,6 +20,7 @@ export class AgentClient {
   private readonly fetcher: typeof globalThis.fetch;
   private readonly timeoutMs: number;
   private readonly now: () => number;
+  private lastTimestamp = 0;
   constructor(options: AgentClientOptions = {}) {
     this.fetcher = options.fetch ?? globalThis.fetch;
     this.timeoutMs = options.timeoutMs ?? 10_000;
@@ -28,7 +29,11 @@ export class AgentClient {
 
   sign(node: NodeConfig, method: string, path: string, body = ''): Record<string, string> {
     if (node.host === 'localhost' || node.host === '127.0.0.1') return {};
-    const timestamp = String(this.now());
+    // 同一轮状态扇出会并发签名多个请求。毫秒时钟可能返回相同值，而旧版
+    // Agent 把 timestamp 当作 nonce；保证单调递增可兼容旧 Agent 并避免合法请求互撞。
+    const nextTimestamp = Math.max(this.now(), this.lastTimestamp + 1);
+    this.lastTimestamp = nextTimestamp;
+    const timestamp = String(nextTimestamp);
     const signature = createHmac('sha256', node.secret || '').update(`${timestamp}\n${method}\n${path}\n${body}`).digest('hex');
     return { 'X-Node-Id': node.id, 'X-Timestamp': timestamp, 'X-Signature': signature };
   }

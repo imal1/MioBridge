@@ -26,13 +26,13 @@ export interface HmacVerifyResult {
  * go through golden contract tests.
  */
 export function createHmacVerifier(secret: string) {
-  const usedTimestamps = new Set<string>();
+  const usedRequests = new Set<string>();
   let lastCleanup = Date.now();
 
   function cleanup(): void {
     const now = Date.now();
     if (now - lastCleanup < CLEANUP_INTERVAL_MS) return;
-    usedTimestamps.clear();
+    usedRequests.clear();
     lastCleanup = now;
   }
 
@@ -61,12 +61,6 @@ export function createHmacVerifier(secret: string) {
       return { valid: false, error: `时间戳超出窗口 (${TIME_WINDOW_MS / 1000}s)` };
     }
 
-    cleanup();
-    if (usedTimestamps.has(timestamp)) {
-      return { valid: false, error: '重放请求' };
-    }
-    usedTimestamps.add(timestamp);
-
     const body = req.body ? JSON.stringify(req.body) : '';
     const payload = `${timestamp}\n${req.method}\n${req.path}\n${body}`;
 
@@ -82,6 +76,11 @@ export function createHmacVerifier(secret: string) {
     } catch {
       return { valid: false, error: '签名格式错误' };
     }
+
+    cleanup();
+    const replayKey = `${timestamp}:${signature}`;
+    if (usedRequests.has(replayKey)) return { valid: false, error: '重放请求' };
+    usedRequests.add(replayKey);
 
     return { valid: true };
   };

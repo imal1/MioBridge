@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { agentRelease, SshDeploymentService } from '../../src/dashboard/server/sshDeployment.js';
+import { startAgent } from '../../src/dashboard/server/ssh/agent.js';
+import { SshTransport } from '../../src/dashboard/server/ssh/transport.js';
+import type { DeploymentConnection, SshTarget } from '../../src/dashboard/server/ssh/types.js';
 import type { NodeCoreComposition } from '../../src/composition.js';
 
 describe('Agent release distribution', () => {
@@ -20,6 +23,34 @@ describe('Agent release distribution', () => {
     expect(agentRelease('1.2.3', 'x64', { MIOBRIDGE_RELEASE_BASE_URL: 'https://mirror.example/v1.2.3' }).baseUrl)
       .toBe('https://mirror.example/v1.2.3');
   });
+
+  it('enables and verifies user lingering before starting the Agent', async () => {
+    const commands: string[] = [];
+    let lingerChecks = 0;
+    const ssh: DeploymentConnection = {
+      async run(command) {
+        commands.push(command);
+        if (command.startsWith('test -x')) return { stdout: '', stderr: '', code: 1 };
+        if (command === 'id -un') return { stdout: 'root\n', stderr: '', code: 0 };
+        if (command.startsWith("loginctl show-user 'root'")) {
+          lingerChecks += 1;
+          return { stdout: lingerChecks === 1 ? 'no\n' : 'yes\n', stderr: '', code: 0 };
+        }
+        return { stdout: '', stderr: '', code: 0 };
+      },
+      end() {},
+    };
+    const target: SshTarget = {
+      nodeId: 'remote', nodeName: 'Remote', secret: 'secret', agentPort: 3001, kernels: [],
+      ssh: { host: 'remote.example', user: 'root', port: 22, authMethod: 'password', password: 'secret', hostKey: '' },
+    };
+
+    await startAgent(new SshTransport(), ssh, target);
+
+    expect(commands).toContain("loginctl enable-linger 'root'");
+    expect(lingerChecks).toBe(2);
+    expect(commands.some(command => command.includes("'enable' '--now' 'miobridge-agent.service'"))).toBe(true);
+  });
 });
 
 describe('local deployment transport', () => {
@@ -36,6 +67,8 @@ describe('local deployment transport', () => {
       commands.push(command);
       if (command === 'uname -s') return { stdout: 'Linux\n', stderr: '', code: 0 };
       if (command === 'uname -m') return { stdout: 'x86_64\n', stderr: '', code: 0 };
+      if (command === 'id -un') return { stdout: 'root\n', stderr: '', code: 0 };
+      if (command.startsWith("loginctl show-user 'root'")) return { stdout: 'yes\n', stderr: '', code: 0 };
       if (command.startsWith('df -Pk')) return { stdout: '512000\n', stderr: '', code: 0 };
       if (command === 'command -v systemctl') return { stdout: '/usr/bin/systemctl\n', stderr: '', code: 0 };
       if (command === 'command -v curl || command -v wget') return { stdout: '/usr/bin/curl\n', stderr: '', code: 0 };
@@ -69,6 +102,8 @@ describe('local deployment transport', () => {
     const service = new SshDeploymentService(composition, { runLocal: async command => {
       commands.push(command);
       if (command === 'uname -m') return { stdout: 'x86_64\n', stderr: '', code: 0 };
+      if (command === 'id -un') return { stdout: 'root\n', stderr: '', code: 0 };
+      if (command.startsWith("loginctl show-user 'root'")) return { stdout: 'yes\n', stderr: '', code: 0 };
       if (command.includes("'/usr/local/bin/sing-box' 'help'")) return { stdout: '', stderr: 'missing', code: 1 };
       if (command.includes('/usr/local/bin/miobridge-agent') && command.startsWith('test -x')) return { stdout: '', stderr: '', code: 1 };
       return { stdout: '', stderr: '', code: 0 };
@@ -83,6 +118,7 @@ describe('local deployment transport', () => {
     expect(commands.some(command => command.includes('raw.githubusercontent.com/233boy'))).toBe(false);
     expect(commands.some(command => command.includes('sudo'))).toBe(false);
     expect(commands.some(command => command.includes('$HOME/.local/bin/miobridge-agent'))).toBe(true);
+    expect(commands.some(command => command.includes("loginctl show-user 'root'"))).toBe(true);
     expect(node.kernels).toEqual([]);
   });
 

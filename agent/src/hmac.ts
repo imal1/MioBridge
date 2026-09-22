@@ -8,13 +8,13 @@ interface IncomingRequest {
 }
 
 const TIME_WINDOW_MS = 30_000;
-const usedTimestamps = new Set<string>();
+const usedRequests = new Set<string>();
 let lastCleanup = Date.now();
 
-function cleanupTimestamps(): void {
+function cleanupRequests(): void {
   const now = Date.now();
   if (now - lastCleanup < 60_000) return;
-  usedTimestamps.clear();
+  usedRequests.clear();
   lastCleanup = now;
 }
 
@@ -41,12 +41,6 @@ export function hmacVerify(
     return { valid: false, error: `时间戳超出窗口 (${TIME_WINDOW_MS / 1000}s)` };
   }
 
-  cleanupTimestamps();
-  if (usedTimestamps.has(timestamp)) {
-    return { valid: false, error: '重放请求' };
-  }
-  usedTimestamps.add(timestamp);
-
   const method = req.method || 'GET';
   const reqPath = req.url || '/';
   const payload = `${timestamp}\n${method}\n${reqPath}\n`;
@@ -60,6 +54,13 @@ export function hmacVerify(
   } catch {
     return { valid: false, error: '签名格式错误' };
   }
+
+  // timestamp 只是时间窗口，不是全局唯一 nonce。同一毫秒内对不同路径的
+  // 合法签名必须共存；只有完全相同的已认证请求才算重放。
+  cleanupRequests();
+  const replayKey = `${timestamp}:${signature}`;
+  if (usedRequests.has(replayKey)) return { valid: false, error: '重放请求' };
+  usedRequests.add(replayKey);
 
   return { valid: true };
 }

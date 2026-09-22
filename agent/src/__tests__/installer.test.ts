@@ -56,8 +56,11 @@ function fixture(machine = 'x86_64') {
   const unitPath = join(directory, 'systemd', 'miobridge-agent.service');
   const active = join(directory, 'active');
   const failRestart = join(directory, 'fail-restart');
+  const linger = join(directory, 'linger');
+  const failLinger = join(directory, 'fail-linger');
   const systemctlLog = join(directory, 'systemctl.log');
   mkdirSync(fakeBin);
+  writeFileSync(linger, 'yes');
   writeAgentRelease(release);
   writeFileSync(join(fakeBin, 'uname'), `#!/bin/sh\ncase "$1" in -s) echo Linux;; -m) echo ${machine};; *) echo Linux;; esac\n`);
   writeFileSync(join(fakeBin, 'systemctl'), [
@@ -90,7 +93,16 @@ function fixture(machine = 'x86_64') {
     'cp "$source" "$destination"',
     '',
   ].join('\n'));
-  for (const file of ['uname', 'systemctl', 'curl']) chmodSync(join(fakeBin, file), 0o755);
+  writeFileSync(join(fakeBin, 'loginctl'), [
+    '#!/bin/sh',
+    '[ "$1" != "--no-ask-password" ] || shift',
+    'case "$1" in',
+    '  show-user) if test -f "$FAKE_LINGER"; then echo yes; else echo no; fi ;;',
+    '  enable-linger) test ! -f "$FAKE_FAIL_LINGER" || exit 1; touch "$FAKE_LINGER" ;;',
+    'esac',
+    '',
+  ].join('\n'));
+  for (const file of ['uname', 'systemctl', 'curl', 'loginctl']) chmodSync(join(fakeBin, file), 0o755);
   const config = join(directory, 'agent.yaml');
   writeFileSync(config, 'node:\n  id: "node-1"\n  name: "Child"\n  secret: "secret"\nkernels: []\nport: 3001\n');
   const env = {
@@ -98,12 +110,28 @@ function fixture(machine = 'x86_64') {
     PATH: `${fakeBin}:${process.env.PATH}`,
     MIOBRIDGE_AGENT_UNIT_PATH: unitPath,
     MIOBRIDGE_AGENT_SYSTEMCTL: 'systemctl',
+    MIOBRIDGE_AGENT_LOGINCTL: 'loginctl',
     FAKE_SYSTEMCTL_LOG: systemctlLog,
     FAKE_ACTIVE: active,
     FAKE_FAIL_RESTART: failRestart,
+    FAKE_LINGER: linger,
+    FAKE_FAIL_LINGER: failLinger,
     FAKE_RELEASE: release,
   };
-  return { directory, release, installDir, configDir, unitPath, active, failRestart, systemctlLog, config, env };
+  return {
+    directory,
+    release,
+    installDir,
+    configDir,
+    unitPath,
+    active,
+    failRestart,
+    linger,
+    failLinger,
+    systemctlLog,
+    config,
+    env,
+  };
 }
 
 function installArgs(context: ReturnType<typeof fixture>, extra: string[] = []): string[] {
@@ -167,6 +195,24 @@ describe('install-agent.sh', () => {
     execFileSync('sh', args, { env: context.env });
     execFileSync('sh', args, { env: context.env });
     expect(execFileSync(join(context.installDir, 'miobridge-agent'), ['--version'], { encoding: 'utf8' }).trim()).toBe('1.2.3');
+  });
+
+  test('enables lingering or stops before installation with an actionable error', () => {
+    const enabled = fixture();
+    rmSync(enabled.linger);
+    execFileSync('sh', installArgs(enabled, ['--config', enabled.config]), { env: enabled.env });
+    expect(readFileSync(enabled.linger, 'utf8')).toBe('');
+
+    const rejected = fixture();
+    rmSync(rejected.linger);
+    writeFileSync(rejected.failLinger, 'fail');
+    const result = spawnSync('sh', installArgs(rejected, ['--config', rejected.config]), {
+      env: rejected.env,
+      encoding: 'utf8',
+    });
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain('sudo loginctl enable-linger');
+    expect(result.stderr).not.toContain('checksum');
   });
 
   test('generates kernels: [] from independent parameters and never accepts a plaintext secret option', () => {

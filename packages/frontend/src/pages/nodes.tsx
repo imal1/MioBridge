@@ -174,8 +174,14 @@ export default function NodesPage() {
   const remove = async (node: NodeStatus) => {
     if (!window.confirm(`确认删除节点“${node.name}”？此操作会删除控制面档案和 SSH 凭据。`)) return
     setBusy(node.nodeId)
+    setError(null)
     try {
-      const result = await deleteNode.mutateAsync({ nodeId: node.nodeId })
+      let result = await deleteNode.mutateAsync({ nodeId: node.nodeId })
+      if (!result.success && result.error?.includes('节点仍安装 Agent')) {
+        const force = window.confirm(`节点“${node.name}”仍标记为已安装 Agent。若节点已失联，可仅强制删除控制面档案；远端文件不会被清理。是否继续？`)
+        if (!force) return
+        result = await deleteNode.mutateAsync({ nodeId: node.nodeId, force: true })
+      }
       if (!result.success) throw new Error(result.error || '删除失败')
       setSelId(null); toast.success('节点档案已删除')
     } catch (caught) { setError(caught instanceof Error ? caught.message : '节点删除失败') }
@@ -465,7 +471,7 @@ export default function NodesPage() {
                     <Cell label="心跳延迟"><span className="signal-mono">{sel.latency ? `${sel.latency}ms` : '—'}</span></Cell>
                     <Cell label="运行时间"><span className="signal-mono">{sel.uptime ? `${Math.floor(sel.uptime / 60)}m` : '—'}</span></Cell>
                     <div style={{ gridColumn: 'span 2', padding: '9px 12px', borderRadius: 10, background: 'var(--card2)' }}>
-                      <p style={{ margin: 0, fontSize: 10.5, color: 'var(--muted-foreground)' }}>最近错误</p>
+                      <p style={{ margin: 0, fontSize: 10.5, color: 'var(--muted-foreground)' }}>{sel.online && (sel.lastError || sel.error) ? '历史错误（当前已恢复）' : '最近错误'}</p>
                       <p style={{ margin: '2px 0 0', fontSize: 12, wordBreak: 'break-all' }}>{sel.lastError || sel.error || '无'}</p>
                     </div>
                   </div>

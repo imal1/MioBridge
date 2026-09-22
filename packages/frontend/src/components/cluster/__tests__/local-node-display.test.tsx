@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { render, screen } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
@@ -23,6 +23,7 @@ const childNode = {
     { type: 'xray' as const, detected: true, monitored: true, accessible: true, nodesCount: 4, configPaths: [] },
   ],
   agent: { deployed: true, version: '1.0.0', status: 'running' as const, lastDeploy: '' },
+  lastError: '连接失败: HTTP 401: Unauthorized',
 }
 
 describe('Default local node display', () => {
@@ -47,5 +48,31 @@ describe('Default local node display', () => {
     expect(screen.getByText('未安装')).toBeTruthy()
     expect(screen.getByText('在线')).toBeTruthy()
     expect(screen.queryByText('本机', { exact: true })).toBeNull()
+    fireEvent.click(screen.getByText('东京节点').closest('tr')!)
+    fireEvent.click(screen.getByRole('button', { name: 'Agent' }))
+    expect(screen.getByText('历史错误（当前已恢复）')).toBeTruthy()
+  })
+
+  it('allows an explicitly confirmed force-delete when an unreachable node still has Agent metadata', async () => {
+    api.getClusterStatus.mockResolvedValue({
+      success: true,
+      data: { totalNodes: 2, onlineNodes: 1, totalProxies: 4, nodes: [localNode, childNode], lastUpdated: '' },
+      timestamp: '',
+    })
+    api.deleteNode
+      .mockResolvedValueOnce({ success: false, error: '节点仍安装 Agent，请先在部署中心卸载', timestamp: '' })
+      .mockResolvedValueOnce({ success: true, data: { nodeId: childNode.nodeId, deleted: true }, timestamp: '' })
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true)
+    const { default: NodesPage } = await import('@/pages/nodes')
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    render(<QueryClientProvider client={client}><MemoryRouter><NodesPage /></MemoryRouter></QueryClientProvider>)
+
+    const nodeName = await screen.findByText('东京节点')
+    fireEvent.click(nodeName.closest('tr')!)
+    fireEvent.click(await screen.findByRole('button', { name: '删除' }))
+
+    await waitFor(() => expect(api.deleteNode).toHaveBeenNthCalledWith(1, childNode.nodeId, undefined))
+    await waitFor(() => expect(api.deleteNode).toHaveBeenNthCalledWith(2, childNode.nodeId, true))
+    expect(confirm).toHaveBeenCalledTimes(2)
   })
 })

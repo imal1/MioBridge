@@ -8,6 +8,7 @@ INSTALL_DIR="${MIOBRIDGE_AGENT_INSTALL_DIR:-$HOME/.local/bin}"
 CONFIG_DIR="${MIOBRIDGE_AGENT_CONFIG_DIR:-$HOME/.config/miobridge-agent}"
 UNIT_PATH="${MIOBRIDGE_AGENT_UNIT_PATH:-${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user/miobridge-agent.service}"
 SYSTEMCTL="${MIOBRIDGE_AGENT_SYSTEMCTL:-systemctl}"
+LOGINCTL="${MIOBRIDGE_AGENT_LOGINCTL:-loginctl}"
 CONFIG_SOURCE=""
 NODE_ID=""
 NODE_NAME=""
@@ -72,7 +73,7 @@ case "$(uname -m)" in
   *) echo "unsupported Linux architecture: $(uname -m)" >&2; exit 1 ;;
 esac
 
-for command in "$SYSTEMCTL" gzip awk sed mktemp mv cp chmod mkdir rm dirname head id cat sleep; do
+for command in "$SYSTEMCTL" "$LOGINCTL" gzip awk sed mktemp mv cp chmod mkdir rm dirname head id cat sleep; do
   command -v "$command" >/dev/null 2>&1 || { echo "required command not found: $command" >&2; exit 1; }
 done
 
@@ -83,6 +84,20 @@ systemctl_user() {
 if ! systemctl_user show-environment >/dev/null 2>&1; then
   echo "user systemd is unavailable; log in as the target user or enable lingering for that account" >&2
   exit 1
+fi
+
+agent_user="$(id -un)"
+linger="$($LOGINCTL show-user "$agent_user" --property=Linger --value 2>/dev/null || true)"
+if [ "$linger" != "yes" ]; then
+  if ! "$LOGINCTL" --no-ask-password enable-linger "$agent_user" >/dev/null 2>&1; then
+    echo "systemd lingering is disabled; ask an administrator to run: sudo loginctl enable-linger $agent_user" >&2
+    exit 1
+  fi
+  linger="$($LOGINCTL show-user "$agent_user" --property=Linger --value 2>/dev/null || true)"
+  [ "$linger" = "yes" ] || {
+    echo "systemd lingering could not be enabled for $agent_user" >&2
+    exit 1
+  }
 fi
 
 download() {

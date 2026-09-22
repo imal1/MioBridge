@@ -45,7 +45,7 @@ describe('HMAC golden contract', () => {
     expect(result.error).toContain('时间戳超出窗口');
   });
 
-  it('rejects replayed timestamp', () => {
+  it('rejects an exact replay but accepts a different request in the same millisecond', () => {
     const verify = createHmacVerifier(SECRET);
     const now = Date.now();
     const { ts, sig } = sign('GET', '/api/status', null, SECRET, now);
@@ -53,7 +53,12 @@ describe('HMAC golden contract', () => {
       headers: { 'x-node-id': 'n1', 'x-timestamp': ts, 'x-signature': sig },
     });
     expect(verify(req).valid).toBe(true);
-    // Replay must fail
+    const second = sign('GET', '/api/urls', null, SECRET, now);
+    expect(verify(makeReq({
+      path: '/api/urls',
+      headers: { 'x-node-id': 'n1', 'x-timestamp': second.ts, 'x-signature': second.sig },
+    })).valid).toBe(true);
+    // The exact same authenticated request is still a replay.
     expect(verify(req).valid).toBe(false);
   });
 
