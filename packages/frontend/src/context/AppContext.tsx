@@ -1,4 +1,5 @@
-import { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react'
+import { createContext, useCallback, useContext, useEffect, useState } from 'react'
+import { useQuery } from '@tanstack/react-query'
 import type { UpdateResult } from '@/lib/api'
 
 interface AppContextValue {
@@ -21,18 +22,23 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [convertModalOpen, setConvertModalOpen] = useState(false)
   const [sidebarCollapsed, setSidebarCollapsedState] = useState(false)
   const [mobileDrawerOpen, setMobileDrawerOpen] = useState(false)
-  const [backendReachable, setBackendReachable] = useState<boolean | null>(null)
-  const healthCheckedRef = useRef(false)
-
-  useEffect(() => {
-    if (healthCheckedRef.current) return
-    healthCheckedRef.current = true
-    const controller = new AbortController()
-    const timer = setTimeout(() => controller.abort(), 5000)
-    fetch('/health', { signal: controller.signal })
-      .then(res => { setBackendReachable(res.ok); clearTimeout(timer) })
-      .catch(() => { setBackendReachable(false); clearTimeout(timer) })
-  }, [])
+  const healthQuery = useQuery({
+    queryKey: ['backend-health'],
+    queryFn: async ({ signal }) => {
+      const response = await fetch('/health', {
+        signal: AbortSignal.any([signal, AbortSignal.timeout(5000)]),
+      })
+      if (!response.ok) throw new Error('后端健康检查失败')
+      const health: unknown = await response.json()
+      if (!health || typeof health !== 'object' || !('status' in health) || health.status !== 'healthy') {
+        throw new Error('后端健康检查响应无效')
+      }
+      return true
+    },
+    refetchInterval: 30_000,
+    refetchOnWindowFocus: true,
+  })
+  const backendReachable = healthQuery.isPending ? null : !healthQuery.isError
 
   useEffect(() => {
     try {
