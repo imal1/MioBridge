@@ -4,6 +4,7 @@ import { handleUrls } from '../handlers/urls';
 import { handleUpdate } from '../handlers/update';
 import { handleHealth } from '../handlers/health';
 import { handleLogs } from '../handlers/logs';
+import { AGENT_VERSION } from '../version';
 import type { AgentConfig } from '../config';
 import * as crypto from 'crypto';
 import * as fs from 'fs';
@@ -391,7 +392,7 @@ describe('handleHealth', () => {
     const body = await res.json();
     expect(body.uptime).toBeDefined();
     expect(body.memory).toBeDefined();
-    expect(body.version).toBe('1.2.12');
+    expect(body.version).toBe(AGENT_VERSION);
   });
 });
 
