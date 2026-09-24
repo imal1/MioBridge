@@ -5,6 +5,7 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { createNodeCore } from '../src/index.js';
+import { CLI_VERSION } from '../src/command.js';
 
 const packageDir = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -64,7 +65,7 @@ describe('headless CLI composition', () => {
     });
     expect(result.code).toBe(0);
     expect(result.stderr).toBe('');
-    expect(JSON.parse(result.stdout)).toMatchObject({ version: '1.2.12', subscriptionExists: false });
+    expect(JSON.parse(result.stdout)).toMatchObject({ version: CLI_VERSION, subscriptionExists: false });
     expect(await readdir(cwd)).toEqual(['.keep']);
     await rm(sandbox, { recursive: true, force: true });
   });

@@ -15,6 +15,7 @@ import {
 } from '@/lib/queries'
 import { AddNodeForm } from '@/components/cluster/AddNodeForm'
 import { KernelDetectionDialog } from '@/components/cluster/KernelDetectionDialog'
+import { NodeMaintenancePanel } from '@/components/cluster/NodeMaintenancePanel'
 import PageHeader from '@/components/shared/PageHeader'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
@@ -54,12 +55,15 @@ function installed(node: NodeStatus, component: DeployComponent) {
   return Boolean(node.kernels.find(k => k.type === component)?.detected)
 }
 
-function agentTone(node: NodeStatus): 'success' | 'danger' | 'muted' {
+function agentTone(node: NodeStatus): 'success' | 'warning' | 'danger' | 'muted' {
+  if (node.health === 'fluctuating') return 'warning'
+  if (node.health === 'abnormal' || node.health === 'offline') return 'danger'
   if (node.online) return 'success'
   if (node.agent?.deployed) return 'danger'
   return 'muted'
 }
 function agentLabel(node: NodeStatus) {
+  if (node.health) return { online: '在线', fluctuating: '波动', abnormal: '异常', offline: '离线' }[node.health]
   if (node.online) return '在线'
   if (node.agent?.deployed) return '心跳中断'
   return '未安装'
@@ -471,8 +475,9 @@ export default function NodesPage() {
                     <Cell label="心跳延迟"><span className="signal-mono">{sel.latency ? `${sel.latency}ms` : '—'}</span></Cell>
                     <Cell label="运行时间"><span className="signal-mono">{sel.uptime ? `${Math.floor(sel.uptime / 60)}m` : '—'}</span></Cell>
                     <div style={{ gridColumn: 'span 2', padding: '9px 12px', borderRadius: 10, background: 'var(--card2)' }}>
-                      <p style={{ margin: 0, fontSize: 10.5, color: 'var(--muted-foreground)' }}>{sel.online && (sel.lastError || sel.error) ? '历史错误（当前已恢复）' : '最近错误'}</p>
+                      <p style={{ margin: 0, fontSize: 10.5, color: 'var(--muted-foreground)' }}>{(sel.health ? sel.health === 'online' : sel.online) && !sel.error && sel.lastError ? '历史错误（当前已恢复）' : '最近错误'}</p>
                       <p style={{ margin: '2px 0 0', fontSize: 12, wordBreak: 'break-all' }}>{sel.lastError || sel.error || '无'}</p>
+                      {sel.lastErrorAt ? <time aria-label="最近异常时间" dateTime={sel.lastErrorAt} style={{ fontSize: 10.5, color: 'var(--muted-foreground)' }}>{new Date(sel.lastErrorAt).toLocaleString()}</time> : null}
                     </div>
                   </div>
                   <div className="mt-3 flex flex-wrap gap-1.5">
@@ -482,6 +487,7 @@ export default function NodesPage() {
                     {sel.agent?.deployed ? <button className={smallBtn} style={smallBtnStyle} disabled={busy !== null} onClick={() => runAgent(sel, 'health')}>健康检查</button> : null}
                     <Link to={`/logs?node=${encodeURIComponent(sel.nodeId)}`} className={smallBtn} style={smallBtnStyle}>查看日志</Link>
                   </div>
+                  {sel.agent?.deployed ? <NodeMaintenancePanel key={sel.nodeId} nodeId={sel.nodeId} runtimeUser={sel.agent.runtimeUser || sel.sshUser} serviceMode={sel.agent.serviceMode} /> : null}
                 </>
               ) : null}
 
@@ -582,7 +588,7 @@ export default function NodesPage() {
             ) : null}
             <div className="grid gap-2">
               <Label htmlFor="edit-ssh-credential">{editing?.nodeId !== 'local' && draft.sshAuthMethod === 'privateKey' ? '私钥' : '密码'}</Label>
-              <Input id="edit-ssh-credential" type="password" autoComplete="new-password" value={draft.sshCredential} onChange={e => setDraft(p => ({ ...p, sshCredential: e.target.value }))} placeholder={draft.sshUser.trim() === 'root' ? 'root 凭据仅供下一次部署使用，不保存' : '留空保留现有凭据；普通用户凭据默认保存'} />
+              <Input id="edit-ssh-credential" type="password" autoComplete="new-password" value={draft.sshCredential} onChange={e => setDraft(p => ({ ...p, sshCredential: e.target.value }))} placeholder={draft.sshUser.trim() === 'root' ? 'root 凭据仅供下一次部署或维护使用，不保存' : '留空保留现有凭据；普通用户凭据默认保存'} />
             </div>
           </div>
           <DialogFooter>

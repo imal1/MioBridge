@@ -535,7 +535,7 @@ test.describe('E03 — 节点档案管理', () => {
     await expect(editor.getByLabel('用户名', { exact: true })).toBeVisible()
     const password = editor.getByLabel('密码', { exact: true })
     await expect(password).toHaveValue('')
-    await expect(password).toHaveAttribute('placeholder', /root 凭据仅供下一次部署使用，不保存/)
+    await expect(password).toHaveAttribute('placeholder', 'root 凭据仅供下一次部署或维护使用，不保存')
     await password.fill('fixture-password')
     const editRequest = page.waitForRequest(request =>
       request.method() === 'PATCH' && pathname(request.url()) === '/api/cluster/nodes')

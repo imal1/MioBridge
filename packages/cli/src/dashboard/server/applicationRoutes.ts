@@ -125,6 +125,19 @@ export function registerApplicationRoutes(registrar: DashboardRouteRegistrar, de
   route(registrar, 'PATCH', '/api/cluster/nodes/:id', async (req, res) => {
     await sendResult(req, res, await deps.operations.updateNode(req.params.id!, req.body));
   });
+  route(registrar, 'POST', '/api/cluster/nodes/:id/diagnostics', async (req, res) => {
+    await sendResult(req, res, await deps.operations.diagnoseNode(string(req.params?.id, 'id')));
+  });
+  route(registrar, 'POST', '/api/cluster/nodes/:id/repair', async (req, res) => {
+    await sendResult(req, res, await deps.operations.repairNode(string(req.params?.id, 'id')));
+  });
+  route(registrar, 'POST', '/api/cluster/nodes/:id/migrate-service', async (req, res) => {
+    const runtimeUser = string(object(req.body).runtimeUser, 'runtimeUser');
+    if (runtimeUser === 'root' || !/^[a-z_][a-z0-9_-]*[$]?$/i.test(runtimeUser)) {
+      throw fieldError('runtimeUser', '请指定非 root 的 Linux 运行用户');
+    }
+    await sendResult(req, res, await deps.operations.migrateNodeService(string(req.params?.id, 'id'), runtimeUser));
+  });
   route(registrar, 'DELETE', '/api/cluster/nodes/:id', async (req, res) => {
     const body = req.body && typeof req.body === 'object' && !Array.isArray(req.body) ? req.body as Record<string, unknown> : {};
     await sendResult(req, res, await deps.operations.deleteNode(req.params.id!, body.force === true));
@@ -495,6 +508,9 @@ function openApiDocument(req: DashboardRequest): Record<string, unknown> {
     ['Nodes', 'PATCH', '/api/cluster/nodes/{id}', '更新节点档案'],
     ['Nodes', 'DELETE', '/api/cluster/nodes/{id}', '删除节点档案'],
     ['Nodes', 'POST', '/api/cluster/nodes/{id}/preflight', '执行节点 SSH 预检'],
+    ['Nodes', 'POST', '/api/cluster/nodes/{id}/diagnostics', '检查节点服务、Linger、版本及公开健康接口'],
+    ['Nodes', 'POST', '/api/cluster/nodes/{id}/repair', '显式修复节点并执行断线存活验收'],
+    ['Nodes', 'POST', '/api/cluster/nodes/{id}/migrate-service', '迁移至指定用户的系统级 Agent 服务'],
     ['Components', 'GET', '/api/cluster/components', '查询组件安装态、运行态和监控态'],
     ['Components', 'POST', '/api/cluster/components/detect', '检测协议核心'],
     ['Components', 'POST', '/api/cluster/components/{component}/{action}', '启动、停止或重启组件'],
@@ -677,6 +693,9 @@ const REQUEST_BODIES: Record<string, Record<string, unknown>> = {
   'POST /api/cluster/nodes/{id}/preflight': jsonBody('可选的临时 SSH 覆盖参数', false, objectSchema({
     ssh: objectSchema(SSH_PROPERTIES),
   })),
+  'POST /api/cluster/nodes/{id}/migrate-service': jsonBody('系统级服务的非特权运行用户；迁移须显式触发', true, objectSchema({
+    runtimeUser: { type: 'string', pattern: '^[a-zA-Z_][a-zA-Z0-9_-]*[$]?$', description: '目标服务器上已存在的非 root 用户' },
+  }, ['runtimeUser'])),
   'POST /api/cluster/components/detect': jsonBody('检测目标节点上的协议核心', true, objectSchema({ nodeId: STRING_SCHEMA }, ['nodeId'])),
   'POST /api/cluster/components/{component}/{action}': jsonBody('对指定组件执行运行维护动作', true, objectSchema({ nodeId: STRING_SCHEMA }, ['nodeId'])),
   'PUT /api/cluster/components/{component}/monitoring': jsonBody('事务更新 Agent 监控范围与配置路径', true, objectSchema({

@@ -5,7 +5,7 @@
  * target resolution, installers, and the deployment orchestrator can share
  * a single vocabulary without importing each other.
  */
-import type { KernelType, NodeKernelConfig } from '@miobridge/core';
+import type { AgentDeploymentAcceptanceOptions, AgentDeploymentDiagnostics, AgentDeploymentErrorCode, KernelType, NodeKernelConfig } from '@miobridge/core';
 
 // ── Remote paths ──────────────────────────────────────────────────────
 export const AGENT_USER_BIN = '$HOME/.local/bin/miobridge-agent';
@@ -52,6 +52,8 @@ export interface DeployStatus {
   readonly message: string;
   readonly progress: number;
   readonly startedAt: number;
+  readonly errorCode?: AgentDeploymentErrorCode;
+  readonly diagnostics?: AgentDeploymentDiagnostics;
 }
 
 // ── Component deployment ──────────────────────────────────────────────
@@ -90,6 +92,7 @@ export interface ComponentDeployStatus {
   readonly afterVersion?: string;
   readonly retryOf?: string;
   readonly errorCode?: string;
+  readonly diagnostics?: AgentDeploymentDiagnostics;
 }
 
 // ── SSH target + transport ────────────────────────────────────────────
@@ -119,9 +122,12 @@ export interface ExecResult {
 
 export interface DeploymentConnection {
   run(command: string, input?: string): Promise<ExecResult>;
-  end(): void;
+  end(): void | Promise<void>;
 }
 
 export interface DeploymentServiceOptions {
   readonly runLocal?: (command: string, input?: string) => Promise<ExecResult>;
+  readonly connect?: (target: SshTarget) => Promise<DeploymentConnection>;
+  readonly fetch?: typeof globalThis.fetch;
+  readonly acceptance?: AgentDeploymentAcceptanceOptions;
 }

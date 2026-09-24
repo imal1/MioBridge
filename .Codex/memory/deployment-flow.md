@@ -7,6 +7,12 @@ metadata:
 
 # Deployment Flow
 
+- Agent installation, upgrade and explicit repair close SSH before delayed public
+  HMAC health/version acceptance. `nodes diagnose|repair|migrate-service` and the
+  Dashboard expose diagnosis, repair and opt-in rollback-safe system-service
+  migration. The system unit uses a specified non-root user with runtime files
+  under that user's `~/.config/miobridge`; a validated service receipt selects
+  subsequent upgrade, repair and uninstall behavior.
 - Production Dashboard is served by the installed CLI together with its
   same-origin control-plane API; a static frontend host is not authoritative.
 - GitHub Actions is a CI gate only; it does not deploy and does not install or

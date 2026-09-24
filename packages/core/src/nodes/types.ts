@@ -11,6 +11,7 @@ export interface NodeAgentInfo {
   deployed: boolean; version: string;
   status: 'not_deployed' | 'deploying' | 'running' | 'stopped' | 'error';
   lastDeploy: string; port?: number; deploymentId?: string;
+  serviceMode?: 'user' | 'system'; runtimeUser?: string;
 }
 export interface NodeSshConfig {
   user: string; port?: number; authMethod: 'password' | 'privateKey';
@@ -21,11 +22,18 @@ export interface NodeConfig {
   kernels: NodeKernelConfig[]; location: string; enabled: boolean; tags?: string[];
   ssh?: NodeSshConfig; agent?: NodeAgentInfo;
 }
+export type NodeHealth = 'online' | 'fluctuating' | 'abnormal' | 'offline';
+export const NODE_HEALTH_THRESHOLDS = { abnormalFailures: 3, offlineFailures: 5, recoverySuccesses: 2 } as const;
 export interface NodeStatus {
   nodeId: string; name: string; configuredKernels: NodeKernelConfig[];
   kernels: KernelRuntimeStatus[]; location: string; online: boolean; error?: string;
+  /** online remains true until offline is confirmed; health distinguishes current alerts. */
+  health?: NodeHealth;
+  consecutiveFailures?: number;
+  consecutiveSuccesses?: number;
   /** 最近一次观察到的失败原因，节点恢复在线后依然保留，用于进入排障链路。 */
   lastError?: string;
+  lastErrorAt?: string;
   host?: string; enabled?: boolean; tags?: string[]; sshUser?: string; sshPort?: number; sshHostKey?: string;
   /** 认证方式本身不是凭据，必须暴露：否则编辑界面无从得知现状，只能猜。 */
   sshAuthMethod?: NodeSshConfig['authMethod'];

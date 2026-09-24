@@ -66,6 +66,11 @@ while [ "$#" -gt 0 ]; do
   esac
 done
 
+if [ -e /etc/miobridge-agent/miobridge-service.json ]; then
+  echo "Agent already uses a managed system service; use miobridge nodes repair <node-id> or the Dashboard upgrade action on the control plane" >&2
+  exit 1
+fi
+
 case "$(uname -s)" in Linux) ;; *) echo "MioBridge Agent releases support Linux only" >&2; exit 1 ;; esac
 case "$(uname -m)" in
   x86_64|amd64) arch=x64 ;;

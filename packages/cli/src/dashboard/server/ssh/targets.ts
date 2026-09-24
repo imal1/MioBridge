@@ -8,10 +8,22 @@ import type { NodeCoreComposition } from '../../../composition.js';
 import { validatePrivateKey } from './util.js';
 import type { SshTarget } from './types.js';
 
-export class NodeTargets {
-  readonly #oneTimeCredentials = new Map<string, string>();
+// A dashboard composition has one ephemeral credential scope across deployment
+// and maintenance clients. Weak ownership avoids persisting credentials or
+// leaking them between separate controller instances.
+const credentialsByComposition = new WeakMap<NodeCoreComposition, Map<string, string>>();
 
-  constructor(private readonly composition: NodeCoreComposition) {}
+export class NodeTargets {
+  readonly #oneTimeCredentials: Map<string, string>;
+
+  constructor(private readonly composition: NodeCoreComposition) {
+    let credentials = credentialsByComposition.get(composition);
+    if (!credentials) {
+      credentials = new Map();
+      credentialsByComposition.set(composition, credentials);
+    }
+    this.#oneTimeCredentials = credentials;
+  }
 
   setOneTimeCredential(nodeId: string, credential: string): void {
     this.#oneTimeCredentials.set(nodeId, credential);

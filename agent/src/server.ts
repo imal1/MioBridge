@@ -57,7 +57,7 @@ async function main() {
     }
   });
 
-  server.listen(config.port, '0.0.0.0', () => {
+  server.listen(config.port, process.env.MIOBRIDGE_AGENT_HOST?.trim() || '0.0.0.0', () => {
     console.log(`MioBridge Agent listening on port ${config.port}`);
   });
 

@@ -64,6 +64,23 @@ const status = {
 };
 
 describe('CLI command contract', () => {
+  it('parses node diagnostics, repair and service migration with explicit node and runtime user', () => {
+    expect(parseCommand(['nodes', 'diagnose', 'n1'])).toEqual({ kind: 'nodes-diagnose', nodeId: 'n1', json: false });
+    expect(parseCommand(['nodes', 'repair', 'n1', '--json'])).toEqual({ kind: 'nodes-repair', nodeId: 'n1', json: true });
+    expect(parseCommand(['nodes', 'migrate-service', 'n1', '--user', 'miobridge', '--json'])).toEqual({
+      kind: 'nodes-migrate-service', nodeId: 'n1', user: 'miobridge', json: true,
+    });
+    expect(parseCommand(['nodes', 'migrate-service', 'n1', '--json', '--user', 'miobridge'])).toEqual({
+      kind: 'nodes-migrate-service', nodeId: 'n1', user: 'miobridge', json: true,
+    });
+    for (const args of [
+      ['diagnose'], ['repair', '--json'], ['repair', 'n1', 'n2'], ['diagnose', 'n1', '--user', 'miobridge'],
+      ['diagnose', 'n1', '--json', '--json'], ['migrate-service', 'n1'], ['migrate-service', 'n1', '--user'],
+      ['migrate-service', 'n1', '--user', 'root'], ['migrate-service', 'n1', '--user', 'bad;user'],
+      ['migrate-service', 'n1', '--user', 'miobridge', '--user', 'other'],
+    ]) expect(() => parseCommand(['nodes', ...args])).toThrow();
+  });
+
   it('parses the stable command surface and rejects invalid options', () => {
     expect(parseCommand(['setup'])).toEqual({ kind: 'setup', assumeYes: false });
     expect(parseCommand(['setup', '--yes'])).toEqual({ kind: 'setup', assumeYes: true });
@@ -108,6 +125,51 @@ describe('CLI command contract', () => {
     expect(() => parseCommand(['logs', '--level', '--follow'])).toThrow('Unexpected argument');
     expect(() => parseCommand(['logs', '--lines', '0'])).toThrow('--lines must be an integer');
     expect(() => parseCommand(['dashboard'])).toThrow('Missing dashboard action');
+  });
+
+  it('dispatches node maintenance and prints structured reports without unrelated output', async () => {
+    const run = harness(createCore());
+    const report = { nodeId: 'n1', checkedAt: '2026-09-24T00:00:00Z', healthy: true, serviceMode: 'system' as const, runtimeUser: 'miobridge', version: '9.8.7', checks: [] };
+    const nodeMaintenance = {
+      diagnose: vi.fn(async () => report), repair: vi.fn(async () => report), migrate: vi.fn(async () => report),
+    };
+    expect(await runCli(['nodes', 'diagnose', 'n1', '--json'], { ...run.dependencies, nodeMaintenance })).toBe(0);
+    expect(await runCli(['nodes', 'repair', 'n1', '--json'], { ...run.dependencies, nodeMaintenance })).toBe(0);
+    expect(await runCli(['nodes', 'migrate-service', 'n1', '--user', 'miobridge', '--json'], { ...run.dependencies, nodeMaintenance })).toBe(0);
+    expect(nodeMaintenance.diagnose).toHaveBeenCalledWith('n1');
+    expect(nodeMaintenance.repair).toHaveBeenCalledWith('n1');
+    expect(nodeMaintenance.migrate).toHaveBeenCalledWith('n1', 'miobridge');
+    expect(run.stdout.map(line => JSON.parse(line))).toEqual([report, report, report]);
+    expect(run.stderr).toEqual([]);
+    expect(run.createCore).not.toHaveBeenCalled();
+  });
+
+  it('prints failed diagnostic checks with actionable reasons and returns failure', async () => {
+    const run = harness(createCore());
+    const report = { nodeId: 'n1', checkedAt: '2026-09-24T00:00:00Z', healthy: false, serviceMode: 'user' as const, runtimeUser: 'miobridge', version: '9.8.7', checks: [
+      { key: 'linger', label: 'Linger', status: 'fail' as const, reason: 'disabled', suggestion: 'Run nodes repair n1', repairable: true },
+    ] };
+    const nodeMaintenance = { diagnose: vi.fn(async () => report), repair: vi.fn(), migrate: vi.fn() };
+    expect(await runCli(['nodes', 'diagnose', 'n1'], { ...run.dependencies, nodeMaintenance })).toBe(1);
+    expect(run.stdout.join('\n')).toContain('[fail] Linger: disabled');
+    expect(run.stdout.join('\n')).toContain('Run nodes repair n1');
+    expect(run.stdout.join('\n')).toContain('user');
+    expect(run.stdout.join('\n')).toContain('miobridge');
+    expect(await runCli(['nodes', 'diagnose', 'n1', '--json'], { ...run.dependencies, nodeMaintenance })).toBe(1);
+    expect(JSON.parse(run.stdout.at(-1)!)).toEqual(report);
+  });
+
+  it.each(['repair', 'migrate-service'])('never reports %s success when public acceptance fails', async action => {
+    const run = harness(createCore());
+    const reject = vi.fn(async () => { throw new Error('公网 HMAC 验收失败；已恢复原服务'); });
+    const nodeMaintenance = { diagnose: vi.fn(), repair: reject, migrate: reject };
+    const args = ['nodes', action, 'n1', ...(action === 'migrate-service' ? ['--user', 'miobridge'] : [])];
+    expect(await runCli([...args, '--json'], { ...run.dependencies, nodeMaintenance })).toBe(1);
+    expect(run.stdout).toHaveLength(1);
+    expect(JSON.parse(run.stdout[0]!)).toEqual({ success: false, error: '公网 HMAC 验收失败；已恢复原服务' });
+    expect(await runCli(args, { ...run.dependencies, nodeMaintenance })).toBe(1);
+    expect(run.stdout).toHaveLength(1);
+    expect(run.stderr.at(-1)).toContain('公网 HMAC 验收失败');
   });
 
   it('publishes only the locked local command surface in help', () => {

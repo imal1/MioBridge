@@ -43,6 +43,8 @@ export interface NodeAgentInfo {
   lastDeploy: string;
   port?: number;
   deploymentId?: string;
+  serviceMode?: 'user' | 'system';
+  runtimeUser?: string;
 }
 
 /** Node config from nodes.yaml */
@@ -76,9 +78,14 @@ export interface NodeStatus {
   kernels: KernelRuntimeStatus[];
   location: string;
   online: boolean;
+  /** online stays true until offline is confirmed; health identifies current alerts. */
+  health?: 'online' | 'fluctuating' | 'abnormal' | 'offline';
+  consecutiveFailures?: number;
+  consecutiveSuccesses?: number;
   error?: string;
   /** 最近一次观察到的失败原因，节点恢复在线后依然保留，用于进入排障链路。 */
   lastError?: string;
+  lastErrorAt?: string;
   latency?: number;
   nodesCount?: number;
   subscriptionExists?: boolean;

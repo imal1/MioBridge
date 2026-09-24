@@ -13,6 +13,7 @@ export class SshTransport {
   constructor(private readonly options: DeploymentServiceOptions = {}) {}
 
   connect(target: SshTarget): Promise<DeploymentConnection> {
+    if (this.options.connect) return this.options.connect(target);
     if (target.local) {
       return Promise.resolve({
         run: (command, input) => this.runLocal(command, input),
@@ -21,6 +22,9 @@ export class SshTransport {
     }
     return new Promise((resolve, reject) => {
       const client = new Client();
+      let closed = false;
+      let closing: Promise<void> | undefined;
+      client.once('close', () => { closed = true; });
       const authentication: Pick<ConnectConfig, 'password' | 'privateKey'> = target.ssh.authMethod === 'privateKey'
         ? { privateKey: target.ssh.privateKey! }
         : { password: target.ssh.password! };
@@ -50,7 +54,18 @@ export class SshTransport {
             if (input === undefined) channel.end(); else channel.end(input);
           });
         }),
-        end: () => client.end(),
+        end: () => {
+          if (closed) return Promise.resolve();
+          closing ??= new Promise<void>((resolveClose, rejectClose) => {
+            const timeout = setTimeout(() => {
+              client.destroy();
+              rejectClose(new Error('SSH 会话关闭超时；无法进行断线验收'));
+            }, 5_000);
+            client.once('close', () => { clearTimeout(timeout); resolveClose(); });
+            client.end();
+          });
+          return closing;
+        },
       }));
       client.once('error', error => reject(new Error(`SSH 连接失败: ${error.message}`)));
       client.connect(options);

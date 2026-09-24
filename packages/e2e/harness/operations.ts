@@ -43,6 +43,23 @@ function publicNode(node: FixtureNode): FixtureNode {
   return structuredClone(node);
 }
 
+function maintenanceReport(state: HarnessState, node: FixtureNode) {
+  const serviceMode = node.agent.serviceMode ?? 'user';
+  const lingerDisabled = serviceMode === 'user' && state.controls.maintenanceLingerDisabled === true;
+  const reachable = node.online && !state.controls.maintenanceAcceptanceFailure;
+  return {
+    nodeId: node.nodeId, checkedAt: timestamp(), serviceMode,
+    runtimeUser: node.agent.runtimeUser ?? node.sshUser, version: node.agent.version,
+    healthy: node.agent.deployed && !lingerDisabled && reachable,
+    checks: [
+      { key: 'linger', label: 'Linger', status: lingerDisabled ? 'fail' : 'pass', reason: lingerDisabled ? '用户服务将在退出登录后失去持久运行保障' : serviceMode === 'system' ? '系统级服务独立于登录会话，无需 Linger' : '已启用', suggestion: lingerDisabled ? '启用运行用户的 Linger 后重新验收' : undefined, repairable: true },
+      { key: 'running', label: 'Agent 服务', status: node.agent.status === 'running' ? 'pass' : 'fail', reason: node.agent.status === 'running' ? 'active' : '服务未运行', repairable: true },
+      { key: 'config', label: 'Agent 配置', status: node.agent.deployed ? 'pass' : 'fail', reason: node.agent.deployed ? '配置有效且与节点档案一致' : 'Agent 尚未安装', repairable: false },
+      { key: 'health', label: '公开健康接口', status: reachable ? 'pass' : 'fail', reason: reachable ? '公开 HTTP + HMAC 健康检查通过' : '公开健康接口不可达', suggestion: reachable ? undefined : '检查 Agent、端口、防火墙和公开地址', repairable: false },
+    ],
+  };
+}
+
 function validateKernelConfigs(value: unknown): FixtureKernelConfig[] {
   if (!Array.isArray(value)) throw new Error('运行时监控配置必须是数组');
   const seen = new Set<KernelType>();
@@ -373,6 +390,32 @@ export function createOperations(state: HarnessState): DashboardOperationsPort {
         healthy: enabled.every(node => !node.agent.deployed || node.online),
         nodes: state.nodes.map(publicNode),
       });
+    },
+
+    async diagnoseNode(nodeId) {
+      const node = nodeById(state, nodeId);
+      if (state.controls.maintenanceDiagnosticsFailure) throw new Error('节点体检失败：SSH 连接不可用（E2E fixture）');
+      return ok(maintenanceReport(state, node));
+    },
+
+    async repairNode(nodeId) {
+      const node = nodeById(state, nodeId);
+      if (!node.agent.deployed) throw new Error('Agent 尚未安装');
+      if (state.controls.maintenanceAcceptanceFailure) throw new Error('修复后公网 HMAC 验收失败（E2E fixture）');
+      state.controls.maintenanceLingerDisabled = false;
+      node.agent.status = 'running'; node.online = true;
+      return ok(maintenanceReport(state, node));
+    },
+
+    async migrateNodeService(nodeId, runtimeUser) {
+      const node = nodeById(state, nodeId);
+      if (!node.agent.deployed) throw new Error('Agent 尚未安装');
+      if (!/^[a-z_][a-z0-9_-]*[$]?$/.test(runtimeUser) || runtimeUser === 'root') throw new Error('请指定已存在的非 root 运行用户');
+      if (node.agent.serviceMode === 'system') throw new Error('节点已经使用系统级服务，请使用体检或修复');
+      if (state.controls.maintenanceAcceptanceFailure) throw new Error('迁移后公网 HMAC 验收失败；已恢复迁移前的用户级服务（E2E fixture）');
+      node.agent.serviceMode = 'system'; node.agent.runtimeUser = runtimeUser;
+      node.agent.status = 'running'; node.online = true;
+      return ok(maintenanceReport(state, node));
     },
 
     async triggerClusterUpdate(nodeId) {

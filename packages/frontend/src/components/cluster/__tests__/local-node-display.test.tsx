@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
@@ -74,5 +74,28 @@ describe('Default local node display', () => {
     await waitFor(() => expect(api.deleteNode).toHaveBeenNthCalledWith(1, childNode.nodeId, undefined))
     await waitFor(() => expect(api.deleteNode).toHaveBeenNthCalledWith(2, childNode.nodeId, true))
     expect(confirm).toHaveBeenCalledTimes(2)
+  })
+
+  it.each([
+    ['fluctuating', '波动', true], ['abnormal', '异常', true], ['offline', '离线', false], ['online', '在线', true],
+  ])('shows the API %s heartbeat state and preserves failure diagnostics', async (health, label, online) => {
+    api.getClusterStatus.mockResolvedValue({
+      success: true,
+      data: { totalNodes: 1, onlineNodes: online ? 1 : 0, totalProxies: 4, nodes: [{
+        ...childNode, health, online, consecutiveFailures: 1, consecutiveSuccesses: 0,
+        ...(health === 'online' ? {} : { error: childNode.lastError }),
+        lastErrorAt: '2026-09-24T00:00:02.000Z',
+      }], lastUpdated: '' }, timestamp: '',
+    })
+    const { default: NodesPage } = await import('@/pages/nodes')
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    render(<QueryClientProvider client={client}><MemoryRouter><NodesPage /></MemoryRouter></QueryClientProvider>)
+    const row = (await screen.findByText('东京节点')).closest('tr')!
+    expect(within(row).getByText(label)).toBeTruthy()
+    fireEvent.click(row)
+    fireEvent.click(screen.getByRole('button', { name: 'Agent' }))
+    expect(screen.getByText(health === 'online' ? '历史错误（当前已恢复）' : '最近错误')).toBeTruthy()
+    expect(screen.getByText(childNode.lastError)).toBeTruthy()
+    expect(screen.getByLabelText('最近异常时间').getAttribute('datetime')).toBe('2026-09-24T00:00:02.000Z')
   })
 })

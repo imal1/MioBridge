@@ -8,6 +8,7 @@ import { DashboardSystemdService, createNodeSystemdAdapters } from './dashboard/
 import { SelfMaintenanceService } from './self/service.js';
 import { createNodeSelfMaintenanceAdapters } from './self/nodeAdapters.js';
 import { LocalNodeConfigurationService } from './nodes/localConfiguration.js';
+import { createNodeMaintenanceService } from './dashboard/server/ssh/maintenance.js';
 import { chmod, readFile, writeFile } from 'node:fs/promises';
 
 const output = {
@@ -28,6 +29,12 @@ const localNode = new LocalNodeConfigurationService(composition.repository, {
   ...setupAdapters,
   mihomoPath: composition.paths.managedPath('mihomo'),
 });
+const nodeMaintenance = createNodeMaintenanceService(composition);
+async function maintenanceNode(nodeId: string) {
+  const node = (await composition.repository.list({ enabledOnly: false })).find(item => item.id === nodeId);
+  if (!node) throw new Error(`节点 ${nodeId} 不存在`);
+  return node;
+}
 const dashboardDaemon = new DashboardSystemdService(composition.paths, createNodeSystemdAdapters(), dashboardOptions);
 const maintenance = new SelfMaintenanceService({
   currentVersion: CLI_VERSION,
@@ -67,6 +74,11 @@ const exitCode = await runCli(process.argv.slice(2), {
     ...(process.env.MIOBRIDGE_SING_BOX_PATH ? { 'sing-box': process.env.MIOBRIDGE_SING_BOX_PATH } : {}),
   } }),
   localNode,
+  nodeMaintenance: {
+    diagnose: async nodeId => nodeMaintenance.diagnose(await maintenanceNode(nodeId)),
+    repair: async nodeId => nodeMaintenance.repair(await maintenanceNode(nodeId)),
+    migrate: async (nodeId, runtimeUser) => nodeMaintenance.migrate(await maintenanceNode(nodeId), runtimeUser),
+  },
   maintenance: {
     upgrade: () => maintenance.upgrade(),
     async uninstall(purge) {
