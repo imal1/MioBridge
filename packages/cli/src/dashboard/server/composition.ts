@@ -33,6 +33,9 @@ export interface DashboardOperationsPort {
   readonly triggerClusterUpdate: (nodeId?: string) => Promise<OperationsResult>;
   readonly addNode: (body: unknown) => Promise<OperationsResult>;
   readonly preflightNode: (body: unknown) => Promise<OperationsResult>;
+  readonly diagnoseNode: (nodeId: string) => Promise<OperationsResult>;
+  readonly repairNode: (nodeId: string) => Promise<OperationsResult>;
+  readonly migrateNodeService: (nodeId: string, runtimeUser: string) => Promise<OperationsResult>;
   readonly updateNode: (nodeId: string, body: unknown) => Promise<OperationsResult>;
   readonly deleteNode: (nodeId: string, force?: boolean) => Promise<OperationsResult>;
   readonly updateNodeKernels: (nodeId: string, kernels: unknown) => Promise<OperationsResult>;

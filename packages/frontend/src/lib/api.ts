@@ -17,6 +17,19 @@ export type DetectKernelsPayload =
     };
 
 export const API_RETRY_METHODS = ['get'] as const;
+
+export interface NodeDiagnosticsReport {
+  nodeId: string;
+  checkedAt: string;
+  serviceMode: 'user' | 'system';
+  runtimeUser: string;
+  version: string;
+  healthy: boolean;
+  checks: Array<{
+    key: string; label: string; status: 'pass' | 'warning' | 'fail';
+    reason: string; suggestion?: string; repairable: boolean;
+  }>;
+}
 /**
  * 凭据形状的字段名。这个校验器原本用「未知字段一律拒绝」来兼任泄露探测器，
  * 副作用是服务端任何一次向后兼容的字段扩展都会让整块功能静默退化——新增
@@ -347,6 +360,26 @@ class ApiService {
     } catch (error) {
       return this.handleError(error);
     }
+  }
+
+  async diagnoseNode(nodeId: string): Promise<ApiResponse<NodeDiagnosticsReport>> {
+    try {
+      return await apiClient.post(`api/cluster/nodes/${encodeURIComponent(nodeId)}/diagnostics`, { timeout: 120_000 }).json<ApiResponse<NodeDiagnosticsReport>>();
+    } catch (error) { return this.handleError(error); }
+  }
+
+  async repairNode(nodeId: string): Promise<ApiResponse<NodeDiagnosticsReport>> {
+    try {
+      return await apiClient.post(`api/cluster/nodes/${encodeURIComponent(nodeId)}/repair`, { timeout: 180_000 }).json<ApiResponse<NodeDiagnosticsReport>>();
+    } catch (error) { return this.handleError(error); }
+  }
+
+  async migrateNodeService(nodeId: string, runtimeUser: string): Promise<ApiResponse<NodeDiagnosticsReport>> {
+    try {
+      return await apiClient.post(`api/cluster/nodes/${encodeURIComponent(nodeId)}/migrate-service`, {
+        json: { runtimeUser }, timeout: 180_000,
+      }).json<ApiResponse<NodeDiagnosticsReport>>();
+    } catch (error) { return this.handleError(error); }
   }
 
   // 添加节点

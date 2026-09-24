@@ -107,6 +107,28 @@ clients. The CLI binary owns the API and static-file server.
 
 ## Multi-kernel Agents
 
+The node detail's **Agent** tab offers repeatable diagnostics, explicit repair,
+and optional migration to a system service. The CLI exposes the same operations:
+
+```bash
+miobridge nodes diagnose <node-id> --json
+miobridge nodes repair <node-id>
+miobridge nodes migrate-service <node-id> --user <existing-non-root-user>
+```
+
+Diagnostics distinguish SSH access, Linger, service enablement/running state,
+restart count, version and public health. Repair closes SSH and independently
+verifies health/version after a stabilization period. System-service migration
+requires root or sudo, validates a candidate on a temporary loopback port before
+handover, and rolls back failed acceptance. Runtime files belong under the chosen
+user's `~/.config/miobridge/`; subsequent operations detect the service mode.
+Older Agents without loopback candidate support must be upgraded first. Existing
+nodes are never migrated automatically.
+
+Heartbeats show fluctuating, abnormal and offline after 1, 3 and 5 consecutive
+failures. Two consecutive successes restore online status while preserving the
+last failure reason and time.
+
 When adding or editing a child node, MioBridge first detects sing-box, Xray,
 and V2Ray over SSH. The selection dialog shows the installed version and
 default configuration path for each kernel. Select at least one kernel;

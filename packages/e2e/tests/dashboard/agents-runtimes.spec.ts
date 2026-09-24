@@ -97,6 +97,101 @@ test.describe('E07 · Agent 运行维护', () => {
     const panel = await openNode(page, 'node-ready', READY_NAME, 'Agent');
     await expect(panel.getByText('历史错误（当前已恢复）', { exact: true })).toBeVisible();
   });
+
+  test('显式体检展示原因与建议，修复后重新验收且不自动迁移', async ({ page, control, snapshot }) => {
+    await control({ maintenanceLingerDisabled: true });
+    const panel = await openNode(page, 'node-ready', READY_NAME, 'Agent');
+    const maintenance = panel.getByRole('region', { name: '节点体检与修复' });
+    const repair = maintenance.getByRole('button', { name: '一键修复', exact: true });
+    await expect(repair).toBeDisabled();
+    expect((await snapshot()).requests.filter(item => /\/(diagnostics|repair|migrate-service)$/.test(item.path))).toEqual([]);
+
+    await maintenance.getByRole('button', { name: '开始体检', exact: true }).click();
+    const checks = maintenance.getByRole('list', { name: '体检结果' });
+    await expect(checks).toContainText('用户服务将在退出登录后失去持久运行保障');
+    await expect(checks).toContainText('启用运行用户的 Linger 后重新验收');
+    await expect(checks).toContainText('公开 HTTP + HMAC 健康检查通过');
+    await expect(repair).toBeEnabled();
+    expect((await snapshot()).requests.filter(item => /\/(repair|migrate-service)$/.test(item.path))).toEqual([]);
+
+    await repair.click();
+    await expect(maintenance.getByRole('status').filter({ hasText: '修复完成' })).toHaveText('修复完成，断线存活验收通过');
+    await expect(checks).not.toContainText('用户服务将在退出登录后失去持久运行保障');
+    await expect(repair).toBeDisabled();
+    const state = await snapshot();
+    expect(state.requests.filter(item => item.method === 'POST' && /\/(diagnostics|repair)$/.test(item.path)).map(item => item.path)).toEqual([
+      '/api/cluster/nodes/node-ready/diagnostics', '/api/cluster/nodes/node-ready/repair',
+    ]);
+    expect(state.requests.some(item => item.path.endsWith('/migrate-service'))).toBeFalsy();
+    expect(state.nodes.find(node => node.nodeId === 'node-ready')).toMatchObject({ agent: { serviceMode: 'user' } });
+  });
+
+  test('体检请求失败显示明确错误且不放行一键修复', async ({ page, control }) => {
+    await control({ maintenanceDiagnosticsFailure: true });
+    const panel = await openNode(page, 'node-ready', READY_NAME, 'Agent');
+    const maintenance = panel.getByRole('region', { name: '节点体检与修复' });
+    await maintenance.getByRole('button', { name: '开始体检', exact: true }).click();
+    await expect(maintenance.getByRole('alert')).toHaveText('节点体检失败：SSH 连接不可用（E2E fixture）');
+    await expect(maintenance.getByRole('button', { name: '一键修复', exact: true })).toBeDisabled();
+  });
+
+  test('修复后的公开验收失败保留异常且不显示完成', async ({ page, control, snapshot }) => {
+    await control({ maintenanceLingerDisabled: true, maintenanceAcceptanceFailure: true });
+    const panel = await openNode(page, 'node-ready', READY_NAME, 'Agent');
+    const maintenance = panel.getByRole('region', { name: '节点体检与修复' });
+    await maintenance.getByRole('button', { name: '开始体检', exact: true }).click();
+    await maintenance.getByRole('button', { name: '一键修复', exact: true }).click();
+    await expect(maintenance.getByRole('alert')).toHaveText('修复后公网 HMAC 验收失败（E2E fixture）');
+    await expect(maintenance.getByRole('list', { name: '体检结果' })).toContainText('公开健康接口不可达');
+    await expect(maintenance.getByText('修复完成，断线存活验收通过', { exact: true })).toHaveCount(0);
+    expect((await snapshot()).requests.filter(item => item.path === '/api/cluster/nodes/node-ready/repair')).toHaveLength(1);
+  });
+
+  test('系统服务迁移须指定非 root 用户并显式提交，完成后隐藏迁移入口', async ({ page, snapshot }) => {
+    const panel = await openNode(page, 'node-ready', READY_NAME, 'Agent');
+    const maintenance = panel.getByRole('region', { name: '节点体检与修复' });
+    await expect(maintenance).toContainText('用户级服务');
+    await maintenance.getByRole('button', { name: '迁移至系统级服务', exact: true }).click();
+    const dialog = page.getByRole('dialog', { name: '迁移至系统级服务' });
+    await dialog.getByLabel('非特权运行用户').fill('root');
+    await expect(dialog.getByRole('button', { name: '开始迁移', exact: true })).toBeDisabled();
+    await dialog.getByLabel('非特权运行用户').fill('agent-runner');
+    await expect(dialog.getByRole('button', { name: '开始迁移', exact: true })).toBeEnabled();
+    expect((await snapshot()).requests.some(item => item.path.endsWith('/migrate-service'))).toBeFalsy();
+    await dialog.getByRole('button', { name: '取消', exact: true }).click();
+    expect((await snapshot()).requests.some(item => item.path.endsWith('/migrate-service'))).toBeFalsy();
+
+    await maintenance.getByRole('button', { name: '迁移至系统级服务', exact: true }).click();
+    await dialog.getByRole('button', { name: '开始迁移', exact: true }).click();
+    await expect(dialog).toBeHidden();
+    await expect(maintenance.getByRole('status').filter({ hasText: '迁移完成' })).toHaveText('迁移完成，断线存活验收通过');
+    await expect(maintenance).toContainText('系统级服务 · agent-runner');
+    await expect(maintenance.getByRole('button', { name: '迁移至系统级服务', exact: true })).toHaveCount(0);
+    const state = await snapshot();
+    expect(state.requests.filter(item => item.path === '/api/cluster/nodes/node-ready/migrate-service')).toMatchObject([
+      { method: 'POST', body: { runtimeUser: 'agent-runner' } },
+    ]);
+    expect(state.nodes.find(node => node.nodeId === 'node-ready')).toMatchObject({ agent: { serviceMode: 'system', runtimeUser: 'agent-runner' } });
+    await page.reload();
+    await panel.getByRole('button', { name: 'Agent', exact: true }).click();
+    await expect(maintenance).toContainText('系统级服务');
+    await expect(maintenance.getByRole('button', { name: '迁移至系统级服务', exact: true })).toHaveCount(0);
+  });
+
+  test('迁移验收失败报告回滚并保留用户级服务', async ({ page, control, snapshot }) => {
+    await control({ maintenanceAcceptanceFailure: true });
+    const panel = await openNode(page, 'node-ready', READY_NAME, 'Agent');
+    const maintenance = panel.getByRole('region', { name: '节点体检与修复' });
+    await maintenance.getByRole('button', { name: '迁移至系统级服务', exact: true }).click();
+    const dialog = page.getByRole('dialog', { name: '迁移至系统级服务' });
+    await dialog.getByLabel('非特权运行用户').fill('agent-runner');
+    await dialog.getByRole('button', { name: '开始迁移', exact: true }).click();
+    await expect(dialog.getByRole('alert')).toHaveText('迁移后公网 HMAC 验收失败；已恢复迁移前的用户级服务（E2E fixture）');
+    await expect(maintenance.getByText('迁移完成，断线存活验收通过', { exact: true })).toHaveCount(0);
+    expect((await snapshot()).nodes.find(node => node.nodeId === 'node-ready')).toMatchObject({ agent: { serviceMode: 'user', runtimeUser: 'miobridge' } });
+    await dialog.getByRole('button', { name: '取消', exact: true }).click();
+    await expect(maintenance.getByRole('button', { name: '迁移至系统级服务', exact: true })).toBeVisible();
+  });
 });
 
 test.describe('E08–E09 · 协议运行时与监控事务', () => {

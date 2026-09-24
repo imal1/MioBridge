@@ -17,6 +17,9 @@ import {
   type SshTarget,
 } from './types.js';
 import type { SshTransport } from './transport.js';
+import { readSystemAgentRuntime as managedRuntime } from './agentRuntime.js';
+export { agentServiceAction, detectAgentService, systemAgentUnit, type AgentServiceRuntime } from './agentRuntime.js';
+
 
 export function agentYaml(target: SshTarget, kernels: readonly NodeKernelConfig[]): string {
   const kernelYaml = kernels.map(kernel => [
@@ -51,6 +54,7 @@ async function writeUserFile(transport: SshTransport, ssh: DeploymentConnection,
 }
 
 export async function installAgent(transport: SshTransport, ssh: DeploymentConnection, target: SshTarget, kernels: readonly NodeKernelConfig[]): Promise<void> {
+  const runtime = await managedRuntime(transport, ssh);
   const detected = await transport.exec(ssh, 'uname -m');
   if (detected.code !== 0) throw new Error(`Agent 架构检测失败: ${(detected.stderr || detected.stdout).trim()}`);
   const machine = detected.stdout.trim();
@@ -74,16 +78,33 @@ export async function installAgent(transport: SshTransport, ssh: DeploymentConne
     '[ "$actual" = "$expected" ]',
     'gzip -dc "$workdir/agent.gz" > "$workdir/agent"',
     `test "$(chmod 755 "$workdir/agent" && "$workdir/agent" --version)" = ${shellQuote(version)}`,
-    'mkdir -p "$HOME/.local/bin" "$HOME/.config/miobridge-agent" "$HOME/.config/systemd/user"',
-    'install -m 755 "$workdir/agent" "$HOME/.local/bin/miobridge-agent"',
+    ...(runtime ? [
+      `mkdir -p ${shellQuote(runtime.binaryPath.slice(0, runtime.binaryPath.lastIndexOf('/')))}`,
+      `install -m 755 "$workdir/agent" ${shellQuote(runtime.binaryPath)}`,
+    ] : [
+      'mkdir -p "$HOME/.local/bin" "$HOME/.config/miobridge-agent" "$HOME/.config/systemd/user"',
+      'install -m 755 "$workdir/agent" "$HOME/.local/bin/miobridge-agent"',
+    ]),
   ].join('\n');
-  const installed = await transport.exec(ssh, `bash -c ${shellQuote(installScript)}`);
+  const installed = runtime
+    ? await transport.execRoot(ssh, target, `bash -c ${shellQuote(installScript)}`)
+    : await transport.exec(ssh, `bash -c ${shellQuote(installScript)}`);
   if (installed.code !== 0) throw new Error(`Agent 安装或校验失败: ${(installed.stderr || installed.stdout).trim().slice(-600)}`);
+  if (runtime) {
+    await replaceAgentConfig(transport, ssh, agentYaml(target, kernels), target);
+    return;
+  }
   await writeUserFile(transport, ssh, 'miobridge-agent/agent.yaml', agentYaml(target, kernels), 0o600, 'config');
   await writeUserFile(transport, ssh, 'miobridge-agent.service', systemdUnit(), 0o644, 'unit');
 }
 
 export async function startAgent(transport: SshTransport, ssh: DeploymentConnection, target: SshTarget): Promise<void> {
+  const runtime = await managedRuntime(transport, ssh);
+  if (runtime) {
+    const result = await transport.execRoot(ssh, target, 'systemctl daemon-reload && systemctl enable miobridge-agent.service && systemctl restart miobridge-agent.service');
+    if (result.code !== 0) throw new Error(`系统级 Agent 启动失败: ${(result.stderr || result.stdout).trim()}`);
+    return;
+  }
   const legacy = await transport.exec(ssh, `test -x ${shellQuote(LEGACY_AGENT_PATH)} || test -f ${shellQuote(LEGACY_AGENT_SERVICE_PATH)} || test -f ${shellQuote(LEGACY_AGENT_CONFIG_PATH)}`);
   if (legacy.code === 0) throw new Error('检测到旧版系统级 Agent。请先由管理员执行 "sudo systemctl disable --now miobridge-agent" 并删除旧 unit，之后重试用户态部署。');
   const userResult = await transport.exec(ssh, 'id -un');
@@ -105,23 +126,28 @@ export async function verifyAgent(transport: SshTransport, ssh: DeploymentConnec
   if (checked.code !== 0) throw new Error('Agent 健康检查失败');
 }
 
-export async function replaceAgentConfig(transport: SshTransport, ssh: DeploymentConnection, content: string): Promise<boolean> {
+export async function replaceAgentConfig(transport: SshTransport, ssh: DeploymentConnection, content: string, target?: SshTarget): Promise<boolean> {
+  const runtime = await managedRuntime(transport, ssh);
+  if (runtime && !target) throw new Error('系统级 Agent 配置需要提权连接');
   const encoded = Buffer.from(content).toString('base64');
   const script = [
     'set -e',
-    'config="$HOME/.config/miobridge-agent/agent.yaml"',
+    runtime ? `config=${shellQuote(runtime.configPath)}` : 'config="$HOME/.config/miobridge-agent/agent.yaml"',
     'rollback="$config.rollback"',
     'mkdir -p "$(dirname "$config")"',
-    'tmp=$(mktemp "$HOME/.config/miobridge-agent/.agent.yaml.tmp.XXXXXX")',
+    'tmp=$(mktemp "$(dirname "$config")/.agent.yaml.tmp.XXXXXX")',
     `trap 'rm -f -- "$tmp"' EXIT`,
     `printf %s ${shellQuote(encoded)} | base64 -d > "$tmp"`,
     'chmod 600 "$tmp"',
-    '"$HOME/.local/bin/miobridge-agent" --check-config "$tmp"',
+    runtime ? `${shellQuote(runtime.binaryPath)} --check-config "$tmp"` : '"$HOME/.local/bin/miobridge-agent" --check-config "$tmp"',
+    ...(runtime ? [`chown ${shellQuote(runtime.user)} "$tmp"`] : []),
     'if [ -f "$config" ]; then cp "$config" "$rollback"; else rm -f "$rollback"; fi',
     'mv "$tmp" "$config"',
     'trap - EXIT',
   ].join('\n');
-  const result = await transport.exec(ssh, `bash -c ${shellQuote(script)}`);
+  const result = runtime
+    ? await transport.execRoot(ssh, target!, `bash -c ${shellQuote(script)}`)
+    : await transport.exec(ssh, `bash -c ${shellQuote(script)}`);
   if (result.code !== 0) throw new Error(`Agent 配置校验或原子替换失败: ${(result.stderr || result.stdout).trim()}`);
   return true;
 }

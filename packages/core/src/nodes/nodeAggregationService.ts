@@ -4,6 +4,7 @@ import { AgentClient } from './agentClient.js';
 import { NodeRepository } from './nodeRepository.js';
 import type { StateStore } from '../state/stateStore.js';
 import type { ClusterStatus, KernelRuntimeStatus, NodeConfig, NodeStatus } from './types.js';
+import { NODE_HEALTH_THRESHOLDS } from './types.js';
 
 export interface RemoteSourceCollection { sources: CollectedProxySource[]; errors: string[]; kernels?: KernelRuntimeStatus[] }
 
@@ -37,19 +38,26 @@ export class NodeAggregationService {
   }
   getNodeCache(): ReadonlyMap<string, NodeStatus> { return this.cache; }
 
-  private async loadLastError(nodeId: string): Promise<string | undefined> {
-    const cached = this.cache.get(nodeId)?.lastError;
-    if (cached !== undefined) return cached;
-    if (!this.state || this.hydrated.has(nodeId)) return undefined;
+  private async loadLastError(nodeId: string): Promise<Pick<NodeStatus, 'lastError' | 'lastErrorAt'>> {
+    const cached = this.cache.get(nodeId);
+    if (cached?.lastError !== undefined) return { lastError: cached.lastError, ...(cached.lastErrorAt ? { lastErrorAt: cached.lastErrorAt } : {}) };
+    if (!this.state || this.hydrated.has(nodeId)) return {};
     this.hydrated.add(nodeId);
-    try { return (await this.state.get(`${LAST_ERROR_PREFIX}${nodeId}`)) ?? undefined; }
-    catch { return undefined; }
+    try {
+      const value = await this.state.get(`${LAST_ERROR_PREFIX}${nodeId}`);
+      if (!value) return {};
+      try {
+        const record = JSON.parse(value) as Record<string, unknown>;
+        if (record && typeof record.lastError === 'string') return { lastError: record.lastError, ...(typeof record.lastErrorAt === 'string' ? { lastErrorAt: record.lastErrorAt } : {}) };
+      } catch { /* Older versions persisted only the error message. */ }
+      return { lastError: value };
+    } catch { return {}; }
   }
 
-  private async persistLastError(nodeId: string, message: string): Promise<void> {
+  private async persistLastError(nodeId: string, message: string, at: string): Promise<void> {
     this.hydrated.add(nodeId);
     if (!this.state) return;
-    try { await this.state.set(`${LAST_ERROR_PREFIX}${nodeId}`, message); }
+    try { await this.state.set(`${LAST_ERROR_PREFIX}${nodeId}`, JSON.stringify({ lastError: message, lastErrorAt: at })); }
     catch { /* 「最近错误」是诊断信息，写不进去也不能影响状态聚合本身。 */ }
   }
 
@@ -95,14 +103,15 @@ export class NodeAggregationService {
         node.enabled ? this.collectSources(node, this.statusProbeTimeoutMs) : Promise.resolve({ sources: [], errors: [] } as RemoteSourceCollection),
       ]);
       if (!collection.kernels) return { status, collection };
-      const kernelError = collection.kernels.find(kernel => kernel.error)?.error;
-      if (kernelError && kernelError !== status.lastError) await this.persistLastError(node.id, kernelError);
+      const kernelError = !status.error ? collection.kernels.find(kernel => kernel.error)?.error : undefined;
+      const lastErrorAt = kernelError && kernelError !== status.lastError ? new Date(this.now()).toISOString() : status.lastErrorAt;
+      if (kernelError && kernelError !== status.lastError) await this.persistLastError(node.id, kernelError, lastErrorAt!);
       const adoptableKernels = collection.kernels.filter(kernel => kernel.detected && !kernel.monitored).map(kernel => kernel.type);
       const merged: NodeStatus = {
         ...status,
         kernels: collection.kernels,
         nodesCount: collection.kernels.reduce((sum, kernel) => sum + kernel.nodesCount, 0),
-        ...(kernelError ? { lastError: kernelError } : {}),
+        ...(kernelError ? { lastError: kernelError, lastErrorAt } : {}),
         ...(adoptableKernels.length ? { adoptableKernels } : {}),
       };
       this.cache.set(node.id, merged);
@@ -149,6 +158,7 @@ export class NodeAggregationService {
     };
     // 「最近错误」必须跨越恢复继续可见：节点重新在线后 error 会消失，
     // 但用户仍需要看到上一次失败的原因才能判断要不要进排障链路。
+    const previous = this.cache.get(node.id);
     const previousError = await this.loadLastError(node.id);
     try {
       // 心跳必须是轻量探测。/api/status 会读取并导出协议核心配置，低配节点上
@@ -156,7 +166,6 @@ export class NodeAggregationService {
       const json = await this.agent.get(node, '/health', timeoutMs) as Record<string, unknown>;
       const data = (json.data ?? json) as Record<string, unknown>;
       const kernels = this.cache.get(node.id)?.kernels ?? unavailable(node.kernels);
-      const lastError = previousError;
       const observedVersion = typeof data.version === 'string' ? data.version : undefined;
       const observedAgent = node.agent ? {
         ...node.agent,
@@ -171,12 +180,34 @@ export class NodeAggregationService {
       }
       // Agent 已装、可被检测，但尚未纳入监控的内核 = 「打通后可提示纳管」的候选。
       const adoptableKernels = kernels.filter(kernel => kernel.detected && !kernel.monitored).map(kernel => kernel.type);
-      const status: NodeStatus = { ...base, online: true, kernels, nodesCount: kernels.reduce((sum,k) => sum+k.nodesCount, 0), ...(lastError ? { lastError } : {}), ...(observedAgent ? { agent: observedAgent } : {}), ...(observedVersion ? { version: observedVersion } : {}), ...(typeof data.uptime === 'number' ? { uptime: data.uptime } : {}), ...(typeof data.mihomoAvailable === 'boolean' ? { mihomoAvailable: data.mihomoAvailable } : {}), ...(typeof data.mihomoVersion === 'string' ? { mihomoVersion: data.mihomoVersion } : {}), ...(adoptableKernels.length ? { adoptableKernels } : {}) };
+      const consecutiveSuccesses = (previous?.consecutiveSuccesses ?? 0) + 1;
+      const health = consecutiveSuccesses < NODE_HEALTH_THRESHOLDS.recoverySuccesses ? previous?.health ?? 'online' : 'online';
+      const status: NodeStatus = {
+        ...base, online: health !== 'offline', health, consecutiveFailures: 0, consecutiveSuccesses,
+        ...(health !== 'online' && previous?.error ? { error: previous.error } : {}),
+        kernels, nodesCount: kernels.reduce((sum, kernel) => sum + kernel.nodesCount, 0),
+        ...previousError,
+        ...(observedAgent ? { agent: observedAgent } : {}),
+        ...(observedVersion ? { version: observedVersion } : {}),
+        ...(typeof data.uptime === 'number' ? { uptime: data.uptime } : {}),
+        ...(typeof data.mihomoAvailable === 'boolean' ? { mihomoAvailable: data.mihomoAvailable } : {}),
+        ...(typeof data.mihomoVersion === 'string' ? { mihomoVersion: data.mihomoVersion } : {}),
+        ...(adoptableKernels.length ? { adoptableKernels } : {}),
+      };
       this.cache.set(node.id, status); return status;
     } catch (error) {
       const message = error instanceof Error && error.name === 'AbortError' ? '请求超时' : `连接失败: ${error instanceof Error ? error.message : String(error)}`;
-      await this.persistLastError(node.id, message);
-      const status = { ...base, error: message, lastError: message };
+      const lastErrorAt = new Date(this.now()).toISOString();
+      await this.persistLastError(node.id, message, lastErrorAt);
+      const consecutiveFailures = (previous?.consecutiveFailures ?? 0) + 1;
+      // An interrupted recovery cannot downgrade an unresolved alert.
+      const health = previous?.health === 'offline' || consecutiveFailures >= NODE_HEALTH_THRESHOLDS.offlineFailures ? 'offline'
+        : previous?.health === 'abnormal' || consecutiveFailures >= NODE_HEALTH_THRESHOLDS.abnormalFailures ? 'abnormal' : 'fluctuating';
+      const status: NodeStatus = {
+        ...previous, ...base, kernels: previous?.kernels ?? base.kernels,
+        online: health !== 'offline', health, consecutiveFailures, consecutiveSuccesses: 0,
+        error: message, lastError: message, lastErrorAt,
+      };
       this.cache.set(node.id, status); return status;
     }
   }

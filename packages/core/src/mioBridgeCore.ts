@@ -7,6 +7,9 @@ import type { CoreLogger } from './index.js';
 import type { RuntimePaths } from './runtime/runtimePaths.js';
 import type { StateStore } from './state/stateStore.js';
 import { StatusService, type BuildMetadata, type StatusKernel } from './status/statusService.js';
+import { NodeMaintenanceService, type NodeMaintenanceServiceOptions } from './nodes/nodeMaintenanceService.js';
+import { AgentDeploymentAcceptance, type AgentDeploymentAcceptanceOptions } from './nodes/agentAcceptance.js';
+import type { AgentClient } from './nodes/agentClient.js';
 
 export interface MioBridgeCoreOptions {
   readonly paths: RuntimePaths; readonly state: StateStore; readonly logger: CoreLogger; readonly metadata: BuildMetadata;
@@ -37,6 +40,8 @@ export class MioBridgeCore {
     );
   }
   updateSubscription() { return this.artifacts.updateSubscription(); }
+  createNodeMaintenance(options: NodeMaintenanceServiceOptions) { return new NodeMaintenanceService(options); }
+  createAgentAcceptance(client: AgentClient, options?: AgentDeploymentAcceptanceOptions) { return new AgentDeploymentAcceptance(client, options); }
   preflightSubscription() { return this.artifacts.preflight(); }
   getStatus() { return this.status.getStatus(); }
   getConfigPath() { return this.config.getConfigPath(); }

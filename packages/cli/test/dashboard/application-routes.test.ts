@@ -52,6 +52,43 @@ async function dispatch(deps: DashboardServerDependencies, method: 'GET' | 'POST
 }
 
 describe('canonical dashboard application routes', () => {
+  it('runs node diagnostics and explicit repair through the selected node', async () => {
+    const { deps } = dependencies();
+    const report = { nodeId: 'child', healthy: false, checks: [{ key: 'linger', status: 'fail', reason: 'Linger 未启用' }] };
+    const diagnoseNode = vi.fn(async () => ok(report));
+    const repairNode = vi.fn(async () => ok({ ...report, healthy: true }));
+    Object.assign(deps.operations, { diagnoseNode, repairNode });
+    const checked = await dispatch(deps, 'POST', '/api/cluster/nodes/child/diagnostics');
+    expect(JSON.parse(checked.body)).toMatchObject({ success: true, data: report });
+    expect(diagnoseNode).toHaveBeenCalledWith('child');
+    expect(repairNode).not.toHaveBeenCalled();
+    const repaired = await dispatch(deps, 'POST', '/api/cluster/nodes/child/repair');
+    expect(JSON.parse(repaired.body)).toMatchObject({ success: true, data: { healthy: true } });
+    expect(repairNode).toHaveBeenCalledWith('child');
+  });
+
+  it('requires an explicit non-root user before service migration', async () => {
+    const { deps } = dependencies();
+    const migrateNodeService = vi.fn(async () => ok({ serviceMode: 'system', runtimeUser: 'agent' }));
+    Object.assign(deps.operations, { migrateNodeService });
+    for (const body of [{}, { runtimeUser: 'root' }, { runtimeUser: 'agent;id' }]) {
+      const rejected = await dispatch(deps, 'POST', '/api/cluster/nodes/child/migrate-service', body);
+      expect(rejected.statusCode).toBe(400);
+    }
+    expect(migrateNodeService).not.toHaveBeenCalled();
+    const migrated = await dispatch(deps, 'POST', '/api/cluster/nodes/child/migrate-service', { runtimeUser: 'agent' });
+    expect(JSON.parse(migrated.body)).toMatchObject({ success: true, data: { serviceMode: 'system' } });
+    expect(migrateNodeService).toHaveBeenCalledWith('child', 'agent');
+  });
+
+  it('keeps a failed acceptance a failure at the API boundary', async () => {
+    const { deps } = dependencies();
+    Object.assign(deps.operations, { repairNode: async () => { throw new Error('VERSION_MISMATCH: 版本验收失败'); } });
+    const failed = await dispatch(deps, 'POST', '/api/cluster/nodes/child/repair');
+    expect(failed.statusCode).toBeGreaterThanOrEqual(400);
+    expect(JSON.parse(failed.body)).toMatchObject({ success: false, error: expect.objectContaining({ message: expect.stringContaining('VERSION_MISMATCH') }) });
+  });
+
   it('creates a single-node deployment with idempotency and a 202 envelope', async () => {
     const { deps, startComponentDeployment } = dependencies();
     const response = await dispatch(deps, 'POST', '/api/deployments', {

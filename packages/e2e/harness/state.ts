@@ -35,6 +35,7 @@ export interface FixtureNode {
   agent: {
     deployed: boolean; version: string; status: 'not_deployed' | 'deploying' | 'running' | 'stopped' | 'error';
     lastDeploy: string; port?: number; deploymentId?: string;
+    serviceMode?: 'user' | 'system'; runtimeUser?: string;
   };
   lastError?: string;
 }
@@ -117,6 +118,9 @@ export interface HarnessControls {
   deploymentOutcome?: 'success' | 'error';
   deploymentHoldAt?: 'queued' | 'prechecking' | 'installing';
   agentFailure?: boolean;
+  maintenanceLingerDisabled?: boolean;
+  maintenanceAcceptanceFailure?: boolean;
+  maintenanceDiagnosticsFailure?: boolean;
   kernelFailure?: boolean;
   monitoringFailure?: boolean;
   subscriptionReady?: boolean;
@@ -180,7 +184,7 @@ function baselineNodes(): FixtureNode[] {
       ],
       online: true, latency: 12, nodesCount: 3, subscriptionExists: true, clashExists: true,
       mihomoAvailable: true, mihomoVersion: 'v1.19.0-e2e', version: '1.0.0-e2e', uptime: 7200,
-      agent: { deployed: true, version: '1.0.0-e2e', status: 'running', lastDeploy: now(), port: 3001 },
+      agent: { deployed: true, version: '1.0.0-e2e', status: 'running', lastDeploy: now(), port: 3001, serviceMode: 'user', runtimeUser: 'miobridge' },
       lastError: 'fixture recent error',
     },
     {

@@ -14,13 +14,19 @@
  */
 import { randomUUID } from 'node:crypto';
 import {
+  AgentClient,
+  type AgentDeploymentAcceptance,
+  AgentDeploymentError,
+  redactAgentDiagnostic,
   KERNEL_TYPES,
   validateNodeKernels,
   type KernelType,
   type NodeConfig,
   type NodeKernelConfig,
+  type AgentDeploymentDiagnostics,
 } from '@miobridge/core';
 import type { NodeCoreComposition } from '../../composition.js';
+import { CLI_VERSION } from '../../command.js';
 import {
   reinstallCommand,
   repairCommand,
@@ -30,9 +36,11 @@ import {
 } from './kernelScripts.js';
 import { SshTransport } from './ssh/transport.js';
 import { NodeTargets } from './ssh/targets.js';
+import { diagnoseAgent, diagnoseAgentOn } from './ssh/agentAcceptance.js';
+import { acquireNodeMutation, withNodeMutation } from './ssh/nodeMutationLock.js';
 import { detectKernel, ensureKernel } from './ssh/kernels.js';
 import { detectMihomoOn, installMihomoOn, uninstallMihomoOn } from './ssh/mihomo.js';
-import { agentYaml, installAgent, replaceAgentConfig, startAgent, verifyAgent } from './ssh/agent.js';
+import { agentServiceAction, agentYaml, detectAgentService, installAgent, replaceAgentConfig, startAgent, verifyAgent } from './ssh/agent.js';
 import {
   deployComponent,
   deployOperation,
@@ -84,10 +92,12 @@ export class SshDeploymentService {
   readonly #resumedTasks = new Set<string>();
   readonly #transport: SshTransport;
   readonly #targets: NodeTargets;
+  readonly #acceptance: AgentDeploymentAcceptance;
 
   constructor(private readonly composition: NodeCoreComposition, options: DeploymentServiceOptions = {}) {
     this.#transport = new SshTransport(options);
     this.#targets = new NodeTargets(composition);
+    this.#acceptance = composition.core.createAgentAcceptance(new AgentClient(options.fetch ? { fetch: options.fetch } : {}), options.acceptance);
   }
 
   setOneTimeCredential(nodeId: string, credential: string): void {
@@ -154,7 +164,7 @@ export class SshDeploymentService {
         { key: 'privilege', label: '执行权限', ok: privilege.code === 0, detail: KERNEL_TYPES.includes(component as KernelType) ? '优先直接执行 233boy 脚本；仅在明确权限不足时自动提权' : '此组件使用用户态部署，无需 sudo' },
       ];
       return { hostKey: target.ssh.hostKey, architecture: architecture.stdout.trim(), checks };
-    } finally { ssh.end(); }
+    } finally { await ssh.end(); }
   }
 
   async detect(body: unknown): Promise<KernelDetection[]> {
@@ -166,32 +176,36 @@ export class SshDeploymentService {
     try {
       return await Promise.all(KERNEL_TYPES.map(type => detectKernel(this.#transport, ssh, type)));
     } finally {
-      ssh.end();
+      await ssh.end();
     }
   }
 
   async startDeployment(nodeId: string, kernels?: unknown): Promise<{ deploymentId: string }> {
-    const node = await this.#targets.findNode(nodeId);
-    const requested = validateNodeKernels(kernels === undefined ? node.kernels : kernels, true).map(kernel => {
-      const current = node.kernels.find(item => item.type === kernel.type);
-      return current?.configPath ? { ...kernel, configPath: current.configPath } : kernel;
-    });
-    const deploymentId = randomUUID();
-    const startedAt = Date.now();
-    this.setProgress({ nodeId, deploymentId, step: 'connect', status: 'pending', message: '等待 SSH 连接', progress: 0, startedAt });
-    await this.composition.repository.update(nodeId, current => ({
-      ...current,
-      agent: {
-        deployed: current.agent?.deployed ?? false,
-        version: current.agent?.version ?? '',
-        lastDeploy: current.agent?.lastDeploy ?? '',
-        port: current.port ?? current.agent?.port ?? 3001,
-        status: 'deploying',
-        deploymentId,
-      },
-    }));
-    void this.runDeployment(node, requested, deploymentId, startedAt);
-    return { deploymentId };
+    const release = acquireNodeMutation(nodeId);
+    try {
+      const node = await this.#targets.findNode(nodeId);
+      const requested = validateNodeKernels(kernels === undefined ? node.kernels : kernels, true).map(kernel => {
+        const current = node.kernels.find(item => item.type === kernel.type);
+        return current?.configPath ? { ...kernel, configPath: current.configPath } : kernel;
+      });
+      const deploymentId = randomUUID();
+      const startedAt = Date.now();
+      this.setProgress({ nodeId, deploymentId, step: 'connect', status: 'pending', message: '等待 SSH 连接', progress: 0, startedAt });
+      await this.composition.repository.update(nodeId, current => ({
+        ...current,
+        agent: {
+          ...current.agent,
+          deployed: current.agent?.deployed ?? false,
+          version: current.agent?.version ?? '',
+          lastDeploy: current.agent?.lastDeploy ?? '',
+          port: current.port ?? current.agent?.port ?? 3001,
+          status: 'deploying',
+          deploymentId,
+        },
+      }));
+      void this.runDeployment(node, requested, deploymentId, startedAt, release);
+      return { deploymentId };
+    } catch (error) { release(); throw error; }
   }
 
   async startComponentDeployment(
@@ -323,46 +337,52 @@ export class SshDeploymentService {
   }
 
   async agentAction(nodeId: string, action: 'start' | 'stop' | 'restart' | 'uninstall', options: DeployOptions = { preserveConfig: false, preserveData: false }): Promise<void> {
-    const target = await this.#targets.forNode(nodeId);
-    const ssh = await this.#transport.connect(target);
-    try {
-      const userCommand = action === 'uninstall'
-        ? [
-            `${userSystemctl('disable', '--now', 'miobridge-agent.service')} 2>/dev/null || true`,
-            `rm -f \"${AGENT_USER_BIN}\" \"${AGENT_USER_UNIT}\"`,
-            ...(options.preserveConfig ? [] : [`rm -rf \"$HOME/.config/miobridge-agent\"`]),
-            ...(options.preserveData ? [] : [`rm -rf \"$HOME/.local/share/miobridge-agent\"`]),
-            userSystemctl('daemon-reload'),
-          ].join(' && ')
-        : userSystemctl(action, 'miobridge-agent.service');
-      const userAgent = await this.#transport.exec(ssh, `test -x \"${AGENT_USER_BIN}\"`);
-      const legacyAgent = await this.#transport.exec(ssh, `test -x ${shellQuote(LEGACY_AGENT_PATH)} || test -f ${shellQuote(LEGACY_AGENT_SERVICE_PATH)}`);
-      const legacyCommand = action === 'uninstall'
-        ? [
-            'systemctl disable --now miobridge-agent 2>/dev/null || true',
-            `rm -f ${shellQuote(LEGACY_AGENT_PATH)} ${shellQuote(LEGACY_AGENT_SERVICE_PATH)}`,
-            ...(options.preserveConfig ? [] : ['rm -rf /etc/miobridge-agent']),
-            ...(options.preserveData ? [] : ['rm -rf /var/lib/miobridge-agent']),
-            'systemctl daemon-reload',
-          ].join(' && ')
-        : `systemctl ${action} miobridge-agent`;
-      const executed = userAgent.code === 0 || legacyAgent.code !== 0
-        ? await this.#transport.exec(ssh, userCommand)
-        : await this.#transport.execRoot(ssh, target, legacyCommand);
-      if (executed.code !== 0) throw new Error((executed.stderr || executed.stdout).trim() || `Agent ${action} 失败`);
-      await this.composition.repository.update(nodeId, node => ({
-        ...node,
-        agent: {
-          deployed: action !== 'uninstall',
-          version: node.agent?.version ?? '',
-          lastDeploy: node.agent?.lastDeploy ?? '',
-          port: node.port ?? node.agent?.port ?? 3001,
-          status: action === 'stop' || action === 'uninstall' ? (action === 'stop' ? 'stopped' : 'not_deployed') : 'running',
-        },
-      }));
-    } finally {
-      ssh.end();
-    }
+    return withNodeMutation(nodeId, async () => {
+      const target = await this.#targets.forNode(nodeId);
+      const ssh = await this.#transport.connect(target);
+      try {
+        const managed = await agentServiceAction(this.#transport, ssh, target, action, options);
+        if (!managed) {
+          const userCommand = action === 'uninstall'
+            ? [
+                `${userSystemctl('disable', '--now', 'miobridge-agent.service')} 2>/dev/null || true`,
+                `rm -f \"${AGENT_USER_BIN}\" \"${AGENT_USER_UNIT}\"`,
+                ...(options.preserveConfig ? [] : [`rm -rf \"$HOME/.config/miobridge-agent\"`]),
+                ...(options.preserveData ? [] : [`rm -rf \"$HOME/.local/share/miobridge-agent\"`]),
+                userSystemctl('daemon-reload'),
+              ].join(' && ')
+            : userSystemctl(action, 'miobridge-agent.service');
+          const userAgent = await this.#transport.exec(ssh, `test -x \"${AGENT_USER_BIN}\"`);
+          const legacyAgent = await this.#transport.exec(ssh, `test -x ${shellQuote(LEGACY_AGENT_PATH)} || test -f ${shellQuote(LEGACY_AGENT_SERVICE_PATH)}`);
+          const legacyCommand = action === 'uninstall'
+            ? [
+                'systemctl disable --now miobridge-agent 2>/dev/null || true',
+                `rm -f ${shellQuote(LEGACY_AGENT_PATH)} ${shellQuote(LEGACY_AGENT_SERVICE_PATH)}`,
+                ...(options.preserveConfig ? [] : ['rm -rf /etc/miobridge-agent']),
+                ...(options.preserveData ? [] : ['rm -rf /var/lib/miobridge-agent']),
+                'systemctl daemon-reload',
+              ].join(' && ')
+            : `systemctl ${action} miobridge-agent`;
+          const executed = userAgent.code === 0 || legacyAgent.code !== 0
+            ? await this.#transport.exec(ssh, userCommand)
+            : await this.#transport.execRoot(ssh, target, legacyCommand);
+          if (executed.code !== 0) throw new Error((executed.stderr || executed.stdout).trim() || `Agent ${action} 失败`);
+        }
+        await this.composition.repository.update(nodeId, node => ({
+          ...node,
+          agent: {
+            ...(action === 'uninstall' ? {} : node.agent),
+            deployed: action !== 'uninstall',
+            version: node.agent?.version ?? '',
+            lastDeploy: node.agent?.lastDeploy ?? '',
+            port: node.port ?? node.agent?.port ?? 3001,
+            status: action === 'stop' || action === 'uninstall' ? (action === 'stop' ? 'stopped' : 'not_deployed') : 'running',
+          },
+        }));
+      } finally {
+        await ssh.end();
+      }
+    });
   }
 
   async installKernel(nodeId: string, kernelValue: string): Promise<KernelDetection> {
@@ -373,7 +393,7 @@ export class SshDeploymentService {
       await ensureKernel(this.#transport, ssh, target, { type });
       return await detectKernel(this.#transport, ssh, type);
     } finally {
-      ssh.end();
+      await ssh.end();
     }
   }
 
@@ -386,7 +406,7 @@ export class SshDeploymentService {
       if (executed.code !== 0) throw new Error((executed.stderr || executed.stdout).trim() || `${type} 卸载失败`);
       return await detectKernel(this.#transport, ssh, type);
     } finally {
-      ssh.end();
+      await ssh.end();
     }
   }
 
@@ -400,28 +420,28 @@ export class SshDeploymentService {
       const executed = await this.#transport.execWithPrivilegeFallback(ssh, target, wrapperCommand(type, action));
       if (executed.code !== 0) throw new Error((executed.stderr || executed.stdout).trim() || `${type} ${action} 失败`);
       return { nodeId, kernelType: type, status: action === 'stop' ? 'stopped' : 'running' };
-    } finally { ssh.end(); }
+    } finally { await ssh.end(); }
   }
 
   async detectMihomo(nodeId: string): Promise<MihomoDetection> {
     const target = await this.#targets.forNode(nodeId);
     const ssh = await this.#transport.connect(target);
     try { return await detectMihomoOn(this.#transport, ssh); }
-    finally { ssh.end(); }
+    finally { await ssh.end(); }
   }
 
   async installMihomo(nodeId: string): Promise<MihomoDetection> {
     const target = await this.#targets.forNode(nodeId);
     const ssh = await this.#transport.connect(target);
     try { return await installMihomoOn(this.#transport, ssh); }
-    finally { ssh.end(); }
+    finally { await ssh.end(); }
   }
 
   async uninstallMihomo(nodeId: string): Promise<MihomoDetection> {
     const target = await this.#targets.forNode(nodeId);
     const ssh = await this.#transport.connect(target);
     try { return await uninstallMihomoOn(this.#transport, ssh, target); }
-    finally { ssh.end(); }
+    finally { await ssh.end(); }
   }
 
   private async runComponentDeployment(taskId: string): Promise<void> {
@@ -430,7 +450,7 @@ export class SshDeploymentService {
     const emit = (
       step: ComponentDeployStatus['step'], status: ComponentDeployStatus['status'],
       message: string, progress: number,
-      patch: Partial<Pick<ComponentDeployStatus, 'beforeVersion' | 'afterVersion' | 'errorCode'>> = {},
+      patch: Partial<Pick<ComponentDeployStatus, 'beforeVersion' | 'afterVersion' | 'errorCode' | 'diagnostics'>> = {},
     ) => this.updateComponentStatus(taskId, {
       step, status, message, progress, ...patch,
       ...(status === 'success' || status === 'error' || status === 'cancelled' ? { finishedAt: Date.now() } : {}),
@@ -495,7 +515,10 @@ export class SshDeploymentService {
       await emit('done', 'success', `${component} ${operation} 已完成并通过验证`, 100, afterVersion ? { afterVersion } : {});
     } catch (error) {
       if ((await this.requireComponentDeployment(taskId)).status === 'cancelled') return;
-      await emit('done', 'error', error instanceof Error ? error.message : '部署任务失败', 100, { errorCode: 'DEPLOYMENT_FAILED' });
+      await emit('done', 'error', error instanceof Error ? error.message : '部署任务失败', 100, {
+        errorCode: error instanceof AgentDeploymentError ? error.code : 'DEPLOYMENT_FAILED',
+        ...(error instanceof AgentDeploymentError ? { diagnostics: error.diagnostics } : {}),
+      });
     } finally {
       this.clearOneTimeCredential(nodeId);
     }
@@ -515,7 +538,7 @@ export class SshDeploymentService {
       const repaired = await this.#transport.execWithPrivilegeFallback(ssh, target, repairCommand(type));
       if (repaired.code !== 0) throw new Error((repaired.stderr || repaired.stdout).trim() || `${type} 修复检查失败`);
       return await detectKernel(this.#transport, ssh, type);
-    } finally { ssh.end(); }
+    } finally { await ssh.end(); }
   }
 
   private async upgradeKernel(nodeId: string, type: KernelType): Promise<KernelDetection> {
@@ -526,7 +549,7 @@ export class SshDeploymentService {
       const upgraded = await this.#transport.execWithPrivilegeFallback(ssh, target, upgradeCommand(type));
       if (upgraded.code !== 0) throw new Error((upgraded.stderr || upgraded.stdout).trim() || `${type} 升级失败`);
       return await detectKernel(this.#transport, ssh, type);
-    } finally { ssh.end(); }
+    } finally { await ssh.end(); }
   }
 
   private async reinstallKernel(nodeId: string, type: KernelType, options: DeployOptions): Promise<KernelDetection> {
@@ -536,14 +559,16 @@ export class SshDeploymentService {
       const reinstalled = await this.#transport.execWithPrivilegeFallback(ssh, target, reinstallCommand(type, options.preserveConfig));
       if (reinstalled.code !== 0) throw new Error((reinstalled.stderr || reinstalled.stdout).trim() || `${type} 重装失败`);
       return await detectKernel(this.#transport, ssh, type);
-    } finally { ssh.end(); }
+    } finally { await ssh.end(); }
   }
 
   private async waitForAgentDeployment(nodeId: string): Promise<void> {
     for (let attempt = 0; attempt < 240; attempt += 1) {
       const status = this.#progress.get(nodeId);
-      if (status?.status === 'success') return;
-      if (status?.status === 'error') throw new Error(status.message);
+      if (status?.status === 'success' && status.step === 'done') return;
+      if (status?.status === 'error') throw status.errorCode
+        ? new AgentDeploymentError(status.errorCode, status.message, status.diagnostics)
+        : new Error(status.message);
       await new Promise(resolve => setTimeout(resolve, 500));
     }
     throw new Error('Agent 部署验证超时');
@@ -555,36 +580,44 @@ export class SshDeploymentService {
    * the service restarted, and its health endpoint verified.
    */
   async configureKernels(nodeId: string, kernels: readonly NodeKernelConfig[]): Promise<NodeConfig> {
-    const node = await this.#targets.findNode(nodeId);
-    if (!node.agent?.deployed) throw new Error('请先部署 Agent，再配置监控内核');
-    const target = await this.#targets.forNode(nodeId, kernels);
-    const ssh = await this.#transport.connect(target);
-    let replaced = false;
-    try {
-      for (const kernel of kernels) {
-        const path = kernel.configPath ?? DEFAULT_CONFIG_PATHS[kernel.type];
-        const checked = await this.#transport.exec(ssh, `test -r ${shellQuote(path)}`);
-        if (checked.code !== 0) throw new Error(`${kernel.type} 监控路径不可读: ${path}`);
+    return withNodeMutation(nodeId, async () => {
+      const node = await this.#targets.findNode(nodeId);
+      if (!node.agent?.deployed) throw new Error('请先部署 Agent，再配置监控内核');
+      const target = await this.#targets.forNode(nodeId, kernels);
+      const ssh = await this.#transport.connect(target);
+      let replaced = false;
+      let rollback: (() => Promise<unknown>) | undefined;
+      try {
+        for (const kernel of kernels) {
+          const path = kernel.configPath ?? DEFAULT_CONFIG_PATHS[kernel.type];
+          const checked = await this.#transport.exec(ssh, `test -r ${shellQuote(path)}`);
+          if (checked.code !== 0) throw new Error(`${kernel.type} 监控路径不可读: ${path}`);
+        }
+        const runtime = await detectAgentService(this.#transport, ssh);
+        const config = shellQuote(runtime.configPath);
+        const backup = shellQuote(`${runtime.configPath}.rollback`);
+        const restart = runtime.mode === 'system' ? 'systemctl restart miobridge-agent.service' : userSystemctl('restart', 'miobridge-agent.service');
+        const stop = runtime.mode === 'system' ? 'systemctl stop miobridge-agent.service' : userSystemctl('stop', 'miobridge-agent.service');
+        const execute = (command: string) => runtime.mode === 'system' ? this.#transport.execRoot(ssh, target, command) : this.#transport.exec(ssh, command);
+        rollback = () => execute(`if [ -f ${backup} ]; then cp ${backup} ${config}; ${restart} || true; else rm -f ${config}; ${stop} || true; fi`);
+        replaced = await replaceAgentConfig(this.#transport, ssh, agentYaml(target, kernels), target);
+        await startAgent(this.#transport, ssh, target);
+        await verifyAgent(this.#transport, ssh, target);
+        const updated = await this.composition.repository.update(nodeId, current => ({
+          ...current,
+          kernels: [...kernels],
+          ...(current.ssh ? { ssh: { ...current.ssh, hostKey: target.ssh.hostKey } } : {}),
+          ...(current.agent ? { agent: { ...current.agent, status: 'running' as const } } : {}),
+        }));
+        await execute(`rm -f ${backup}`);
+        return updated;
+      } catch (error) {
+        if (replaced) await rollback?.().catch(() => undefined);
+        throw error;
+      } finally {
+        await ssh.end();
       }
-      replaced = await replaceAgentConfig(this.#transport, ssh, agentYaml(target, kernels));
-      await startAgent(this.#transport, ssh, target);
-      await verifyAgent(this.#transport, ssh, target);
-      const updated = await this.composition.repository.update(nodeId, current => ({
-        ...current,
-        kernels: [...kernels],
-        ...(current.ssh ? { ssh: { ...current.ssh, hostKey: target.ssh.hostKey } } : {}),
-        ...(current.agent ? { agent: { ...current.agent, status: 'running' as const } } : {}),
-      }));
-      await this.#transport.exec(ssh, 'rm -f "$HOME/.config/miobridge-agent/agent.yaml.rollback"');
-      return updated;
-    } catch (error) {
-      if (replaced) {
-        await this.#transport.exec(ssh, `if [ -f "$HOME/.config/miobridge-agent/agent.yaml.rollback" ]; then cp "$HOME/.config/miobridge-agent/agent.yaml.rollback" "$HOME/.config/miobridge-agent/agent.yaml"; ${userSystemctl('restart', 'miobridge-agent.service')} || true; else rm -f "$HOME/.config/miobridge-agent/agent.yaml"; ${userSystemctl('stop', 'miobridge-agent.service')} || true; fi`).catch(() => undefined);
-      }
-      throw error;
-    } finally {
-      ssh.end();
-    }
+    });
   }
 
   private async runDeployment(
@@ -592,19 +625,22 @@ export class SshDeploymentService {
     kernels: NodeKernelConfig[],
     deploymentId: string,
     startedAt: number,
+    release: () => void,
   ): Promise<void> {
     let target: SshTarget | undefined;
     let ssh: DeploymentConnection | undefined;
-    const emit = (step: DeployStatus['step'], status: DeployStatus['status'], message: string, progress: number) => {
+    const emit = (step: DeployStatus['step'], status: DeployStatus['status'], message: string, progress: number, failure?: AgentDeploymentError) => {
       if (this.#progress.get(node.id)?.deploymentId === deploymentId) {
-        this.setProgress({ nodeId: node.id, deploymentId, step, status, message, progress, startedAt });
+        this.setProgress({ nodeId: node.id, deploymentId, step, status, message, progress, startedAt,
+          ...(failure ? { errorCode: failure.code, diagnostics: failure.diagnostics } : {}),
+        });
       }
     };
     try {
       emit('connect', 'running', '正在建立 SSH 连接', 5);
       target = await this.#targets.forNode(node.id, kernels);
       ssh = await this.#transport.connect(target);
-      emit('connect', 'success', 'SSH 连接成功', 15);
+      emit('connect', 'running', 'SSH 连接成功', 15);
 
       const monitored: NodeKernelConfig[] = [];
       for (const kernel of kernels) {
@@ -614,27 +650,42 @@ export class SshDeploymentService {
         const readable = detected.installed ? await this.#transport.exec(ssh, `test -r ${shellQuote(configPath)}`) : { code: 1 };
         if (detected.installed && readable.code === 0) monitored.push({ ...kernel, configPath });
       }
-      emit('kernel', 'success', `${monitored.length} 个已安装且可读的内核将由 Agent 监控；未安装内核不会自动安装`, 50);
+      emit('kernel', 'running', `${monitored.length} 个已安装且可读的内核将由 Agent 监控；未安装内核不会自动安装`, 50);
 
       emit('agent', 'running', '下载并安装已校验 Agent', 60);
       await installAgent(this.#transport, ssh, target, monitored);
-      emit('agent', 'success', 'Agent 已安装', 80);
+      emit('agent', 'running', 'Agent 已安装', 80);
 
       emit('start', 'running', '启动 Agent 服务', 85);
-      await startAgent(this.#transport, ssh, target);
-      emit('start', 'success', 'Agent 已启动', 92);
+      try { await startAgent(this.#transport, ssh, target); }
+      catch (error) {
+        const original = error instanceof Error ? error.message : 'Agent 启动失败';
+        const evidence: AgentDeploymentDiagnostics = await diagnoseAgentOn(this.#transport, ssh, target).catch(() => ({}));
+        const diagnostics = { ...evidence, healthError: redactAgentDiagnostic(original, [node.secret, target.ssh.password, target.ssh.privateKey]) };
+        if (diagnostics.journal) diagnostics.journal = redactAgentDiagnostic(diagnostics.journal, [node.secret, target.ssh.password, target.ssh.privateKey]);
+        const code = diagnostics.portConflict || /EADDRINUSE|address already in use/i.test(original) ? 'PORT_CONFLICT' : /linger|持久运行/i.test(original) ? 'LINGER_DISABLED' : 'SERVICE_NOT_STARTED';
+        throw new AgentDeploymentError(code, `${diagnostics.healthError}${diagnostics.journal ? `\n${diagnostics.journal}` : ''}`, diagnostics);
+      }
+      emit('start', 'running', 'Agent 已启动', 92);
 
-      emit('verify', 'running', '验证 Agent 健康状态', 95);
-      await verifyAgent(this.#transport, ssh, target);
-      emit('verify', 'success', 'Agent 健康检查通过', 98);
+      emit('verify', 'running', '断开部署会话，等待稳定期并验收公开健康接口与版本', 95);
+      const deployedSession = ssh;
+      ssh = undefined;
+      const accepted = await this.#acceptance.verify({ ...node, port: target.agentPort }, CLI_VERSION, {
+        disconnect: () => deployedSession.end(),
+        diagnose: signal => diagnoseAgent(this.#transport, target!, signal),
+        sensitiveValues: [target.ssh.password ?? '', target.ssh.privateKey ?? ''],
+      });
+      emit('verify', 'running', 'Agent 断线存活与版本验收通过', 98);
 
       await this.completeNode(node.id, deploymentId, current => ({
         ...current,
         kernels: monitored,
         ...(current.ssh ? { ssh: { ...current.ssh, hostKey: target!.ssh.hostKey } } : {}),
         agent: {
+          ...current.agent,
           deployed: true,
-          version: process.env.MIOBRIDGE_BUILD_VERSION ?? current.agent?.version ?? '',
+          version: accepted.version,
           status: 'running',
           lastDeploy: new Date().toISOString(),
           port: target!.agentPort,
@@ -642,11 +693,12 @@ export class SshDeploymentService {
       }));
       emit('done', 'success', `Agent 已部署到节点 ${node.name}`, 100);
     } catch (error) {
-      const message = error instanceof Error ? error.message : '部署失败';
+      const message = redactAgentDiagnostic(error instanceof Error ? error.message : '部署失败', [node.secret, target?.ssh.password, target?.ssh.privateKey]);
       await this.completeNode(node.id, deploymentId, current => ({
         ...current,
         ...(target && current.ssh ? { ssh: { ...current.ssh, hostKey: target.ssh.hostKey } } : {}),
         agent: {
+          ...current.agent,
           deployed: current.agent?.deployed ?? false,
           version: current.agent?.version ?? '',
           status: 'error',
@@ -655,10 +707,10 @@ export class SshDeploymentService {
         },
       }));
       const current = this.#progress.get(node.id);
-      emit(current?.step ?? 'connect', 'error', message, current?.progress ?? 0);
+      emit(current?.step ?? 'connect', 'error', message, current?.progress ?? 0, error instanceof AgentDeploymentError ? error : undefined);
     } finally {
-      ssh?.end();
-      this.clearOneTimeCredential(node.id);
+      try { await ssh?.end(); }
+      finally { this.clearOneTimeCredential(node.id); release(); }
     }
   }
 
@@ -745,6 +797,7 @@ export class SshDeploymentService {
       ...(task.afterVersion ? { afterVersion: task.afterVersion } : {}),
       ...(task.retryOf ? { retryOf: task.retryOf } : {}),
       ...(task.errorCode ? { errorCode: task.errorCode } : {}),
+      ...(task.diagnostics ? { diagnostics: task.diagnostics } : {}),
     };
   }
 

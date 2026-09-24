@@ -1,6 +1,6 @@
 import type {
   ConfigApplyResult, ConfigValidationResult, FullConfig, LocalLogEntry, LocalLogQuery,
-  LocalLogResult, MetricsSnapshot, StatusInfo, UpdateResult,
+  LocalLogResult, MetricsSnapshot, NodeDiagnosticsReport, StatusInfo, UpdateResult,
 } from '@miobridge/core';
 import { parse as parseYaml, stringify as stringifyYaml } from 'yaml';
 import { formatSetupStatus, type DependencySetupService } from './setup/service.js';
@@ -41,6 +41,11 @@ export interface CliDependencies {
     upgrade(): Promise<string>;
     uninstall(purge: boolean): Promise<string>;
   };
+  readonly nodeMaintenance?: {
+    diagnose(nodeId: string): Promise<NodeDiagnosticsReport>;
+    repair(nodeId: string): Promise<NodeDiagnosticsReport>;
+    migrate(nodeId: string, runtimeUser: string): Promise<NodeDiagnosticsReport>;
+  };
   readonly dashboard?: {
     foreground(): Promise<{ readonly exitCode: number; readonly healthUrl: string }>;
     daemon?(action: DashboardDaemonAction): Promise<DashboardDaemonStatus>;
@@ -54,6 +59,8 @@ type ParsedCommand =
   | { readonly kind: 'setup'; readonly assumeYes: boolean; readonly localNode?: boolean }
   | { readonly kind: 'nodes-configure'; readonly localNode?: boolean }
   | { readonly kind: 'nodes-agent-config'; readonly output: string }
+  | { readonly kind: 'nodes-diagnose' | 'nodes-repair'; readonly nodeId: string; readonly json: boolean }
+  | { readonly kind: 'nodes-migrate-service'; readonly nodeId: string; readonly user: string; readonly json: boolean }
   | { readonly kind: 'upgrade' }
   | { readonly kind: 'uninstall'; readonly purge: boolean }
   | { readonly kind: 'dashboard-foreground' }
@@ -78,6 +85,12 @@ Commands:
                   Enable or remove the persisted local-node profile
   nodes agent-config --output <agent.yaml>
                   Write the local Agent bootstrap configuration with mode 0600
+  nodes diagnose <id> [--json]
+                  Inspect Agent service, permissions, ports and connectivity
+  nodes repair <id> [--json]
+                  Repair supported Agent service issues and verify recovery
+  nodes migrate-service <id> --user <nonroot> [--json]
+                  Migrate an Agent to a system service with rollback on failure
   upgrade         Upgrade this CLI to the latest verified release
   uninstall [--purge]
                   Remove this CLI; --purge also removes configuration and data
@@ -144,6 +157,24 @@ export function parseCommand(args: readonly string[]): ParsedCommand {
   if (args[0] === 'nodes' && args[1] === 'agent-config') {
     if (args.length === 4 && args[2] === '--output' && args[3]) return { kind: 'nodes-agent-config', output: args[3] };
     throw new Error('Usage: miobridge nodes agent-config --output <agent.yaml>');
+  }
+  if (args[0] === 'nodes' && (args[1] === 'diagnose' || args[1] === 'repair' || args[1] === 'migrate-service')) {
+    const action = args[1];
+    const nodeId = args[2];
+    if (!isOptionValue(nodeId)) throw new Error(`Usage: miobridge nodes ${action} <id>${action === 'migrate-service' ? ' --user <nonroot>' : ''} [--json]`);
+    let json = false;
+    let user: string | undefined;
+    for (let index = 3; index < args.length; index++) {
+      const argument = args[index];
+      if (argument === '--json' && !json) json = true;
+      else if (action === 'migrate-service' && argument === '--user' && user === undefined && isOptionValue(args[index + 1])) user = args[++index];
+      else throw new Error(`Unexpected argument: ${argument}`);
+    }
+    if (action === 'migrate-service') {
+      if (!user || !/^[a-z_][a-z0-9_-]*[$]?$/i.test(user) || user === 'root') throw new Error('--user must name an existing non-root runtime user');
+      return { kind: 'nodes-migrate-service', nodeId, user, json };
+    }
+    return { kind: action === 'diagnose' ? 'nodes-diagnose' : 'nodes-repair', nodeId, json };
   }
   if (args[0] === 'nodes') {
     throw new Error(args.length === 1 ? 'Missing nodes action' : `Unknown nodes action: ${args[1]}`);
@@ -311,6 +342,21 @@ export async function runCli(args: readonly string[], dependencies: CliDependenc
       dependencies.output.stdout(`Agent configuration written to ${command.output}`);
       return 0;
     }
+    if (command.kind === 'nodes-diagnose' || command.kind === 'nodes-repair' || command.kind === 'nodes-migrate-service') {
+      if (!dependencies.nodeMaintenance) throw new Error('Node maintenance adapters are unavailable');
+      const report = command.kind === 'nodes-migrate-service'
+        ? await dependencies.nodeMaintenance.migrate(command.nodeId, command.user)
+        : command.kind === 'nodes-repair'
+          ? await dependencies.nodeMaintenance.repair(command.nodeId)
+          : await dependencies.nodeMaintenance.diagnose(command.nodeId);
+      dependencies.output.stdout(command.json ? JSON.stringify(report) : [
+        `Node: ${report.nodeId} — ${report.healthy ? 'healthy' : 'needs attention'}`,
+        `Service: ${report.serviceMode} · Runtime user: ${report.runtimeUser} · Agent: ${report.version || 'unknown'}`,
+        `Checked: ${report.checkedAt}`,
+        ...report.checks.map(check => `[${check.status}] ${check.label}: ${check.reason}${check.suggestion ? `\n  Suggestion: ${check.suggestion}` : ''}`),
+      ].join('\n'));
+      return report.healthy ? 0 : 1;
+    }
     if (command.kind === 'upgrade') {
       if (!dependencies.maintenance) throw new Error('CLI maintenance adapters are unavailable');
       dependencies.output.stdout(await dependencies.maintenance.upgrade());
@@ -377,7 +423,10 @@ export async function runCli(args: readonly string[], dependencies: CliDependenc
     }
     return 0;
   } catch (error) {
-    dependencies.output.stderr(`Error: ${error instanceof Error ? error.message : String(error)}`);
+    const message = error instanceof Error ? error.message : String(error);
+    if ((command.kind === 'nodes-diagnose' || command.kind === 'nodes-repair' || command.kind === 'nodes-migrate-service') && command.json) {
+      dependencies.output.stdout(JSON.stringify({ success: false, error: message }));
+    } else dependencies.output.stderr(`Error: ${message}`);
     return 1;
   }
 }

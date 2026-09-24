@@ -4,6 +4,7 @@ import type { NodeCoreComposition } from '../../composition.js';
 import type { DashboardServerDependencies, OperationsResult } from './composition.js';
 import { SshDeploymentService } from './sshDeployment.js';
 import { SubscriptionJobService } from '../../operations/subscriptionJobs.js';
+import { createNodeMaintenanceService } from './ssh/maintenance.js';
 
 function result<T>(data: T): OperationsResult<T> {
   return { success: true, data, timestamp: new Date().toISOString() };
@@ -29,6 +30,7 @@ function localRuntimeUser(): string {
 export function createNodeDashboardDependencies(composition: NodeCoreComposition): DashboardServerDependencies {
   const deployment = new SshDeploymentService(composition);
   const subscriptions = new SubscriptionJobService(composition);
+  const maintenance = createNodeMaintenanceService(composition);
   return {
     core: composition.core,
     subscription: {
@@ -102,6 +104,15 @@ export function createNodeDashboardDependencies(composition: NodeCoreComposition
       },
       async preflightNode(body) {
         return result(await deployment.preflight(body));
+      },
+      async diagnoseNode(nodeId) {
+        return result(await maintenance.diagnose(await findNode(composition, nodeId)));
+      },
+      async repairNode(nodeId) {
+        return result(await maintenance.repair(await findNode(composition, nodeId)));
+      },
+      async migrateNodeService(nodeId, runtimeUser) {
+        return result(await maintenance.migrate(await findNode(composition, nodeId), runtimeUser));
       },
       async updateNode(nodeId, body) {
         const input = inputObject(body);
@@ -259,7 +270,7 @@ export function createNodeDashboardDependencies(composition: NodeCoreComposition
         };
         const states = cluster.nodes.filter(node => !allowed || allowed.has(node.nodeId)).flatMap(node => {
           const agentInstalled = node.agent?.deployed === true;
-          const agentRuntime = !agentInstalled ? 'not_applicable' : node.online ? 'running' : node.agent?.status === 'stopped' ? 'stopped' : node.agent?.status === 'error' ? 'error' : 'degraded';
+          const agentRuntime = !agentInstalled ? 'not_applicable' : (node.health ? node.health === 'online' : node.online) ? 'running' : node.agent?.status === 'stopped' ? 'stopped' : node.agent?.status === 'error' ? 'error' : 'degraded';
           const agent = {
             nodeId: node.nodeId, component: 'agent',
             ...taskState(node.nodeId, 'agent', agentInstalled ? 'installed' : 'not_installed'),

@@ -103,6 +103,24 @@ CLI 通信。CLI 二进制统一负责 API 与静态文件服务。
 
 ## 多内核 Agent
 
+节点详情的 **Agent** 标签页可运行体检，逐项查看 Linger、开机启动、运行状态、
+重启次数、版本和公开健康接口。修复需要显式点击，完成后会断开 SSH 并独立验收。
+也可以通过 CLI 操作：
+
+```bash
+miobridge nodes diagnose <node-id> --json
+miobridge nodes repair <node-id>
+miobridge nodes migrate-service <node-id> --user <existing-non-root-user>
+```
+
+系统级服务迁移是可选操作，需要 root 或 sudo 权限。先在临时回环端口验证新服务，
+再切换；任何验收失败均回滚。运行文件保存在指定用户的 `~/.config/miobridge/`，
+后续升级、修复与卸载会识别其服务模式。支持回环候选服务的 Agent 版本是迁移前提，
+旧 Agent 会提示先升级。现有节点不会自动迁移。
+
+心跳首次失败显示“波动”，连续 3 次失败显示“异常”，5 次失败显示“离线”；
+连续 2 次成功后恢复在线，最近异常原因与时间仍可查看。
+
 新增或编辑子节点时，MioBridge 会先通过 SSH 检测 sing-box、Xray 和 V2Ray。
 选择对话框会分别显示各内核的已安装版本与默认配置路径。至少选择一个内核；
 Agent 部署只保留已安装且配置可读的内核，缺失内核绝不会随 Agent 自动安装；

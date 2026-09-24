@@ -4,6 +4,8 @@ import { startAgent } from '../../src/dashboard/server/ssh/agent.js';
 import { SshTransport } from '../../src/dashboard/server/ssh/transport.js';
 import type { DeploymentConnection, SshTarget } from '../../src/dashboard/server/ssh/types.js';
 import type { NodeCoreComposition } from '../../src/composition.js';
+import { CLI_VERSION } from '../../src/command.js';
+import { MioBridgeCore, type NodeConfig } from '@miobridge/core';
 
 describe('Agent release distribution', () => {
   it('maps remote architectures to versioned release artifacts', () => {
@@ -61,7 +63,7 @@ describe('local deployment transport', () => {
         id: 'local', name: '本机节点', host: '127.0.0.1', secret: 'secret', location: '本机', enabled: true,
         kernels: [{ type: 'sing-box' }], agent: { deployed: true, version: '1.2.0', status: 'running', lastDeploy: '', port: 3001 },
       }] },
-      core: { state: { get: async () => null } },
+      core: { createAgentAcceptance: MioBridgeCore.prototype.createAgentAcceptance, state: { get: async () => null } },
     } as unknown as NodeCoreComposition;
     const service = new SshDeploymentService(composition, { runLocal: async command => {
       commands.push(command);
@@ -97,9 +99,9 @@ describe('local deployment transport', () => {
           return node;
         },
       },
-      core: { state: { get: async () => null } },
+      core: { createAgentAcceptance: MioBridgeCore.prototype.createAgentAcceptance, state: { get: async () => null } },
     } as unknown as NodeCoreComposition;
-    const service = new SshDeploymentService(composition, { runLocal: async command => {
+    const service = new SshDeploymentService(composition, { fetch: (async () => Response.json({ status: 'healthy', version: CLI_VERSION })) as typeof fetch, acceptance: { wait: async () => {} }, runLocal: async command => {
       commands.push(command);
       if (command === 'uname -m') return { stdout: 'x86_64\n', stderr: '', code: 0 };
       if (command === 'id -un') return { stdout: 'root\n', stderr: '', code: 0 };
@@ -129,7 +131,7 @@ describe('local deployment transport', () => {
     };
     const composition = {
       repository: { list: async () => [node] },
-      core: { state: { get: async () => null } },
+      core: { createAgentAcceptance: MioBridgeCore.prototype.createAgentAcceptance, state: { get: async () => null } },
     } as unknown as NodeCoreComposition;
     const directCommands: string[] = [];
     const direct = new SshDeploymentService(composition, { runLocal: async command => {
@@ -159,7 +161,7 @@ describe('local deployment transport', () => {
     };
     const composition = {
       repository: { list: async () => [node] },
-      core: { state: { get: async (key: string) => key === 'ssh-credentials/local' ? 'local-password' : null } },
+      core: { createAgentAcceptance: MioBridgeCore.prototype.createAgentAcceptance, state: { get: async (key: string) => key === 'ssh-credentials/local' ? 'local-password' : null } },
     } as unknown as NodeCoreComposition;
     const commands: string[] = [];
     const inputs: Array<string | undefined> = [];
@@ -184,5 +186,98 @@ describe('local deployment transport', () => {
     expect(commands[2]).toContain("sudo -S -p '' bash -lc");
     expect(commands[2]).toContain('raw.githubusercontent.com/233boy/sing-box/main/install.sh');
     expect(inputs[2]).toBe('local-password\n');
+  });
+});
+
+describe('deployment survives its SSH session', () => {
+  function fixture(health: () => Promise<Response>, startFailure = '') {
+    const events: string[] = [];
+    const commands: string[] = [];
+    let node: NodeConfig = {
+      id: 'remote', name: 'Remote', host: 'remote.example', secret: 'node-secret', kernels: [], location: '', enabled: true,
+      ssh: { user: 'deploy', authMethod: 'password', credentialRef: 'ssh/remote', hostKey: 'known' },
+      agent: { deployed: false, version: '', status: 'not_deployed', lastDeploy: '', port: 3001 },
+    };
+    const values = new Map<string, string>();
+    const composition = {
+      repository: { list: async () => [node], update: async (_id: string, update: (current: NodeConfig) => NodeConfig) => (node = update(node)) },
+      core: { createAgentAcceptance: MioBridgeCore.prototype.createAgentAcceptance, state: {
+        get: async (key: string) => key === 'ssh/remote' ? 'ssh-password' : values.get(key) ?? null,
+        set: async (key: string, value: string) => { values.set(key, value); },
+        listKeys: async (prefix: string) => [...values.keys()].filter(key => key.startsWith(prefix)),
+      } },
+    } as unknown as NodeCoreComposition;
+    const service = new SshDeploymentService(composition, {
+      acceptance: { wait: async () => { events.push('stabilized'); } },
+      fetch: (async () => { events.push('health'); return health(); }) as typeof fetch,
+      connect: async () => {
+        events.push('connect');
+        return {
+          async run(command) {
+            commands.push(command);
+            if (command === 'uname -m') return { stdout: 'x86_64', stderr: '', code: 0 };
+            if (command === 'id -un') return { stdout: 'deploy', stderr: '', code: 0 };
+            if (command === 'printf %s "$HOME"') return { stdout: '/home/deploy', stderr: '', code: 0 };
+            if (command.startsWith('loginctl show-user')) return { stdout: 'yes', stderr: '', code: 0 };
+            if (command.startsWith('test -x /usr/local') || command.startsWith("test -x '/usr/local")) return { stdout: '', stderr: '', code: 1 };
+            if (startFailure && command.includes("'enable' '--now'")) return { stdout: '', stderr: startFailure, code: 1 };
+            return { stdout: '', stderr: '', code: 0 };
+          },
+          async end() { await Promise.resolve(); events.push('disconnect'); },
+        };
+      },
+    });
+    return { service, events, commands, node: () => node };
+  }
+
+  async function settled(service: SshDeploymentService) {
+    for (let i = 0; i < 100; i++) {
+      const status = service.getProgress('remote');
+      if (status?.step === 'done' || status?.status === 'error') return status;
+      await new Promise(resolve => setTimeout(resolve, 5));
+    }
+    throw new Error('deployment did not settle');
+  }
+
+  it('marks success only after the SSH session closes and public acceptance passes', async () => {
+    const deployment = fixture(async () => Response.json({ status: 'healthy', version: CLI_VERSION }));
+    await deployment.service.startDeployment('remote');
+    expect(await settled(deployment.service)).toMatchObject({ step: 'done', status: 'success' });
+    expect(deployment.events).toEqual(['connect', 'disconnect', 'stabilized', 'health']);
+    expect(deployment.node().agent).toMatchObject({ status: 'running', version: CLI_VERSION });
+    expect(deployment.commands.some(command => command.includes('curl -s -o /dev/null'))).toBe(false);
+  });
+
+  it('fails deployment on a version mismatch without reporting a running Agent', async () => {
+    const deployment = fixture(async () => Response.json({ status: 'healthy', version: '0.0.1' }));
+    await deployment.service.startDeployment('remote');
+    expect(await settled(deployment.service)).toMatchObject({ status: 'error', errorCode: 'VERSION_MISMATCH', message: expect.stringContaining('0.0.1') });
+    expect(deployment.node().agent?.status).toBe('error');
+  });
+
+  it('preserves startup diagnostics and never calls acceptance a success', async () => {
+    const deployment = fixture(async () => Response.json({ status: 'healthy', version: CLI_VERSION }), 'invalid config node-secret password=ssh-password');
+    await deployment.service.startDeployment('remote');
+    const result = await settled(deployment.service);
+    expect(result).toMatchObject({ status: 'error', errorCode: 'SERVICE_NOT_STARTED', message: expect.stringContaining('invalid config') });
+    expect(JSON.stringify(result)).not.toMatch(/node-secret|ssh-password/);
+    expect(deployment.node().agent?.status).toBe('error');
+  });
+
+  it.each(['install', 'upgrade', 'repair'])('keeps an Agent %s task running until independent acceptance finishes', async operation => {
+    let releaseHealth!: (response: Response) => void;
+    const deployment = fixture(() => new Promise<Response>(resolve => { releaseHealth = resolve; }));
+    const { taskId } = await deployment.service.startComponentDeployment('remote', 'agent', operation);
+    for (let i = 0; i < 100 && !deployment.events.includes('health'); i++) await new Promise(resolve => setTimeout(resolve, 5));
+    expect(deployment.events).toContain('health');
+    await new Promise(resolve => setTimeout(resolve, 550));
+    expect(await deployment.service.getComponentDeployment(taskId)).toMatchObject({ status: 'running' });
+    expect(deployment.service.getProgress('remote')).toMatchObject({ status: 'running', step: 'verify' });
+    await expect(deployment.service.startDeployment('remote')).rejects.toThrow('节点正在部署或维护');
+    await expect(deployment.service.agentAction('remote', 'stop')).rejects.toThrow('节点正在部署或维护');
+    await expect(deployment.service.configureKernels('remote', [])).rejects.toThrow('节点正在部署或维护');
+    releaseHealth(Response.json({ status: 'healthy', version: '0.0.1' }));
+    for (let i = 0; i < 150 && (await deployment.service.getComponentDeployment(taskId))?.status === 'running'; i++) await new Promise(resolve => setTimeout(resolve, 5));
+    expect(await deployment.service.getComponentDeployment(taskId)).toMatchObject({ status: 'error', errorCode: 'VERSION_MISMATCH' });
   });
 });

@@ -7,6 +7,10 @@ metadata:
 
 # Bug Fixes
 
+- 2026-09-24: Agent deployment success requires closed SSH plus delayed public
+  HMAC health/version acceptance; intermediate step success is not completion.
+  Heartbeat failure thresholds are 1/3/5 with two successes required to recover;
+  retain the last good snapshot and timestamped diagnostic history.
 - 2026-09-22: Remote Agent deployment now enables and verifies systemd lingering,
   heartbeats use lightweight `/health`, and HMAC replay protection distinguishes
   exact replays from legitimate same-millisecond requests. Unreachable nodes with
