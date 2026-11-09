@@ -1,3 +1,4 @@
+import { cliLanguage, localized } from './locale.js';
 import type {
   ConfigApplyResult, ConfigValidationResult, FullConfig, LocalLogEntry, LocalLogQuery,
   LocalLogResult, MetricsSnapshot, NodeDiagnosticsReport, StatusInfo, UpdateResult,
@@ -29,6 +30,7 @@ export interface CliOutput {
 }
 
 export interface CliDependencies {
+  readonly extraCommand?: (args: readonly string[]) => Promise<string | undefined>;
   readonly createCore: () => CliCore;
   readonly output: CliOutput;
   readonly version?: string;
@@ -95,7 +97,14 @@ Commands:
   uninstall [--purge]
                   Remove this CLI; --purge also removes configuration and data
   update [--json] Generate subscription artifacts
-  status [--json] Show headless runtime status
+  nodes list [--json] List server IDs, names, addresses and Agent versions
+  dashboard restart Restart the dashboard service
+  dashboard url    Print the dashboard address
+  auth show        Print the administrator token and subscription address
+  auth rotate [--subscription] Rotate administrator or subscription token
+  subscription url [--qr] Print subscription address and optional terminal QR
+  doctor           Diagnose installation, services, ports and connectivity
+  status [--json] Show runtime and dashboard status
   config path     Show the local runtime configuration path
   config show [--json]
                   Show the effective local configuration
@@ -118,7 +127,39 @@ Commands:
 
 Options:
   -h, --help      Show help
-  -v, --version   Show version`;
+  -v, --version   Show version
+
+Exit codes: 0 = success, 1 = operation failed, 2 = invalid arguments, 3 = partial generation`;
+
+export const chineseHelpText = `MioBridge ${CLI_VERSION}
+用法：miobridge <命令> [选项]
+
+  setup [--yes] [--local-node|--no-local-node] 安装依赖并配置本机
+  nodes configure [--local-node|--no-local-node] 配置本机角色
+  nodes list [--json]                        列出服务器 ID、名称、地址和版本
+  nodes diagnose <ID|名称|前缀> [--json]      检查 Agent、权限、端口和连接
+  nodes repair <ID|名称|前缀> [--json]        修复 Agent 并验收
+  nodes migrate-service <id> --user <用户>   迁移系统服务（失败回滚）
+  nodes agent-config --output <agent.yaml>   导出本机 Agent 配置（0600）
+  dashboard foreground|start|stop|restart    前台运行或管理控制台服务
+  dashboard status [--json]                  查看服务状态和地址
+  dashboard url                             显示控制台地址
+  auth show                                 显示管理员令牌和订阅地址
+  auth rotate [--subscription]               轮换管理员或订阅令牌
+  subscription url [--qr]                    显示订阅地址或终端二维码
+  doctor                                    诊断服务、端口、依赖和网络
+  update [--json]                            生成订阅文件，输出警告
+  status [--json]                            查看服务器、控制台和订阅状态
+  config path|show|get <字段>|set <字段> <值> 查看或修改配置
+  config validate [--file <文件>] [--json]    验证配置
+  logs [--lines N] [--level LEVEL] [--follow] 查看控制台日志
+  metrics [--json]                           查看指标
+  upgrade                                   升级主控及本机 Agent
+  uninstall [--purge]                        卸载；--purge 同时清除配置和数据
+  -h, --help                                帮助
+  -v, --version                             版本
+
+退出码：0 成功；1 操作失败；2 参数错误；3 部分生成成功。`;
 
 export function parseCommand(args: readonly string[]): ParsedCommand {
   if (args.length === 0 || args[0] === 'help' || args[0] === '-h' || args[0] === '--help') {
@@ -269,14 +310,14 @@ function formatBoolean(value: boolean): string {
 export function formatStatus(status: StatusInfo): string {
   const lines = [
     `MioBridge ${status.version}`,
-    `Subscription: ${formatBoolean(status.subscriptionExists)}`,
-    `Raw sources: ${formatBoolean(status.rawExists)}`,
-    `Clash config: ${formatBoolean(status.clashExists)}`,
+    `${localized('Subscription', '订阅文件')}: ${formatBoolean(status.subscriptionExists)}`,
+    `${localized('Raw sources', '原始来源')}: ${formatBoolean(status.rawExists)}`,
+    `${localized('Clash config', 'Clash 配置')}: ${formatBoolean(status.clashExists)}`,
     `Mihomo: ${status.mihomoAvailable ? `available (${status.mihomoVersion ?? 'unknown'})` : 'unavailable'}`,
-    `Nodes: ${status.nodesCount ?? 0}`,
-    `Uptime: ${status.uptime}s`,
+    `${localized('Nodes', '代理节点')}: ${status.nodesCount ?? 0}`,
+    `${localized('Uptime', '运行时间')}: ${status.uptime}s`,
   ];
-  if (status.subscriptionLastUpdated) lines.push(`Last update: ${status.subscriptionLastUpdated}`);
+  if (status.subscriptionLastUpdated) lines.push(`${localized('Last update', '上次更新')}: ${status.subscriptionLastUpdated}`);
   return lines.join('\n');
 }
 
@@ -302,14 +343,21 @@ export function formatMetrics(metrics: MetricsSnapshot): string {
 export async function runCli(args: readonly string[], dependencies: CliDependencies): Promise<number> {
   let command: ParsedCommand;
   try {
+    const extra = await dependencies.extraCommand?.(args);
+    if (extra !== undefined) { dependencies.output.stdout(extra); return 0; }
+  } catch (error) {
+    dependencies.output.stderr(`${localized('Error', '错误')}: ${error instanceof Error ? error.message : String(error)}`);
+    return 1;
+  }
+  try {
     command = parseCommand(args);
   } catch (error) {
-    dependencies.output.stderr(`Error: ${error instanceof Error ? error.message : String(error)}\nRun "miobridge --help" for usage.`);
+    dependencies.output.stderr(`${localized('Error', '错误')}: ${error instanceof Error ? error.message : String(error)}\n${localized('Run "miobridge --help" for usage.', '运行 miobridge --help 查看用法。')}`);
     return 2;
   }
 
   if (command.kind === 'help') {
-    dependencies.output.stdout(helpText.replace(CLI_VERSION, dependencies.version ?? CLI_VERSION));
+    dependencies.output.stdout((cliLanguage() === 'zh' ? chineseHelpText : helpText).replace(CLI_VERSION, dependencies.version ?? CLI_VERSION));
     return 0;
   }
   if (command.kind === 'version') {
@@ -383,7 +431,7 @@ export async function runCli(args: readonly string[], dependencies: CliDependenc
     const core = dependencies.createCore();
     if (command.kind === 'update') {
       const result = await core.updateSubscription();
-      dependencies.output.stdout(command.json ? JSON.stringify(result) : `${result.message}\nNodes: ${result.nodesCount}\nClash generated: ${formatBoolean(result.clashGenerated)}\nBackup: ${result.backupCreated}`);
+      dependencies.output.stdout(command.json ? JSON.stringify(result) : `${result.message}\nNodes: ${result.nodesCount}\nClash generated: ${formatBoolean(result.clashGenerated)}\nBackup: ${result.backupCreated}${result.warnings?.length ? `\nWarnings:\n${result.warnings.join("\n")}` : ""}`);
       return result.success && result.clashGenerated ? 0 : result.success ? 3 : 1;
     }
     if (command.kind === 'status') {
@@ -426,7 +474,7 @@ export async function runCli(args: readonly string[], dependencies: CliDependenc
     const message = error instanceof Error ? error.message : String(error);
     if ((command.kind === 'nodes-diagnose' || command.kind === 'nodes-repair' || command.kind === 'nodes-migrate-service') && command.json) {
       dependencies.output.stdout(JSON.stringify({ success: false, error: message }));
-    } else dependencies.output.stderr(`Error: ${message}`);
+    } else dependencies.output.stderr(`${localized('Error', '错误')}: ${message}`);
     return 1;
   }
 }

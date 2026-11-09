@@ -28,6 +28,7 @@ export interface OperationsResult<T = unknown> {
 // ── Cluster ────────────────────────────────────────────────────────
 
 export interface DashboardOperationsPort {
+  readonly prepareLocal?: () => Promise<OperationsResult>;
   readonly getClusterStatus: () => Promise<OperationsResult>;
   readonly getClusterHealth: (nodeId?: string) => Promise<OperationsResult>;
   readonly triggerClusterUpdate: (nodeId?: string) => Promise<OperationsResult>;
@@ -98,7 +99,7 @@ export interface DashboardConvertPort {
 
 export interface DashboardSubscriptionPort {
   readonly preflight: () => Promise<OperationsResult>;
-  readonly start: (idempotencyKey?: string) => Promise<OperationsResult>;
+  readonly start: (idempotencyKey?: string, force?: boolean) => Promise<OperationsResult>;
   readonly list: () => Promise<OperationsResult>;
   readonly get: (jobId: string) => Promise<OperationsResult>;
   readonly retry: (jobId: string) => Promise<OperationsResult>;
@@ -113,6 +114,8 @@ export interface DashboardSubscriptionPort {
 // ── Composition ─────────────────────────────────────────────────────
 
 export interface DashboardServerDependencies {
+  readonly requestLogger?: import('@miobridge/core').CoreLogger;
+  readonly dispose?: () => void;
   readonly core: DashboardCorePort;
   readonly operations: DashboardOperationsPort;
   readonly config: DashboardConfigPort;

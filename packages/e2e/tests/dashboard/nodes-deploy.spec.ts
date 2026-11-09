@@ -167,7 +167,7 @@ async function fillPasswordNodeForm(page: Page, input: {
   tags?: string
   password?: string
 }): Promise<void> {
-  await page.getByLabel('节点名称').fill(input.name)
+  await page.getByLabel('服务器名称').fill(input.name)
   await page.getByLabel('主机地址').fill(input.host)
   await page.getByLabel('地域标签').fill(input.location ?? 'E2E')
   await page.getByLabel('密码', { exact: true }).fill(input.password ?? 'fixture-password')
@@ -189,7 +189,7 @@ async function createPasswordNode(page: Page, input: {
   tags?: string
 }): Promise<{ id: string; response: unknown }> {
   await page.goto('/nodes?intent=add')
-  await expect(page.getByRole('dialog', { name: '添加节点' })).toBeVisible()
+  await expect(page.getByRole('dialog', { name: '添加服务器' })).toBeVisible()
   await fillPasswordNodeForm(page, input)
 
   const preflightRequest = page.waitForRequest(request =>
@@ -211,7 +211,8 @@ async function createPasswordNode(page: Page, input: {
     request.method() === 'POST' && pathname(request.url()) === '/api/cluster/nodes')
   const createResponse = page.waitForResponse(response =>
     response.request().method() === 'POST' && pathname(response.url()) === '/api/cluster/nodes')
-  await page.getByRole('button', { name: '确认指纹并保存节点' }).click()
+  await page.getByRole('checkbox', { name: '自动安装 Agent、识别协议内核并更新订阅' }).uncheck()
+  await page.getByRole('button', { name: '确认指纹并保存服务器' }).click()
   const [request, response] = await Promise.all([createRequest, createResponse])
   expect(request.postDataJSON()).toMatchObject({
     name: input.name,
@@ -256,7 +257,7 @@ async function postDeployment(
   })
 }
 
-test.describe('E02 — 添加节点与 SSH 预检', () => {
+test.describe('E02 — 添加服务器与 SSH 预检', () => {
   test('密码认证：九项预检、确认 host key，并且只创建控制面档案', async ({ page, snapshot }) => {
     const before = fixtureSnapshot(await snapshot())
     const created = await createPasswordNode(page, {
@@ -280,8 +281,8 @@ test.describe('E02 — 添加节点与 SSH 预检', () => {
 
   test('私钥认证：只从文件读取密钥，预检与保存响应不泄露敏感字段', async ({ page }) => {
     await page.goto('/nodes?intent=add')
-    const dialog = page.getByRole('dialog', { name: '添加节点' })
-    await dialog.getByLabel('节点名称').fill('E2E 私钥节点')
+    const dialog = page.getByRole('dialog', { name: '添加服务器' })
+    await dialog.getByLabel('服务器名称').fill('E2E 私钥节点')
     await dialog.getByLabel('主机地址').fill('private-key-node.e2e.invalid')
     await dialog.getByLabel('地域标签').fill('LAB-KEY')
     await dialog.getByRole('button', { name: '私钥' }).click()
@@ -311,7 +312,8 @@ test.describe('E02 — 添加节点与 SSH 预检', () => {
       request.method() === 'POST' && pathname(request.url()) === '/api/cluster/nodes')
     const createResponse = page.waitForResponse(response =>
       response.request().method() === 'POST' && pathname(response.url()) === '/api/cluster/nodes')
-    await dialog.getByRole('button', { name: '确认指纹并保存节点' }).click()
+    await dialog.getByRole('checkbox', { name: '自动安装 Agent、识别协议内核并更新订阅' }).uncheck()
+    await dialog.getByRole('button', { name: '确认指纹并保存服务器' }).click()
     const [request, response] = await Promise.all([createRequest, createResponse])
     expect(request.postDataJSON()).toMatchObject({
       sshAuthMethod: 'privateKey',
@@ -336,9 +338,9 @@ test.describe('E02 — 添加节点与 SSH 预检', () => {
     await page.getByRole('button', { name: '执行 SSH 预检' }).click()
 
     await expect(page.getByText(/存在阻塞|SSH 连接失败/).first()).toBeVisible()
-    await expect(page.getByLabel('节点名称')).toHaveValue('预检失败节点')
+    await expect(page.getByLabel('服务器名称')).toHaveValue('预检失败节点')
     await expect(page.getByLabel('主机地址')).toHaveValue('ssh-failure.e2e.invalid')
-    await expect(page.getByRole('button', { name: '确认指纹并保存节点' })).toHaveCount(0)
+    await expect(page.getByRole('button', { name: '确认指纹并保存服务器' })).toHaveCount(0)
     const state = fixtureSnapshot(await snapshot())
     expect(state.nodes.some(node => node.host === 'ssh-failure.e2e.invalid')).toBe(false)
     expect(state.requests.filter(request =>
@@ -359,15 +361,16 @@ test.describe('E02 — 添加节点与 SSH 预检', () => {
 
     const createResponse = page.waitForResponse(response =>
       response.request().method() === 'POST' && pathname(response.url()) === '/api/cluster/nodes')
-    await page.getByRole('button', { name: '确认指纹并保存节点' }).click()
+    await page.getByRole('checkbox', { name: '自动安装 Agent、识别协议内核并更新订阅' }).uncheck()
+  await page.getByRole('button', { name: '确认指纹并保存服务器' }).click()
     const response = await createResponse
     expect(response.status()).toBeGreaterThanOrEqual(400)
     expect(await response.json()).toMatchObject({ success: false, error: expect.stringMatching(/主机.*存在/) })
-    await expect(page.getByRole('dialog', { name: '添加节点' })).toBeVisible()
-    await expect(page.getByText('节点校验失败', { exact: true })).toBeVisible()
-    await expect(page.getByLabel('节点名称')).toHaveValue('E2E 重复主机')
+    await expect(page.getByRole('dialog', { name: '添加服务器' })).toBeVisible()
+    await expect(page.getByText('服务器校验失败', { exact: true })).toBeVisible()
+    await expect(page.getByLabel('服务器名称')).toHaveValue('E2E 重复主机')
     await expect(page.getByLabel('主机地址')).toHaveValue(existing.host!)
-    await expect(page.getByRole('button', { name: '确认指纹并保存节点' })).toBeVisible()
+    await expect(page.getByRole('button', { name: '确认指纹并保存服务器' })).toBeVisible()
 
     const after = fixtureSnapshot(await snapshot())
     expect(after.nodes).toHaveLength(before.nodes.length)
@@ -413,7 +416,7 @@ test.describe('E02 — 添加节点与 SSH 预检', () => {
   })
 })
 
-test.describe('E03 — 节点档案管理', () => {
+test.describe('E03 — 服务器档案管理', () => {
   test('搜索、筛选、编辑、启停、删除', async ({ page, snapshot }) => {
     const created = await createPasswordNode(page, {
       name: 'E2E 管理节点',
@@ -422,18 +425,18 @@ test.describe('E03 — 节点档案管理', () => {
       tags: 'e2e, before-edit',
     })
 
-    const search = page.getByLabel('搜索节点')
+    const search = page.getByLabel('搜索服务器')
     await search.fill('不存在的节点')
-    await expect(page.getByText('没有匹配的节点。')).toBeVisible()
+    await expect(page.getByText('没有匹配的服务器。')).toBeVisible()
     await search.fill('E2E 管理节点')
     await expect(nodeRow(page, 'E2E 管理节点')).toBeVisible()
-    await page.getByLabel('筛选节点').selectOption('enabled')
+    await page.getByLabel('筛选服务器').selectOption('enabled')
     await expect(nodeRow(page, 'E2E 管理节点')).toBeVisible()
 
     // 创建成功后新节点已被选中并停在部署标签页，档案操作在概览标签页。
     let panel = await openTab(page, 'E2E 管理节点', '概览')
     await panel.getByRole('button', { name: '编辑档案' }).click()
-    const editor = page.getByRole('dialog', { name: '编辑节点档案' })
+    const editor = page.getByRole('dialog', { name: '编辑服务器档案' })
     await editor.getByLabel('名称', { exact: true }).fill('E2E 管理节点（已编辑）')
     await editor.getByLabel('主机', { exact: true }).fill('managed-node-updated.e2e.invalid')
     await editor.getByLabel('地域标签', { exact: true }).fill('LAB-UPDATED')
@@ -455,16 +458,16 @@ test.describe('E03 — 节点档案管理', () => {
     expect(editedNode.sshHostKey ?? editedNode.ssh?.hostKey ?? '').toBe('')
 
     panel = detailPanel(page, 'E2E 管理节点（已编辑）')
-    await page.getByLabel('筛选节点').selectOption('all')
+    await page.getByLabel('筛选服务器').selectOption('all')
     const pauseRequest = page.waitForRequest(request =>
       request.method() === 'PATCH' && pathname(request.url()) === '/api/cluster/nodes')
     await panel.getByRole('button', { name: '暂停纳管' }).click()
     expect((await pauseRequest).postDataJSON()).toMatchObject({ nodeId: created.id, enabled: false })
     await expect(panel.getByText('已暂停', { exact: true })).toBeVisible()
-    await page.getByLabel('筛选节点').selectOption('disabled')
+    await page.getByLabel('筛选服务器').selectOption('disabled')
     await expect(nodeRow(page, 'E2E 管理节点（已编辑）')).toBeVisible()
 
-    await page.getByLabel('筛选节点').selectOption('all')
+    await page.getByLabel('筛选服务器').selectOption('all')
     await panel.getByRole('button', { name: '启用纳管' }).click()
     await expect(panel.getByText('纳管中', { exact: true })).toBeVisible()
     page.once('dialog', dialog => dialog.accept())
@@ -497,10 +500,10 @@ test.describe('E03 — 节点档案管理', () => {
     const target = remoteNode(state)
 
     await page.goto('/nodes')
-    await page.getByLabel('搜索节点').fill(target.name)
+    await page.getByLabel('搜索服务器').fill(target.name)
     const panel = await openTab(page, target.name, '概览')
     await panel.getByRole('button', { name: '编辑档案' }).click()
-    const editor = page.getByRole('dialog', { name: '编辑节点档案' })
+    const editor = page.getByRole('dialog', { name: '编辑服务器档案' })
 
     await expect.soft(editor.getByLabel('用户名', { exact: true })).toHaveValue(target.sshUser ?? 'root')
     await expect.soft(editor.getByLabel(/^(SSH )?端口$/)).toHaveValue(String(target.sshPort ?? 22))
@@ -513,7 +516,7 @@ test.describe('E03 — 节点档案管理', () => {
 
   test('本机档案可填写用户名和密码', async ({ page, snapshot }) => {
     const target = remoteNode(fixtureSnapshot(await snapshot()))
-    const local = { ...target, id: 'local', nodeId: 'local', name: '本机节点', host: '127.0.0.1' }
+    const local = { ...target, id: 'local', nodeId: 'local', name: '本机', host: '127.0.0.1' }
     await page.route(url => url.pathname === '/api/cluster/status', route => route.fulfill({
       status: 200,
       contentType: 'application/json',
@@ -528,14 +531,14 @@ test.describe('E03 — 节点档案管理', () => {
     })
 
     await page.goto('/nodes')
-    await page.getByLabel('搜索节点').fill(local.name)
+    await page.getByLabel('搜索服务器').fill(local.name)
     const panel = await openTab(page, local.name, '概览')
     await panel.getByRole('button', { name: '编辑档案' }).click()
-    const editor = page.getByRole('dialog', { name: '编辑节点档案' })
+    const editor = page.getByRole('dialog', { name: '编辑服务器档案' })
     await expect(editor.getByLabel('用户名', { exact: true })).toBeVisible()
     const password = editor.getByLabel('密码', { exact: true })
     await expect(password).toHaveValue('')
-    await expect(password).toHaveAttribute('placeholder', 'root 凭据仅供下一次部署或维护使用，不保存')
+    await expect(password).toHaveAttribute('placeholder', '留空保留专用密钥；补充凭据后重新安装主控公钥')
     await password.fill('fixture-password')
     const editRequest = page.waitForRequest(request =>
       request.method() === 'PATCH' && pathname(request.url()) === '/api/cluster/nodes')
@@ -557,10 +560,10 @@ test.describe('E03 — 节点档案管理', () => {
     expect(created.ok()).toBeTruthy()
 
     await page.goto('/nodes')
-    await page.getByLabel('搜索节点').fill('E2E 私钥节点')
+    await page.getByLabel('搜索服务器').fill('E2E 私钥节点')
     const panel = await openTab(page, 'E2E 私钥节点', '概览')
     await panel.getByRole('button', { name: '编辑档案' }).click()
-    const editor = page.getByRole('dialog', { name: '编辑节点档案' })
+    const editor = page.getByRole('dialog', { name: '编辑服务器档案' })
     // 界面必须反映节点真实的认证方式，而不是一律显示密码。
     await expect(editor.getByLabel('私钥', { exact: true })).toBeVisible()
 
@@ -588,7 +591,7 @@ test.describe('E03 — 节点档案管理', () => {
     }, { times: 1 })
 
     await page.goto('/nodes')
-    await page.getByLabel('搜索节点').fill(target.name)
+    await page.getByLabel('搜索服务器').fill(target.name)
     const panel = await openTab(page, target.name, '概览')
     const updateResponse = page.waitForResponse(response =>
       response.request().method() === 'PATCH' && pathname(response.url()) === '/api/cluster/nodes')
@@ -597,8 +600,8 @@ test.describe('E03 — 节点档案管理', () => {
     expect(response.status()).toBe(200)
     expect(await response.json()).toMatchObject({ success: false })
 
-    await expect.soft(page.getByText('节点操作失败', { exact: true })).toBeVisible()
-    await expect.soft(page.getByText('节点已暂停纳管', { exact: true })).toHaveCount(0)
+    await expect.soft(page.getByText('服务器操作失败', { exact: true })).toBeVisible()
+    await expect.soft(page.getByText('服务器已暂停纳管', { exact: true })).toHaveCount(0)
     await expect.soft(panel.getByText('纳管中', { exact: true })).toBeVisible()
     const after = fixtureSnapshot(await snapshot())
     expect(remoteNode(after, node => nodeId(node) === nodeId(target)).enabled).toBe(target.enabled)
@@ -794,7 +797,7 @@ test.describe('E04 — 五组件 × 五操作部署 API contract', () => {
     await page.goto(`/nodes?node=${encodeURIComponent(nodeId(target))}`)
     const panel = await openTab(page, target.name, '部署')
     await panel.getByRole('button', { name: '创建部署任务' }).click()
-    await expect(page.getByText('节点操作失败', { exact: true })).toBeVisible()
+    await expect(page.getByText('服务器操作失败', { exact: true })).toBeVisible()
     await expect(page.getByText('部署任务创建失败', { exact: true })).toBeVisible()
     await expect(page.getByText('部署任务已进入队列', { exact: true })).toHaveCount(0)
     expect(tasks(fixtureSnapshot(await snapshot()))).toEqual(tasks(before))
@@ -1053,10 +1056,10 @@ test.describe('E06 — 手动 Agent 配置与敏感字段边界', () => {
   test('没有节点时不提供任何部署入口', async ({ page, control }) => {
     await control({ nodesEmpty: true })
     await page.goto('/nodes')
-    await expect(page.getByText('没有匹配的节点。')).toBeVisible()
-    // 部署是详情标签页，没有节点就没有面板，添加节点是唯一的前进路径。
+    await expect(page.getByText('没有匹配的服务器。')).toBeVisible()
+    // 部署是详情标签页，没有节点就没有面板，添加服务器是唯一的前进路径。
     await expect(page.getByRole('button', { name: '创建部署任务' })).toHaveCount(0)
-    await expect(page.getByRole('button', { name: '添加节点' })).toBeEnabled()
+    await expect(page.getByRole('button', { name: '添加服务器' })).toBeEnabled()
   })
 
   test('手动安装配置下发带 secret 的专用 YAML 且不泄露 SSH 凭据', async ({ request, snapshot }) => {

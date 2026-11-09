@@ -38,28 +38,28 @@ export class ConfigApiClient {
    * 获取前端所需的配置（推荐使用）
    */
   async getFrontendConfig(): Promise<FrontendConfig> {
-    const response = await fetch(`${this.baseUrl}/api/yaml/frontend`);
-    const result: ApiResponse<FrontendConfig> = await response.json();
+    const response = await fetch(`${this.baseUrl}/api/config/effective`);
+    const result: ApiResponse<{ config: FrontendConfig }> = await response.json();
     
     if (!result.success) {
       throw new Error(result.message || '获取配置失败');
     }
     
-    return result.data!;
+    return result.data!.config;
   }
 
   /**
    * 获取完整配置
    */
   async getFullConfig(): Promise<any> {
-    const response = await fetch(`${this.baseUrl}/api/yaml/config`);
+    const response = await fetch(`${this.baseUrl}/api/config/effective`);
     const result: ApiResponse = await response.json();
     
     if (!result.success) {
       throw new Error(result.message || '获取完整配置失败');
     }
     
-    return result.data;
+    return result.data.config;
   }
 
   /**
@@ -100,7 +100,7 @@ export class ConfigApiClient {
    * 验证 YAML 语法
    */
   async validateYaml(): Promise<boolean> {
-    const response = await fetch(`${this.baseUrl}/api/yaml/validate`);
+    const response = await fetch(`${this.baseUrl}/api/config/validate`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ source: JSON.stringify(await this.getFullConfig()) }) });
     const result: ApiResponse = await response.json();
     
     return result.success;

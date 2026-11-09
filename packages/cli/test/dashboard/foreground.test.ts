@@ -1,3 +1,4 @@
+import { AuthService } from '@miobridge/core';
 import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -66,6 +67,7 @@ describe('dashboard foreground lifecycle', () => {
       remote: { collectRemoteNodeSources: async () => ({ sources: [], errors: [] }) },
     });
     const observed: Array<{ path: string; query: unknown; body: unknown }> = [];
+    await new AuthService(composition.core.state).ensure(false);
     const running = runNodeDashboardServer({
       host: '127.0.0.1', port, root,
       reservedPaths: ['/api', '/health', '/subscription.txt', '/clash.yaml', '/raw.txt'],
@@ -84,9 +86,12 @@ describe('dashboard foreground lifecycle', () => {
     for (let attempt = 0; attempt < 50; attempt += 1) {
       try { if ((await fetch(`http://127.0.0.1:${port}/health`)).ok) break; } catch { await new Promise(resolve => setTimeout(resolve, 10)); }
     }
-    expect((await fetch(`http://127.0.0.1:${port}/api/status`)).status).toBe(200);
-    expect((await fetch(`http://127.0.0.1:${port}/api/cluster/status`)).status).toBe(200);
-    expect((await fetch(`http://127.0.0.1:${port}/api/yaml/frontend`)).status).toBe(200);
+    expect((await fetch(`http://127.0.0.1:${port}/api/status`)).status).toBe(401);
+    const auth = await new AuthService(composition.core.state).ensure();
+    const headers = { Authorization: `Bearer ${auth.admin_token}` };
+    expect((await fetch(`http://127.0.0.1:${port}/api/status`, { headers })).status).toBe(200);
+    expect((await fetch(`http://127.0.0.1:${port}/api/cluster/status`, { headers })).status).toBe(200);
+    expect((await fetch(`http://127.0.0.1:${port}/api/yaml/frontend`, { headers })).status).toBe(200);
     expect(await (await fetch(`http://127.0.0.1:${port}/subscription.txt`)).text()).toBe('subscription');
     expect(await (await fetch(`http://127.0.0.1:${port}/nodes`)).text()).toContain('MioBridge');
     expect(await (await fetch(`http://127.0.0.1:${port}/__test__/control?scenario=e2e`, {

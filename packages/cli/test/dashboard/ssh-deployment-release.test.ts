@@ -63,7 +63,7 @@ describe('local deployment transport', () => {
         id: 'local', name: '本机节点', host: '127.0.0.1', secret: 'secret', location: '本机', enabled: true,
         kernels: [{ type: 'sing-box' }], agent: { deployed: true, version: '1.2.0', status: 'running', lastDeploy: '', port: 3001 },
       }] },
-      core: { createAgentAcceptance: MioBridgeCore.prototype.createAgentAcceptance, state: { get: async () => null } },
+      core: { getEffectiveConfig: () => ({}), createAgentAcceptance: MioBridgeCore.prototype.createAgentAcceptance, state: { get: async () => null } },
     } as unknown as NodeCoreComposition;
     const service = new SshDeploymentService(composition, { runLocal: async command => {
       commands.push(command);
@@ -99,7 +99,7 @@ describe('local deployment transport', () => {
           return node;
         },
       },
-      core: { createAgentAcceptance: MioBridgeCore.prototype.createAgentAcceptance, state: { get: async () => null } },
+      core: { getEffectiveConfig: () => ({}), createAgentAcceptance: MioBridgeCore.prototype.createAgentAcceptance, state: { get: async () => null } },
     } as unknown as NodeCoreComposition;
     const service = new SshDeploymentService(composition, { fetch: (async () => Response.json({ status: 'healthy', version: CLI_VERSION })) as typeof fetch, acceptance: { wait: async () => {} }, runLocal: async command => {
       commands.push(command);
@@ -131,7 +131,7 @@ describe('local deployment transport', () => {
     };
     const composition = {
       repository: { list: async () => [node] },
-      core: { createAgentAcceptance: MioBridgeCore.prototype.createAgentAcceptance, state: { get: async () => null } },
+      core: { getEffectiveConfig: () => ({}), createAgentAcceptance: MioBridgeCore.prototype.createAgentAcceptance, state: { get: async () => null } },
     } as unknown as NodeCoreComposition;
     const directCommands: string[] = [];
     const direct = new SshDeploymentService(composition, { runLocal: async command => {
@@ -161,7 +161,7 @@ describe('local deployment transport', () => {
     };
     const composition = {
       repository: { list: async () => [node] },
-      core: { createAgentAcceptance: MioBridgeCore.prototype.createAgentAcceptance, state: { get: async (key: string) => key === 'ssh-credentials/local' ? 'local-password' : null } },
+      core: { getEffectiveConfig: () => ({}), createAgentAcceptance: MioBridgeCore.prototype.createAgentAcceptance, state: { get: async (key: string) => key === 'ssh-credentials/local' ? 'local-password' : null } },
     } as unknown as NodeCoreComposition;
     const commands: string[] = [];
     const inputs: Array<string | undefined> = [];
@@ -201,7 +201,7 @@ describe('deployment survives its SSH session', () => {
     const values = new Map<string, string>();
     const composition = {
       repository: { list: async () => [node], update: async (_id: string, update: (current: NodeConfig) => NodeConfig) => (node = update(node)) },
-      core: { createAgentAcceptance: MioBridgeCore.prototype.createAgentAcceptance, state: {
+      core: { getEffectiveConfig: () => ({}), createAgentAcceptance: MioBridgeCore.prototype.createAgentAcceptance, state: {
         get: async (key: string) => key === 'ssh/remote' ? 'ssh-password' : values.get(key) ?? null,
         set: async (key: string, value: string) => { values.set(key, value); },
         listKeys: async (prefix: string) => [...values.keys()].filter(key => key.startsWith(prefix)),

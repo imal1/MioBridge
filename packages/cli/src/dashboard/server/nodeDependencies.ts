@@ -30,12 +30,15 @@ function localRuntimeUser(): string {
 export function createNodeDashboardDependencies(composition: NodeCoreComposition): DashboardServerDependencies {
   const deployment = new SshDeploymentService(composition);
   const subscriptions = new SubscriptionJobService(composition);
+  const unsubscribe = composition.repository.onChange(() => subscriptions.sourcesChanged());
   const maintenance = createNodeMaintenanceService(composition);
   return {
+    dispose: () => { unsubscribe(); subscriptions.close(); },
+    requestLogger: composition.logger,
     core: composition.core,
     subscription: {
       async preflight() { return result(await subscriptions.preflight()); },
-      async start(idempotencyKey) { return result(await subscriptions.start(idempotencyKey ? { idempotencyKey } : {})); },
+      async start(idempotencyKey, force) { return result(await subscriptions.start({ ...(idempotencyKey ? { idempotencyKey } : {}), ...(force ? { force } : {}) })); },
       async list() { return result({ jobs: await subscriptions.list() }); },
       async get(jobId) { return result(await subscriptions.get(jobId)); },
       async retry(jobId) { return result(await subscriptions.retry(jobId)); },
@@ -47,6 +50,7 @@ export function createNodeDashboardDependencies(composition: NodeCoreComposition
       async updatePolicy(body) { return result(await subscriptions.updatePolicy(body)); },
     },
     operations: {
+      async prepareLocal() { return result(await composition.repository.configureLocalNode(true)); },
       async getClusterStatus() {
         const cluster = await composition.aggregation.getClusterStatus();
         return result({
@@ -65,7 +69,7 @@ export function createNodeDashboardDependencies(composition: NodeCoreComposition
       },
       async addNode(body) {
         const input = inputObject(body);
-        for (const field of ['name', 'host', 'location', 'sshUser', 'sshAuthMethod'] as const) {
+        for (const field of ['host', 'sshUser', 'sshAuthMethod'] as const) {
           if (typeof input[field] !== 'string' || !input[field]) throw new Error(`缺少字段: ${field}`);
         }
         const nodes = await composition.repository.list({ enabledOnly: false });
@@ -82,12 +86,12 @@ export function createNodeDashboardDependencies(composition: NodeCoreComposition
         else await composition.core.state.set(credentialRef, credential);
         const node: NodeConfig = {
           id,
-          name: String(input.name),
+          name: String(input.name || input.host),
           host: String(input.host),
           port: 3001,
           secret: randomBytes(32).toString('hex'),
           kernels: validateNodeKernels(input.kernels, true),
-          location: String(input.location),
+          location: String(input.location || ''),
           enabled: true,
           ...(Array.isArray(input.tags) ? { tags: validateTags(input.tags) } : {}),
           ssh: {
@@ -99,8 +103,10 @@ export function createNodeDashboardDependencies(composition: NodeCoreComposition
           },
           agent: { deployed: false, version: '', status: 'not_deployed', lastDeploy: '' },
         };
-        await composition.repository.save([...nodes, node]);
-        return result(publicNode(node));
+        await composition.repository.add(node);
+        try { await deployment.enrollControllerKey(id); }
+        catch (error) { return result({ ...publicNode(node), credentialWarning: `SSH 密钥配置未完成，请在 30 分钟内重试：${error instanceof Error ? error.message : String(error)}` }); }
+        return result(publicNode(await findNode(composition, id)));
       },
       async preflightNode(body) {
         return result(await deployment.preflight(body));
@@ -122,7 +128,7 @@ export function createNodeDashboardDependencies(composition: NodeCoreComposition
         const host = input.host === undefined ? existing.host : String(input.host).trim();
         const location = input.location === undefined ? existing.location : String(input.location).trim();
         const tags = input.tags === undefined ? existing.tags : validateTags(input.tags);
-        if (!name || !host || !location) throw new Error('名称、主机和地域不能为空');
+        if (!name || !host) throw new Error('名称和主机不能为空');
         if (nodes.some(node => node.id !== nodeId && node.host === host)) throw new Error('该主机已存在');
         const credential = input.sshPassword ?? input.sshPrivateKey;
         const sshUser = input.sshUser === undefined
@@ -137,19 +143,19 @@ export function createNodeDashboardDependencies(composition: NodeCoreComposition
           : input.sshAuthMethod === undefined
             ? existing.ssh?.authMethod ?? 'password'
             : input.sshAuthMethod === 'privateKey' ? 'privateKey' as const : 'password' as const;
-        const credentialRef = existing.ssh?.credentialRef ?? `ssh-credentials/${nodeId}`;
+        const credentialRef = credential !== undefined ? `ssh-credentials/${nodeId}` : existing.ssh?.credentialRef ?? `ssh-credentials/${nodeId}`;
         const sshPort = input.sshPort === undefined ? existing.ssh?.port : Number(input.sshPort);
         if (sshPort !== undefined && (!Number.isInteger(sshPort) || sshPort < 1 || sshPort > 65535)) throw new Error('SSH 端口无效');
         if (credential !== undefined) {
           if (typeof credential !== 'string' || !credential) throw new Error('SSH 凭据无效');
           if (sshUser === 'root') {
             deployment.setOneTimeCredential(nodeId, credential);
-            if (existing.ssh?.credentialRef) await composition.core.state.del(existing.ssh.credentialRef);
+            if (existing.ssh?.credentialRef && existing.ssh.credentialRef !== 'ssh/id_ed25519') await composition.core.state.del(existing.ssh.credentialRef);
           } else {
             deployment.clearOneTimeCredential(nodeId);
             await composition.core.state.set(credentialRef, credential);
           }
-        } else if (sshUser === 'root' && existing.ssh?.credentialRef) {
+        } else if (sshUser === 'root' && existing.ssh?.credentialRef && existing.ssh.credentialRef !== 'ssh/id_ed25519') {
           await composition.core.state.del(existing.ssh.credentialRef);
         }
         const updated = await composition.repository.update(nodeId, current => ({
@@ -162,18 +168,19 @@ export function createNodeDashboardDependencies(composition: NodeCoreComposition
             ...(sshPort === undefined ? {} : { port: sshPort }),
             authMethod,
             hostKey: host === current.host ? current.ssh?.hostKey ?? '' : '',
-            ...(sshUser !== 'root' && (credential !== undefined || current.ssh?.credentialRef) ? { credentialRef } : {}),
+            ...((sshUser !== 'root' || current.ssh?.credentialRef === 'ssh/id_ed25519') && (credential !== undefined || current.ssh?.credentialRef) ? { credentialRef } : {}),
           },
         }));
-        return result(publicNode(updated));
+        if (credential !== undefined && sshUser === 'root') await deployment.enrollControllerKey(nodeId);
+        return result(publicNode(credential !== undefined && sshUser === 'root' ? await findNode(composition, nodeId) : updated));
       },
       async deleteNode(nodeId, force = false) {
         const nodes = await composition.repository.list({ enabledOnly: false });
         const node = nodes.find(item => item.id === nodeId);
         if (!node) throw new Error(`节点 ${nodeId} 不存在`);
         if (node.agent?.deployed && !force) throw new Error('节点仍安装 Agent，请先在部署中心卸载');
-        await composition.repository.save(nodes.filter(item => item.id !== nodeId));
-        if (node.ssh?.credentialRef) await composition.core.state.del(node.ssh.credentialRef);
+        await composition.repository.remove(nodeId);
+        if (node.ssh?.credentialRef && node.ssh.credentialRef !== 'ssh/id_ed25519') await composition.core.state.del(node.ssh.credentialRef);
         deployment.clearOneTimeCredential(nodeId);
         return result({ nodeId, deleted: true });
       },
@@ -201,7 +208,7 @@ export function createNodeDashboardDependencies(composition: NodeCoreComposition
         return result({ nodeId, status: 'not_deployed' });
       },
       async updateAgent(nodeId) {
-        return result(await composition.agent.get(await findNode(composition, nodeId), '/api/update'));
+        return result(await composition.core.updateSubscription());
       },
       async deployToNode(nodeId, kernels) {
         return result(await deployment.startDeployment(nodeId, kernels));

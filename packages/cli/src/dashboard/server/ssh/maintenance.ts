@@ -23,7 +23,7 @@ function properties(value: string): Record<string, string> { return Object.fromE
 export class SshNodeMaintenance implements NodeMaintenancePort {
   private readonly transport: SshTransport;
   private readonly targets: NodeTargets;
-  constructor(private readonly composition: NodeCoreComposition, options: DeploymentServiceOptions = {}, transport = new SshTransport(options)) {
+  constructor(private readonly composition: NodeCoreComposition, options: DeploymentServiceOptions = {}, transport = new SshTransport({ timeouts: () => ({ ssh: composition.core.getEffectiveConfig().deployment?.ssh_timeout_ms ?? 15000, task: composition.core.getEffectiveConfig().deployment?.task_timeout_ms ?? 1800000 }), ...options })) {
     this.transport = transport;
     this.targets = new NodeTargets(composition);
   }
@@ -216,7 +216,7 @@ export class SshNodeMaintenance implements NodeMaintenancePort {
 
 export function createNodeMaintenanceService(composition: NodeCoreComposition, options: DeploymentServiceOptions = {}): NodeMaintenanceService {
   const port = new SshNodeMaintenance(composition, options);
-  const transport = new SshTransport(options);
+  const transport = new SshTransport({ timeouts: () => ({ ssh: composition.core.getEffectiveConfig().deployment?.ssh_timeout_ms ?? 15000, task: composition.core.getEffectiveConfig().deployment?.task_timeout_ms ?? 1800000 }), ...options });
   const targets = new NodeTargets(composition);
   const acceptance = composition.core.createAgentAcceptance(composition.agent);
   return composition.core.createNodeMaintenance({ port, withLock: (nodeId, action) => withNodeMutation(nodeId, async () => {

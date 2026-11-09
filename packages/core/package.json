@@ -30,5 +30,9 @@
     "node": ">=18.0.0",
     "bun": ">=1.0.0"
   },
-  "dependencies": { "yaml": "^2.8.1" }
+  "dependencies": {
+    "yaml": "^2.8.1",
+    "croner": "9.1.0",
+    "qrcode-generator": "2.0.4"
+  }
 }

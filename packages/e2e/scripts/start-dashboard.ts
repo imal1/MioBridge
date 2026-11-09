@@ -1,3 +1,4 @@
+import { AuthService } from '@miobridge/core';
 import { runNodeDashboardServer, type DashboardRequest, type DashboardRouteRegistrar } from '@miobridge/cli';
 import { fileURLToPath } from 'node:url';
 import { createE2EHarness } from '../harness/createHarness.js';
@@ -21,6 +22,9 @@ globalThis.fetch = (input, init) => {
 };
 
 const harness = await createE2EHarness({ origin });
+const authValues = new Map<string, string>([['auth.yaml', JSON.stringify({ admin_token: 'e'.repeat(64), subscription_token: 'f'.repeat(64), subscription_required: false })]]);
+const auth = new AuthService({ kind: 'file', get: async key => authValues.get(key) ?? null, set: async (key, value) => { authValues.set(key, value); }, del: async key => { authValues.delete(key); }, listKeys: async prefix => [...authValues.keys()].filter(key => key.startsWith(prefix)), withLock: async (_key, fn) => fn() });
+
 
 function extendRoutes(routes: DashboardRouteRegistrar): void {
   routes.register({
@@ -60,6 +64,7 @@ function extendRoutes(routes: DashboardRouteRegistrar): void {
 }
 
 await runNodeDashboardServer({
+  auth,
   host,
   port,
   root,

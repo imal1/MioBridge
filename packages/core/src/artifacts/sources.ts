@@ -35,9 +35,15 @@ function rewrite(named: NamedSource, name: string): string {
 }
 
 function render(named: NamedSource[]): string {
-  const counts = new Map<string, number>();
-  for (const item of named) counts.set(item.baseName, (counts.get(item.baseName) ?? 0) + 1);
-  return named.map(item => rewrite(item, counts.get(item.baseName)! > 1 ? `${item.baseName} [${item.source.url}]` : item.baseName)).join('\n');
+  const used = new Set<string>();
+  return named.map(item => {
+    const base = item.baseName || `${item.source.location || '代理节点'} ${item.protocol}`;
+    let name = base;
+    let suffix = 2;
+    while (used.has(name)) name = `${base} ${suffix++}`;
+    used.add(name);
+    return rewrite(item, name);
+  }).join('\n');
 }
 
 export function buildClashSubscription(sources: readonly CollectedProxySource[]): string {

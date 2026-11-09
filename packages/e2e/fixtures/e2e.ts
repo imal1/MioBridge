@@ -48,6 +48,7 @@ export const test = base.extend<HarnessFixtures>({
       }
       await route.abort('blockedbyclient');
     });
+    await context.request.post(`${allowedOrigin}/api/auth/login`, { data: { token: 'e'.repeat(64) } });
     await use(context);
   },
 

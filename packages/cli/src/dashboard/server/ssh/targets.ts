@@ -11,10 +11,10 @@ import type { SshTarget } from './types.js';
 // A dashboard composition has one ephemeral credential scope across deployment
 // and maintenance clients. Weak ownership avoids persisting credentials or
 // leaking them between separate controller instances.
-const credentialsByComposition = new WeakMap<NodeCoreComposition, Map<string, string>>();
+const credentialsByComposition = new WeakMap<NodeCoreComposition, Map<string, { value: string; expires: number }>>();
 
 export class NodeTargets {
-  readonly #oneTimeCredentials: Map<string, string>;
+  readonly #oneTimeCredentials: Map<string, { value: string; expires: number }>;
 
   constructor(private readonly composition: NodeCoreComposition) {
     let credentials = credentialsByComposition.get(composition);
@@ -26,7 +26,7 @@ export class NodeTargets {
   }
 
   setOneTimeCredential(nodeId: string, credential: string): void {
-    this.#oneTimeCredentials.set(nodeId, credential);
+    this.#oneTimeCredentials.set(nodeId, { value: credential, expires: Date.now() + 30 * 60_000 });
   }
 
   clearOneTimeCredential(nodeId: string): void {
@@ -41,7 +41,9 @@ export class NodeTargets {
 
   async forNode(nodeId: string, kernels?: readonly NodeKernelConfig[]): Promise<SshTarget> {
     const node = await this.findNode(nodeId);
-    const oneTimeCredential = this.#oneTimeCredentials.get(nodeId);
+    const entry = this.#oneTimeCredentials.get(nodeId);
+    const oneTimeCredential = entry && entry.expires > Date.now() ? entry.value : undefined;
+    if (entry && !oneTimeCredential) this.#oneTimeCredentials.delete(nodeId);
     if (node.id === 'local') {
       const persistedCredential = node.ssh?.credentialRef
         ? await this.composition.core.state.get(node.ssh.credentialRef)

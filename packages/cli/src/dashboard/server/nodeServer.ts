@@ -1,3 +1,5 @@
+import { AuthService } from '@miobridge/core';
+import { recordMetric } from '../../operations/metricHistory.js';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { randomUUID } from 'node:crypto';
 import Fastify, { type FastifyInstance, type FastifyReply, type FastifyRequest } from 'fastify';
@@ -21,6 +23,7 @@ import { serveStatic } from './staticServer.js';
 const MAX_BODY_BYTES = 1024 * 1024;
 
 export interface DashboardAppOptions {
+  readonly auth?: AuthService;
   readonly root: string;
   readonly reservedPaths: readonly string[];
   readonly fallbackToIndex: boolean;
@@ -115,7 +118,51 @@ export function createDashboardApp(options: DashboardAppOptions): FastifyInstanc
   registerRoutes(routes, options.dependencies);
   options.extendRoutes?.(routes);
 
-  const app = Fastify({ logger: options.logger ?? true, bodyLimit: MAX_BODY_BYTES, forceCloseConnections: true });
+  const app = Fastify({ logger: options.logger ?? false, bodyLimit: MAX_BODY_BYTES, forceCloseConnections: true });
+
+  app.addHook('onResponse', async (req, reply) => {
+    options.dependencies.requestLogger?.debug('HTTP 请求', { method: req.method, path: req.url.split('?')[0], status: reply.statusCode });
+  });
+  app.addHook('onClose', async () => { options.dependencies.dispose?.(); });
+  if (options.auth) {
+    const auth = options.auth;
+    const failures = new Map<string, { count: number; until: number }>();
+    app.addHook('preHandler', async (req, reply) => {
+      const url = new URL(req.url, 'http://localhost');
+      const path = url.pathname;
+      if (!path.startsWith('/api/') && !['/clash.yaml', '/subscription.txt', '/raw.txt'].includes(path)) return;
+      const cookie = req.headers.cookie ?? '';
+      const authorized = await auth.authorized(cookie, req.headers.authorization ?? '');
+      if (path.startsWith('/api/') && !['GET', 'HEAD', 'OPTIONS'].includes(req.method) && req.headers.origin && req.headers.origin !== `${req.protocol}://${req.headers.host}`) {
+        return reply.code(403).send({ success: false, error: '跨站请求被拒绝' });
+      }
+      if (path === '/api/auth/login' && req.method === 'POST') {
+        const key = req.ip;
+        const previous = failures.get(key);
+        if (previous && previous.until > Date.now() && previous.count >= 10) return reply.code(429).send({ success: false, error: '请稍后重试' });
+        const input = req.body as { token?: unknown } | undefined;
+        const session = typeof input?.token === 'string' ? await auth.login(input.token) : null;
+        if (!session) {
+          if (failures.size > 1000) for (const [ip, entry] of failures) if (entry.until < Date.now()) failures.delete(ip);
+          failures.set(key, { count: previous && previous.until > Date.now() ? previous.count + 1 : 1, until: Date.now() + 60_000 });
+          return reply.code(401).send({ success: false, error: '登录令牌无效' });
+        }
+        failures.delete(key);
+        return reply.header('Set-Cookie', `miobridge_session=${session}; Path=/; HttpOnly; SameSite=Strict; Max-Age=86400${req.protocol === 'https' ? '; Secure' : ''}`).send({ success: true });
+      }
+      if (path.startsWith('/api/') && !authorized) return reply.code(401).send({ success: false, error: { code: 'UNAUTHORIZED', message: '请先登录', retryable: false } });
+      if (path === '/api/auth/session') {
+        const config = await auth.ensure();
+        return reply.header('Cache-Control', 'no-store').send({ success: true, subscriptionRequired: config.subscription_required, subscriptionToken: config.subscription_token, publicBaseUrl: options.dependencies.core.getEffectiveConfig().app?.public_base_url ?? '' });
+      }
+      if (path === '/api/auth/subscription' && req.method === 'POST') { await auth.enableSubscriptions(); return reply.send({ success: true }); }
+      if (path === '/api/auth/logout' && req.method === 'POST') return reply.header('Set-Cookie', 'miobridge_session=; Path=/; HttpOnly; SameSite=Strict; Max-Age=0').send({ success: true });
+      if (['/clash.yaml', '/subscription.txt', '/raw.txt'].includes(path)) {
+        reply.header('Cache-Control', 'private, no-store');
+        if (!await auth.subscriptionAuthorized(url.searchParams.get('token') ?? '')) return reply.code(401).send('Unauthorized');
+      }
+    });
+  }
 
   // Reproduce the previous readBody() semantics: empty → undefined, JSON parsed
   // (invalid → 400 envelope), any other content type passed through as a raw
@@ -156,6 +203,7 @@ export function createDashboardApp(options: DashboardAppOptions): FastifyInstanc
     const request = requestAdapter(req.raw, reply.raw, url, method, req.body, requestId);
     const response = responseAdapter(reply.raw);
     response.header('X-Request-ID', requestId);
+    if (/^\/api\/(?:yaml(?:\/|$)|configs$|cluster\/deploy)/.test(url.pathname)) response.header('Deprecation', 'true');
     try {
       await options.onRequest?.(request);
       if (await routes.dispatch(request, response)) return;
@@ -191,7 +239,9 @@ export function createDashboardApp(options: DashboardAppOptions): FastifyInstanc
 }
 
 export async function runNodeDashboardServer(options: NodeDashboardServerOptions): Promise<number> {
-  const app = createDashboardApp(options);
+  const auth = options.auth ?? new AuthService(options.dependencies.core.state);
+  await auth.ensure();
+  const app = createDashboardApp({ ...options, auth });
 
   const signals = ['SIGINT', 'SIGTERM', 'SIGHUP'] as const;
   const close = () => { void app.close(); };
@@ -212,7 +262,7 @@ export async function runNodeDashboardServer(options: NodeDashboardServerOptions
 
   const sampleMetrics = async () => {
     const snapshot = await options.dependencies.core.getMetricsSnapshot();
-    await options.dependencies.core.state.set(`metrics/${Date.now()}.json`, JSON.stringify(snapshot));
+    await recordMetric(options.dependencies.core.state, snapshot);
   };
   void sampleMetrics().catch(() => undefined);
   metricsTimer = setInterval(() => { void sampleMetrics().catch(() => undefined); }, 5 * 60_000);

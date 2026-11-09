@@ -359,7 +359,7 @@ CLI `metrics` 只输出当前快照；Dashboard `/api/metrics` 提供 24 小时�
 - 长任务返回 HTTP 202 与 taskId/jobId。
 - 写请求接受幂等键。
 - SSE eventId 持久化递增。
-- 旧 `/api/cluster/*` 与 `GET /api/update` 保持兼容。
+- 旧 `/api/cluster/*` 在弃用窗口内保持兼容。订阅更新使用管理员认证的 `POST /api/update`；GET 返回 405。
 - `/subscription.txt`、`/clash.yaml`、`/raw.txt`、`/health` 保持公共兼容。
 - API 页面从 `/api/openapi.json` 动态渲染；写接口不显示执行按钮。
 

@@ -1,3 +1,4 @@
+import type { CoreLogger } from '../index.js';
 import { dedupeProxySources, type CollectedProxySource } from '../artifacts/sources.js';
 import { KERNEL_TYPES } from '../kernels/types.js';
 import { AgentClient } from './agentClient.js';
@@ -6,11 +7,18 @@ import type { StateStore } from '../state/stateStore.js';
 import type { ClusterStatus, KernelRuntimeStatus, NodeConfig, NodeStatus } from './types.js';
 import { NODE_HEALTH_THRESHOLDS } from './types.js';
 
-export interface RemoteSourceCollection { sources: CollectedProxySource[]; errors: string[]; kernels?: KernelRuntimeStatus[] }
+export interface RemoteSourceCollection { sources: CollectedProxySource[]; errors: string[]; cached?: boolean; collectedAt?: string; kernels?: KernelRuntimeStatus[] }
 
 const LAST_ERROR_PREFIX = 'node-last-error/';
 
 export class NodeAggregationService {
+  private readonly logger: CoreLogger | undefined;
+  private readonly sourcesCache = new Map<string, { at: number; value: RemoteSourceCollection }>();
+  private readonly sourcesInFlight = new Map<string, Promise<RemoteSourceCollection>>();
+  private readonly notify: ((event: 'node.offline' | 'node.recovered' | 'agent.outdated', message: string) => void) | undefined;
+  private readonly expectedVersion: string | undefined;
+  private readonly outdated = new Set<string>();
+  private readonly cacheMaxHours: () => number;
   private readonly cache = new Map<string, NodeStatus>();
   /** 已经从持久化存储回填过 lastError 的节点，避免每次轮询都读一次。 */
   private readonly hydrated = new Set<string>();
@@ -30,11 +38,14 @@ export class NodeAggregationService {
     private readonly agent: AgentClient,
     /** 可选：提供后「最近错误」可以跨进程重启保留。 */
     private readonly state?: StateStore,
-    options: { statusTtlMs?: number; statusProbeTimeoutMs?: number; now?: () => number } = {},
+    options: { logger?: CoreLogger; statusTtlMs?: number; statusProbeTimeoutMs?: number; now?: () => number; staleSourceMaxHours?: () => number; expectedVersion?: string; notify?: (event: 'node.offline' | 'node.recovered' | 'agent.outdated', message: string) => void } = {},
   ) {
-    this.statusTtlMs = options.statusTtlMs ?? 2_000;
+    this.logger = options.logger;
+    this.statusTtlMs = options.statusTtlMs ?? 15_000;
     this.statusProbeTimeoutMs = options.statusProbeTimeoutMs ?? 5_000;
     this.now = options.now ?? Date.now;
+    this.notify = options.notify; this.expectedVersion = options.expectedVersion;
+    this.cacheMaxHours = options.staleSourceMaxHours ?? (() => 72);
   }
   getNodeCache(): ReadonlyMap<string, NodeStatus> { return this.cache; }
 
@@ -63,7 +74,7 @@ export class NodeAggregationService {
 
   async collectRemoteNodeSources(): Promise<RemoteSourceCollection> {
     const nodes = await this.repository.list();
-    const results = await Promise.all(nodes.map(node => this.collectSources(node)));
+    const results = await Promise.all(nodes.map(node => this.collectSources(node, undefined, true)));
     return { sources: results.flatMap(r => r.sources), errors: results.flatMap(r => r.errors) };
   }
 
@@ -109,6 +120,8 @@ export class NodeAggregationService {
       const adoptableKernels = collection.kernels.filter(kernel => kernel.detected && !kernel.monitored).map(kernel => kernel.type);
       const merged: NodeStatus = {
         ...status,
+        sourceCached: collection.cached === true,
+        ...(collection.collectedAt ? { sourceCollectedAt: collection.collectedAt } : {}),
         kernels: collection.kernels,
         nodesCount: collection.kernels.reduce((sum, kernel) => sum + kernel.nodesCount, 0),
         ...(kernelError ? { lastError: kernelError, lastErrorAt } : {}),
@@ -123,7 +136,22 @@ export class NodeAggregationService {
     return { totalNodes: statuses.length, onlineNodes: statuses.filter(s => s.online).length, totalProxies: dedupeProxySources(sources).length, nodes: statuses, lastUpdated: new Date().toISOString() };
   }
 
-  private async collectSources(node: NodeConfig, timeoutMs?: number): Promise<RemoteSourceCollection> {
+  private async collectSources(node: NodeConfig, timeoutMs?: number, force = false): Promise<RemoteSourceCollection> {
+    if (!node.enabled) return { sources: [], errors: [] };
+    const cached = this.sourcesCache.get(node.id);
+    if (!force && cached && this.now() - cached.at < 300_000) return cached.value;
+    const existing = this.sourcesInFlight.get(node.id);
+    if (existing) return existing;
+    const request = this.fetchSources(node, timeoutMs).then(value => {
+      this.sourcesCache.set(node.id, { at: this.now(), value });
+      return value;
+    }).finally(() => this.sourcesInFlight.delete(node.id));
+    this.sourcesInFlight.set(node.id, request);
+    return request;
+  }
+
+  private async fetchSources(node: NodeConfig, timeoutMs?: number): Promise<RemoteSourceCollection> {
+    const started = this.now();
     try {
       const json = await this.agent.get(node, '/api/urls', timeoutMs) as Record<string, unknown>;
       const data = (json.data ?? json) as Record<string, unknown>;
@@ -144,8 +172,28 @@ export class NodeAggregationService {
         }
       }
       for (const kernel of kernels) if (sources.filter(s => s.kernel === kernel.type).length !== kernel.nodesCount) throw new Error(`Agent 内核 ${kernel.type} 的来源数量与 nodesCount 不一致`);
-      return { sources: sources.sort((a,b) => KERNEL_TYPES.indexOf(a.kernel)-KERNEL_TYPES.indexOf(b.kernel)).map(s => ({ ...s, nodeId: node.id, location: node.location })), errors: kernels.filter(k => (k.monitored && !k.accessible) || k.error).map(k => this.error(node, `内核 ${k.type}: ${k.error || '已监控但不可访问'}`)), kernels };
-    } catch (error) { return { sources: [], errors: [this.error(node, error instanceof Error ? error.message : String(error))] }; }
+      const result: RemoteSourceCollection = { sources: sources.sort((a,b) => KERNEL_TYPES.indexOf(a.kernel)-KERNEL_TYPES.indexOf(b.kernel)).map(s => ({ ...s, nodeId: node.id, location: node.location })), errors: kernels.filter(k => (k.monitored && !k.accessible) || k.error).map(k => this.error(node, `内核 ${k.type}: ${k.error || '已监控但不可访问'}`)), kernels };
+      if (result.errors.length) throw new Error(result.errors.join('; '));
+      const collectedAt = typeof data.collectedAt === 'string' && Number.isFinite(Date.parse(data.collectedAt)) ? Math.min(this.now(), Date.parse(data.collectedAt)) : this.now();
+      await this.state?.set(`node-sources/${node.id}.json`, JSON.stringify({ ...result, collectedAt, agentVersion: node.agent?.version }));
+      this.logger?.info('服务器代理来源采集完成', { nodeId: node.id, durationMs: this.now() - started, sources: result.sources.length });
+      return { ...result, collectedAt: new Date(collectedAt).toISOString() };
+    } catch (error) {
+      this.logger?.warn('服务器代理来源采集失败，检查持久化缓存', { nodeId: node.id, durationMs: this.now() - started });
+      const errors = [this.error(node, error instanceof Error ? error.message : String(error))];
+      try {
+        const raw = await this.state?.get(`node-sources/${node.id}.json`);
+        if (raw) {
+          const snapshot = JSON.parse(raw) as RemoteSourceCollection & { collectedAt: number };
+          const age = this.now() - snapshot.collectedAt;
+          if (age >= 0 && age <= this.cacheMaxHours() * 3600_000 && Array.isArray(snapshot.sources)) {
+            return { cached: true, collectedAt: new Date(snapshot.collectedAt).toISOString(), sources: snapshot.sources.filter(source => node.kernels.some(kernel => kernel.type === source.kernel)).map(source => ({ ...source, location: node.location })), ...(snapshot.kernels ? { kernels: snapshot.kernels } : {}),
+              errors: [...errors, this.error(node, `使用 ${(age / 3600_000).toFixed(1)} 小时前的缓存`)] };
+          }
+        }
+      } catch { /* Invalid snapshots must never replace a valid subscription. */ }
+      return { sources: [], errors };
+    }
   }
 
   private async status(node: NodeConfig, timeoutMs?: number): Promise<NodeStatus> {
@@ -163,6 +211,7 @@ export class NodeAggregationService {
     try {
       // 心跳必须是轻量探测。/api/status 会读取并导出协议核心配置，低配节点上
       // 偶尔超过探测窗口；那是来源解析慢，不代表 Agent 已离线。
+      const started = this.now();
       const json = await this.agent.get(node, '/health', timeoutMs) as Record<string, unknown>;
       const data = (json.data ?? json) as Record<string, unknown>;
       const kernels = this.cache.get(node.id)?.kernels ?? unavailable(node.kernels);
@@ -183,7 +232,7 @@ export class NodeAggregationService {
       const consecutiveSuccesses = (previous?.consecutiveSuccesses ?? 0) + 1;
       const health = consecutiveSuccesses < NODE_HEALTH_THRESHOLDS.recoverySuccesses ? previous?.health ?? 'online' : 'online';
       const status: NodeStatus = {
-        ...base, online: health !== 'offline', health, consecutiveFailures: 0, consecutiveSuccesses,
+        ...base, latency: Math.max(0, this.now() - started), online: health !== 'offline', health, consecutiveFailures: 0, consecutiveSuccesses,
         ...(health !== 'online' && previous?.error ? { error: previous.error } : {}),
         kernels, nodesCount: kernels.reduce((sum, kernel) => sum + kernel.nodesCount, 0),
         ...previousError,
@@ -194,6 +243,11 @@ export class NodeAggregationService {
         ...(typeof data.mihomoVersion === 'string' ? { mihomoVersion: data.mihomoVersion } : {}),
         ...(adoptableKernels.length ? { adoptableKernels } : {}),
       };
+      if (previous?.health === 'offline' && status.health === 'online') this.notify?.('node.recovered', `${node.name} 已恢复`);
+      if (observedVersion && this.expectedVersion && observedVersion !== this.expectedVersion && !this.outdated.has(node.id)) {
+        this.outdated.add(node.id); this.notify?.('agent.outdated', `${node.name} Agent 版本为 ${observedVersion}，控制台版本为 ${this.expectedVersion}`);
+      }
+      if (observedVersion === this.expectedVersion) this.outdated.delete(node.id);
       this.cache.set(node.id, status); return status;
     } catch (error) {
       const message = error instanceof Error && error.name === 'AbortError' ? '请求超时' : `连接失败: ${error instanceof Error ? error.message : String(error)}`;
@@ -208,6 +262,7 @@ export class NodeAggregationService {
         online: health !== 'offline', health, consecutiveFailures, consecutiveSuccesses: 0,
         error: message, lastError: message, lastErrorAt,
       };
+      if (previous?.health !== 'offline' && health === 'offline') this.notify?.('node.offline', `${node.name} 已离线`);
       this.cache.set(node.id, status); return status;
     }
   }

@@ -199,6 +199,7 @@ class ApiService {
   private async handleError(error: unknown): Promise<never> {
     if (error instanceof HTTPError) {
       const status = error.response.status;
+      if (status === 401) window.dispatchEvent(new Event('miobridge:unauthorized'));
       const statusText = error.response.statusText;
       
       let errorData;
@@ -227,7 +228,7 @@ class ApiService {
   // 更新订阅
   async updateSubscription(): Promise<UpdateResult> {
     try {
-      const response = await apiClient.get('api/update').json<ApiResponse<UpdateResult>>();
+      const response = await apiClient.post('api/update').json<ApiResponse<UpdateResult>>();
       return response.data as UpdateResult;
     } catch (error) {
       return this.handleError(error);
@@ -246,9 +247,9 @@ class ApiService {
   // 获取配置列表
   async getConfigs(): Promise<string[]> {
     try {
-      const response = await apiClient.get('api/configs').json<ApiResponse<string[] | { configs: string[] }>>();
-      const data = response.data;
-      return Array.isArray(data) ? data : data?.configs || [];
+      const response = await this.getEffectiveConfig();
+      const protocols = response.data?.config.protocols as { sing_box_configs?: string[] } | undefined;
+      return protocols?.sing_box_configs ?? [];
     } catch (error) {
       return this.handleError(error);
     }
@@ -256,7 +257,8 @@ class ApiService {
 
   async updateConfigs(configs: string[]): Promise<ApiResponse<{ configs: string[]; count: number }>> {
     try {
-      return await apiClient.post('api/configs', { json: { configs } }).json<ApiResponse<{ configs: string[]; count: number }>>();
+      const result = await this.patchConfig('protocols.sing_box_configs', configs);
+      return { ...result, data: { configs, count: configs.length } };
     } catch (error) {
       return this.handleError(error);
     }
@@ -264,7 +266,8 @@ class ApiService {
 
   async getFrontendConfig(): Promise<ApiResponse<FrontendConfig>> {
     try {
-      return await apiClient.get('api/yaml/frontend').json<ApiResponse<FrontendConfig>>();
+      const result = await this.getEffectiveConfig();
+      return { ...result, data: result.data?.config as unknown as FrontendConfig };
     } catch (error) {
       return this.handleError(error);
     }
@@ -272,7 +275,8 @@ class ApiService {
 
   async validateConfig(): Promise<ApiResponse<unknown>> {
     try {
-      return await apiClient.get('api/yaml/validate').json<ApiResponse<unknown>>();
+      const config = await this.getEffectiveConfig();
+      return await this.validateConfigSource(JSON.stringify(config.data?.config ?? {}));
     } catch (error) {
       return this.handleError(error);
     }
@@ -396,7 +400,7 @@ class ApiService {
     sshPrivateKey?: string;
     sshPrivateKeyName?: string;
     tags?: string[];
-  }): Promise<ApiResponse<NodeConfig>> {
+  }): Promise<ApiResponse<NodeConfig & { credentialWarning?: string }>> {
     try {
       return await apiClient.post('api/cluster/nodes', { json: data }).json<ApiResponse>();
     } catch (error) {
@@ -547,6 +551,11 @@ class ApiService {
     } catch (error) { return this.handleError(error); }
   }
 
+  async getSubscriptionJob(id: string): Promise<ApiResponse<SubscriptionJob>> {
+    try { return await apiClient.get(`api/subscription-jobs/${encodeURIComponent(id)}`).json<ApiResponse<SubscriptionJob>>(); }
+    catch (error) { return this.handleError(error); }
+  }
+
   async getSubscriptionJobs(): Promise<ApiResponse<{ jobs: SubscriptionJob[] }>> {
     try { return await apiClient.get('api/subscription-jobs').json<ApiResponse<{ jobs: SubscriptionJob[] }>>(); }
     catch (error) { return this.handleError(error); }
@@ -587,7 +596,7 @@ class ApiService {
     catch (error) { return this.handleError(error); }
   }
 
-  async getEffectiveConfig(): Promise<ApiResponse<{ config: Record<string, unknown>; path: string }>> {
+  async getEffectiveConfig(): Promise<ApiResponse<{ config: Record<string, unknown>; path: string; template?: string }>> {
     try { return await apiClient.get('api/config/effective').json(); }
     catch (error) { return this.handleError(error); }
   }

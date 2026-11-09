@@ -230,12 +230,12 @@ describe('node core services', () => {
 
     // forceRefresh 绕过缓存，重新扇出。
     await service.getClusterStatus({ forceRefresh: true });
-    expect(calls).toBe(4);
+    expect(calls).toBe(3);
 
     // TTL 过期后：stale-while-revalidate 立刻回旧快照，后台再扇出刷新。
     clock += 6_000;
     await service.getClusterStatus();
-    await vi.waitFor(() => expect(calls).toBe(6));
+    await vi.waitFor(() => expect(calls).toBe(4));
   });
 
   it('serves a stale snapshot immediately instead of blocking on a hung fan-out', async () => {

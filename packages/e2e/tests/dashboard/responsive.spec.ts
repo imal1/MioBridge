@@ -5,10 +5,10 @@ test.describe('E00 · 移动端导航与响应式壳层', () => {
     await page.goto('/');
     await page.getByRole('button', { name: '打开菜单' }).click();
     const drawer = page.getByRole('navigation').last();
-    await expect(drawer.getByRole('link', { name: '节点', exact: true })).toBeVisible();
-    await drawer.getByRole('link', { name: '节点', exact: true }).click();
+    await expect(drawer.getByRole('link', { name: '服务器', exact: true })).toBeVisible();
+    await drawer.getByRole('link', { name: '服务器', exact: true }).click();
     await expect(page).toHaveURL(/\/nodes$/);
-    await expect(page.getByRole('heading', { level: 1, name: '节点' })).toBeVisible();
+    await expect(page.getByRole('heading', { level: 1, name: '服务器' })).toBeVisible();
     await expect(page.getByRole('button', { name: '关闭菜单' })).not.toBeVisible();
 
     await page.getByRole('button', { name: '打开菜单' }).click();

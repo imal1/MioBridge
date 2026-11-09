@@ -64,6 +64,8 @@ export interface NodeConfig {
 
 /** Runtime status of a single node */
 export interface NodeStatus {
+  sourceCached?: boolean;
+  sourceCollectedAt?: string;
   nodeId: string;
   name: string;
   host?: string;
@@ -166,8 +168,9 @@ export interface SubscriptionPreflight {
 }
 
 export interface SubscriptionJob {
+  diff?: { added: string[]; removed: string[] }
   id: string;
-  status: 'queued' | 'running' | 'succeeded' | 'partial' | 'failed';
+  status: 'queued' | 'running' | 'succeeded' | 'partial' | 'failed' | 'blocked';
   step: 'collect' | 'parse' | 'deduplicate' | 'encode' | 'convert' | 'validate' | 'publish' | 'backup' | 'done';
   progress: number;
   message: string;
@@ -195,6 +198,8 @@ export interface ArtifactState {
 }
 
 export interface SubscriptionPolicy {
+  timezone?: string;
+  nextRun?: string;
   enabled: boolean;
   cron: string;
   freshnessHours: number;

@@ -1,3 +1,5 @@
+import { AgentVersions } from '../AgentVersions'
+import { Link } from 'react-router-dom'
 import { memo } from 'react'
 import Sidebar from './Sidebar'
 import MobileDrawer from './MobileDrawer'
@@ -22,7 +24,9 @@ const AppLayout = memo(function AppLayout({ children }: AppLayoutProps) {
       <MobileDrawer />
 
       <main id="main-content" className="mb-main">
+        <AgentVersions />
         {children}
+        <footer className="py-6 text-sm"><Link to="/help">帮助与首次使用引导</Link> <button className="ml-4" onClick={async () => { await fetch('/api/auth/logout', { method: 'POST' }); window.location.reload(); }}>退出登录</button></footer>
       </main>
     </div>
   )

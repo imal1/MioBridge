@@ -36,3 +36,5 @@ metadata:
 - Agent configs use a non-empty, duplicate-free `kernels` list of sing-box,
   Xray, and/or V2Ray entries, each with an optional config path. A node config
   may use the exact `kernels: []` draft form until its first successful deploy.
+
+- 2026-11-08: config.yaml is the subscription-policy source; legacy JSON is migrated once. Editable schema fields require a consumer mapping. Cron uses croner with app.timezone. Prefer template.user.yaml; upgrades preserve template.yaml and stage template.yaml.new. auth.yaml is mode 0600 and separate from exported configuration.

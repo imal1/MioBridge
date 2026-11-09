@@ -7,6 +7,7 @@ import { buildClashSubscriptionResult, dedupeProxySources, type CollectedProxySo
 
 export interface SourceCollection { readonly sources: CollectedProxySource[]; readonly errors: string[] }
 export interface SubscriptionPreflight {
+  readonly snapshot?: SourceCollection;
   readonly ready: boolean;
   readonly sourcesTotal: number;
   readonly nodesEstimated: number;
@@ -20,6 +21,7 @@ export interface ClashConverter {
   convertToClashByContent(content: string): Promise<string>;
 }
 export interface UpdateResult {
+  diff?: { added: string[]; removed: string[] };
   success: boolean; message: string; timestamp: string; nodesCount: number;
   clashGenerated: boolean; backupCreated: string; durationMs?: number; warnings?: string[]; errors?: string[];
 }
@@ -31,6 +33,8 @@ export interface ArtifactServiceOptions {
   readonly logger: CoreLogger;
   readonly state?: StateStore;
   readonly now?: () => Date;
+  readonly policy?: () => { nodeDropPercent: number };
+  readonly activeNodeIds?: () => Promise<string[]>;
 }
 
 const protocols = ['vless://', 'vmess://', 'ss://', 'ssr://', 'trojan://', 'hysteria2://', 'hy2://', 'tuic://', 'wireguard://'] as const;
@@ -57,6 +61,18 @@ function isNonRoutableProxySource(value: string): boolean {
     || /^::ffff:127(?:\.|$)/.test(host);
 }
 
+export class PublicationBlockedError extends Error {
+  constructor(readonly diff: { added: string[]; removed: string[] }, readonly previous: number, readonly current: number) {
+    super(`代理节点从 ${previous} 降至 ${current}，发布已阻止；请检查差异后手动确认`);
+    this.name = 'PublicationBlockedError';
+  }
+}
+export interface PublicationOptions {
+  snapshot?: SourceCollection;
+  force?: boolean;
+  onProgress?: (step: 'collect' | 'convert' | 'validate' | 'publish' | 'backup') => Promise<void>;
+}
+
 export class ArtifactService {
   private readonly now: () => Date;
   constructor(private readonly options: ArtifactServiceOptions) { this.now = options.now ?? (() => new Date()); }
@@ -74,6 +90,7 @@ export class ArtifactService {
     const sources = dedupeProxySources(this.extract(collected, warnings));
     const blockingErrors = sources.length === 0 ? ['零个可读代理来源'] : [];
     return {
+      snapshot: { sources, errors: warnings },
       ready: blockingErrors.length === 0,
       sourcesTotal: collected.length,
       nodesEstimated: sources.length,
@@ -82,13 +99,42 @@ export class ArtifactService {
     };
   }
 
-  async updateSubscription(): Promise<UpdateResult> {
+  async updateSubscription(input: PublicationOptions = {}): Promise<UpdateResult> {
+    const run = () => this.generate(input);
+    return this.options.state ? this.options.state.withLock('subscription-publication', run) : run();
+  }
+
+  private async generate(input: PublicationOptions): Promise<UpdateResult> {
     const startedAt = Date.now();
-    const collected: CollectedProxySource[] = [];
-    const warnings: string[] = [];
-    await this.collectLocal(collected, warnings);
-    await this.collectRemote(collected, warnings);
-    const sources = dedupeProxySources(this.extract(collected, warnings));
+    this.options.logger.info('开始生成订阅');
+    await input.onProgress?.('collect');
+    const snapshot = input.snapshot ?? (await this.preflight()).snapshot!;
+    const sources = snapshot.sources;
+    const warnings = [...new Set(snapshot.errors)];
+    const previousRaw = await this.options.state?.get('artifact-state/sources.json');
+    let previousSources: CollectedProxySource[];
+    if (previousRaw) previousSources = JSON.parse(previousRaw) as CollectedProxySource[];
+    else {
+      // Upgrades must protect artifacts published before source metadata existed.
+      const legacy = await readFile(join(this.options.config.staticDir, 'raw.txt'), 'utf8').catch(error => {
+        if ((error as NodeJS.ErrnoException).code === 'ENOENT') return '';
+        throw error;
+      });
+      previousSources = legacy.split(/\r?\n/).filter(url => protocols.some(prefix => url.startsWith(prefix)))
+        .map(url => ({ url, kernel: 'sing-box', nodeId: '__legacy__', location: '' }));
+    }
+    const active = await this.options.activeNodeIds?.();
+    const previous = active ? previousSources.filter(source => source.nodeId === '__legacy__' || active.includes(source.nodeId)) : previousSources;
+    const names = (items: CollectedProxySource[]) => buildClashSubscriptionResult(items).content.split('\n').filter(Boolean).map(url => {
+      try {
+        if (url.startsWith('vmess://')) return String(JSON.parse(Buffer.from(url.slice(8), 'base64').toString()).ps ?? 'vmess');
+        return decodeURIComponent(url.split('#')[1] ?? '代理节点');
+      } catch { return '代理节点'; }
+    });
+    const diff = { added: names(sources.filter(source => !previous.some(old => old.url === source.url))), removed: names(previous.filter(old => !sources.some(source => source.url === old.url))) };
+    if (!input.force && sources.length < previous.length * (1 - (this.options.policy?.().nodeDropPercent ?? 30) / 100)) {
+      throw new PublicationBlockedError(diff, previous.length, sources.length);
+    }
     if (sources.length === 0) throw new Error(`没有找到有效的代理URL。来源错误: ${warnings.join('; ') || '无可用节点源'}`);
 
     await this.ensureDirectories();
@@ -96,6 +142,7 @@ export class ArtifactService {
     const subscriptionContent = Buffer.from(rawContent).toString('base64');
     const subscriptionFile = join(this.options.config.staticDir, 'subscription.txt');
 
+    await input.onProgress?.('convert');
     const clashInput = buildClashSubscriptionResult(sources);
     warnings.push(...clashInput.errors);
     let clashGenerated = false;
@@ -114,17 +161,22 @@ export class ArtifactService {
       this.options.logger.error('生成Clash配置失败', { error: clashError });
     }
 
+    await input.onProgress?.('validate');
+    await input.onProgress?.('publish');
     await this.publishArtifacts([
       { filename: 'raw.txt', content: rawContent },
       { filename: 'subscription.txt', content: subscriptionContent },
       ...(clashContent ? [{ filename: this.options.config.clashFilename, content: clashContent }] : []),
     ]);
 
+    await this.options.state?.set('artifact-state/sources.json', JSON.stringify(sources));
+    await input.onProgress?.('backup');
     const timestamp = this.now().toISOString();
     const backupStamp = timestamp.replace(/[:.]/g, '-').slice(0, 19);
     const backupFile = join(this.options.config.backupDir, `subscription_${backupStamp}.txt`);
     await copyFile(subscriptionFile, backupFile);
     const result: UpdateResult = {
+      diff,
       success: true,
       message: `订阅更新成功，共 ${sources.length} 个节点${clashGenerated ? '' : ' (Clash生成失败)'}`,
       timestamp,
@@ -141,6 +193,8 @@ export class ArtifactService {
         status, timestamp, durationMs: result.durationMs, nodesCount: result.nodesCount,
       })).catch(error => this.options.logger.warn('保存订阅生成状态失败', { error }));
     }
+    this.options.logger.info('订阅生成完成', { nodesCount: result.nodesCount, durationMs: result.durationMs });
+    for (const warning of warnings) this.options.logger.warn(warning);
     return result;
   }
 
@@ -169,7 +223,7 @@ export class ArtifactService {
 
   private async collectLocal(target: CollectedProxySource[], errors: string[]): Promise<void> {
     try {
-      if (!await this.options.local.isAvailable()) { errors.push('本机: Sing-box不可用，跳过本机节点源'); return; }
+      if (!await this.options.local.isAvailable()) return;
       target.push(...(await this.options.local.extractNodeUrls()).map(url => ({ url, kernel: 'sing-box' as const, nodeId: 'local', location: '本机' })));
     } catch (error) { errors.push(`本机来源收集失败: ${error instanceof Error ? error.message : String(error)}`); }
   }

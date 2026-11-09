@@ -38,8 +38,8 @@ describe('Cluster Dashboard Page', () => {
   it('exposes the redesign header shortcuts', async () => {
     const Dashboard = (await import('@/components/Dashboard')).default
     renderWithClient(<MemoryRouter><Dashboard initialCluster={null} initialError={null} /></MemoryRouter>)
-    // 重设计头部动作：添加节点 → /nodes，生成订阅 → /subscription。
-    expect(screen.getByRole('link', { name: /添加节点/ })).toBeDefined()
+    // 重设计头部动作：添加服务器 → /nodes，生成订阅 → /subscription。
+    expect(screen.getByRole('link', { name: /添加服务器/ })).toBeDefined()
     expect(screen.getByRole('link', { name: /生成订阅/ })).toBeDefined()
   })
 

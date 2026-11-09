@@ -3,18 +3,20 @@
 # ===============================================
 # 运行时由 miobridge CLI 读取。首次引导后，setup、update、dashboard 生命周期、
 # upgrade 和 uninstall 都通过 miobridge 命令完成，不依赖服务器端管理脚本。
-# Mihomo 静态配置、策略组和路由规则只位于同目录的 template.yaml；
-# template.yaml 是随版本更新的只读资源，升级会覆盖；proxies 由 MioBridge
-# 管理，节点填入 __MIOBRIDGE_NODES__。
+# Mihomo 静态配置、策略组和路由规则位于同目录的 template.yaml。
+# 自定义时使用 template.user.yaml，存在时优先；升级保留已有模板，新官方模板写入 .new。
+# proxies 由 MioBridge 管理，代理节点填入 __MIOBRIDGE_NODES__。
 # ===============================================
 
 # 服务基础配置
 # ---------------------------------------------
 app:
   name: miobridge               # 应用名称
-  version: 1.0.0                  # 应用版本
+  version: 1.2.23                  # 应用版本
   port: 3000                      # 仪表盘与 API 端口
   environment: production         # 运行环境: development/production
+  timezone: UTC                   # Cron 与下次执行时间使用的 IANA 时区
+  # public_base_url: https://subscriptions.example.com
 
 # 本机节点是安装时默认创建的普通节点档案，保存在 nodes.yaml：
 # miobridge nodes configure --local-node
@@ -33,28 +35,62 @@ protocols:
 
 # 二进制文件路径配置
 # ---------------------------------------------
-binaries:
+binaries: {}
   # mihomo (clash-meta 内核) 二进制文件路径
   # 留空则使用默认路径: $BASE_DIR/bin/mihomo
-  mihomo_path: ""
+  # mihomo_path: /opt/miobridge/mihomo
   
 # 目录结构配置
 # ---------------------------------------------
-directories:
+directories: {}
   # 静态文件目录 (网站数据目录)
   # 默认: $BASE_DIR/www
   # 存储订阅文件、配置文件等静态资源
-  data_dir: ""
+  # data_dir: /var/lib/miobridge/www
   
   # 日志文件目录
-  # 默认: $BASE_DIR/log
+  # 默认: $BASE_DIR/logs
   # 存储应用日志和访问日志
-  log_dir: ""
+  # log_dir: /var/log/miobridge
   
   # 备份文件目录
-  # 默认: $BASE_DIR/backup
-  backup_dir: ""
+  # 默认: $BASE_DIR/backups
+  # backup_dir: /var/lib/miobridge/backups
 # 网络配置
 # ---------------------------------------------
 network:
   request_timeout: 30000        # 请求超时时间 (毫秒)
+
+# 订阅策略（唯一数据源；固定生成 clash.yaml）
+subscription:
+  enabled: false
+  cron: "0 */6 * * *"
+  freshness_hours: 24
+  node_drop_percent: 30
+  stale_source_max_hours: 72
+  auto_regenerate: true
+  retry_delays_minutes: [1, 5, 15]
+  backup_retention: 30
+
+deployment:
+  ssh_timeout_ms: 15000
+  task_timeout_ms: 1800000
+  task_retention_days: 30
+
+logs:
+  level: info
+  task_retention_days: 14
+
+notifications:
+  webhook:
+    enabled: false
+    # url: https://your-webhook.example/endpoint
+    template: generic             # generic / telegram / bark / wechat
+    # target: "telegram-chat-id"   # Telegram 模板的 chat_id
+    events:
+      - subscription.failed
+      - subscription.blocked
+      - node.offline
+      - node.recovered
+      - deployment.failed
+      - agent.outdated

@@ -27,7 +27,7 @@ export function agentYaml(target: SshTarget, kernels: readonly NodeKernelConfig[
     `    configPath: ${JSON.stringify(kernel.configPath ?? DEFAULT_CONFIG_PATHS[kernel.type])}`,
   ].join('\n')).join('\n');
   const kernelsBlock = kernelYaml ? `kernels:\n${kernelYaml}` : 'kernels: []';
-  return `node:\n  id: ${JSON.stringify(target.nodeId)}\n  name: ${JSON.stringify(target.nodeName)}\n  secret: ${JSON.stringify(target.secret)}\n${kernelsBlock}\nmihomo:\n  path: "mihomo"\nport: ${target.agentPort}\n`;
+  return `node:\n  id: ${JSON.stringify(target.nodeId)}\n  name: ${JSON.stringify(target.nodeName)}\n  secret: ${JSON.stringify(target.secret)}\n${kernelsBlock}\nport: ${target.agentPort}\n`;
 }
 
 export function systemdUnit(): string {

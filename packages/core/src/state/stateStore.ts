@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { chmod, mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises';
+import { mkdir, open, readFile, readdir, rename, rm, rmdir, stat, writeFile } from 'node:fs/promises';
 import { dirname, resolve, sep } from 'node:path';
 import type { CoreLogger } from '../index.js';
 import type { RuntimePaths } from '../runtime/runtimePaths.js';
@@ -40,7 +40,17 @@ export class FileStateStore implements StateStore {
   }
   async set(key: string, value: string): Promise<void> {
     const file = this.filePath(key); await mkdir(dirname(file), { recursive: true });
-    await writeFile(file, value, { mode: 0o600 }); await chmod(file, 0o600);
+    const temporary = `${file}.${randomUUID()}.tmp`;
+    try {
+      const handle = await open(temporary, 'wx', 0o600);
+      try { await handle.writeFile(value, 'utf8'); await handle.sync(); }
+      finally { await handle.close(); }
+      await rename(temporary, file);
+      if (process.platform !== 'win32') {
+        const directory = await open(dirname(file), 'r');
+        try { await directory.sync(); } finally { await directory.close(); }
+      }
+    } finally { await rm(temporary, { force: true }); }
   }
   async del(key: string): Promise<void> { await rm(this.filePath(key), { force: true }); }
   async listKeys(prefix: string): Promise<string[]> {
@@ -54,7 +64,37 @@ export class FileStateStore implements StateStore {
         .map(entry => relativeDir ? `${relativeDir}/${entry.name}` : entry.name);
     } catch (error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT') return []; throw error; }
   }
-  withLock<T>(key: string, fn: () => Promise<T>): Promise<T> { return this.mutex.run(key, fn); }
+  withLock<T>(key: string, fn: () => Promise<T>): Promise<T> {
+    return this.mutex.run(key, async () => {
+      const lock = this.filePath(`${key}.lock`);
+      await mkdir(dirname(lock), { recursive: true });
+      const owner = `${process.pid}-${randomUUID()}`;
+      const deadline = Date.now() + 30_000;
+      for (;;) {
+        try {
+          await mkdir(lock, { mode: 0o700 });
+          try { await writeFile(`${lock}/${owner}`, '', { flag: 'wx', mode: 0o600 }); break; }
+          catch (error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT') continue; throw error; }
+        }
+        catch (error) {
+          if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
+          try {
+            const entries = await readdir(lock);
+            for (const entry of entries) {
+              const pid = Number(entry.split('-')[0]);
+              if (!Number.isSafeInteger(pid) || pid <= 0) continue;
+              try { process.kill(pid, 0); }
+              catch (probe) { if ((probe as NodeJS.ErrnoException).code === 'ESRCH') await rm(`${lock}/${entry}`, { force: true }); }
+            }
+            if (entries.length || Date.now() - (await stat(lock)).mtimeMs > 30_000) await rmdir(lock);
+          } catch { /* Another owner or waiter changed the directory. Never remove an active owner. */ }
+          if (Date.now() >= deadline) throw new Error(`State lock timed out: ${key}`);
+          await new Promise(resolve => setTimeout(resolve, 25));
+        }
+      }
+      try { return await fn(); } finally { await rm(`${lock}/${owner}`, { force: true }); await rmdir(lock).catch(error => { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error; }); }
+    });
+  }
 }
 
 const NS = 'miobridge:';

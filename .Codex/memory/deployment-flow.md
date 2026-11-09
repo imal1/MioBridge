@@ -50,3 +50,5 @@ metadata:
   restart, so legacy unit-template settings do not survive a binary upgrade.
 - Dashboard daemon start waits for `/health`; stop, uninstall, and process
   shutdown clean up the user unit and open SSE connections before exit.
+
+- 2026-11-08: Default onboarding preflights SSH, installs/verifies a controller SSH key, installs Agent, detects/adopts kernels and generates subscriptions. Root bootstrap secrets expire after 30 minutes. Installation starts Dashboard unless --no-start; upgrade includes local Agent; uninstall removes its service. Remote mihomo is unsupported.

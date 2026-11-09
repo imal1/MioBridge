@@ -253,7 +253,7 @@ export function createNodeSystemdAdapters(options: { readonly env?: NodeJS.Proce
     async confirmEnableLinger(username) {
       const input = options.input ?? process.stdin;
       const output = options.output ?? process.stdout;
-      if (!input.isTTY) return false;
+      if (!input.isTTY) return true;
       output.write(`Enable systemd lingering for ${username} to survive logout? [y/N] `);
       input.setEncoding('utf8');
       return new Promise(resolve => input.once('data', value => resolve(String(value).trim().toLowerCase() === 'y' || String(value).trim().toLowerCase() === 'yes')));

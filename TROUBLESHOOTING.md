@@ -1,5 +1,7 @@
 # Troubleshooting
 
+[中文版](TROUBLESHOOTING.zh-CN.md). Start with `miobridge doctor` for service, PATH, port, template and connectivity checks.
+
 Start with the CLI-owned service state:
 
 ```bash

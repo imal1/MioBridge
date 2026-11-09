@@ -188,7 +188,7 @@ describe('CLI release distribution', () => {
     expect(execFileSync(join(installDir, 'miobridge'), { encoding: 'utf8' }).trim()).toBe('x64-v1');
   });
 
-  it('preserves user config while refreshing the release-owned template', () => {
+  it('preserves user config and customized templates while staging the new default', () => {
     const { dir } = fixture();
     const installDir = join(dir, 'installed');
     const configDir = join(dir, '.config/miobridge');
@@ -203,8 +203,8 @@ describe('CLI release distribution', () => {
       env: { ...process.env, HOME: dir, PATH: fakePlatform(dir, 'x86_64') },
     });
     expect(readFileSync(join(configDir, 'config.yaml'), 'utf8')).toContain('preserve');
-    expect(readFileSync(join(configDir, 'template.yaml'), 'utf8')).not.toContain('custom.example');
-    expect(readFileSync(join(configDir, 'template.yaml'), 'utf8')).toContain('GEOSITE,cn,DIRECT');
+    expect(readFileSync(join(configDir, 'template.yaml'), 'utf8')).toContain('custom.example');
+    expect(readFileSync(join(configDir, 'template.yaml.new'), 'utf8')).toContain('GEOSITE,cn,DIRECT');
     expect(execFileSync(join(installDir, 'miobridge'), { encoding: 'utf8' }).trim()).toBe('x64-v1');
   });
 });

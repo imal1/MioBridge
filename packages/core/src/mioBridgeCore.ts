@@ -1,3 +1,4 @@
+import { WebhookService } from './notifications/webhookService.js';
 import { ArtifactService, type ArtifactServiceOptions, type LocalSourceCollector, type RemoteSourceCollector } from './artifacts/artifactService.js';
 import { ConfigService } from './config/configService.js';
 import { LocalLogService, type LocalLogQuery } from './logs/localLogService.js';
@@ -13,6 +14,7 @@ import type { AgentClient } from './nodes/agentClient.js';
 
 export interface MioBridgeCoreOptions {
   readonly paths: RuntimePaths; readonly state: StateStore; readonly logger: CoreLogger; readonly metadata: BuildMetadata;
+  readonly activeNodeIds?: () => Promise<string[]>;
   readonly local: LocalSourceCollector; readonly remote: RemoteSourceCollector;
   readonly mihomo: ArtifactServiceOptions['clash'] & StatusKernel;
   readonly clusterMetrics?: ClusterMetricsSource;
@@ -20,6 +22,7 @@ export interface MioBridgeCoreOptions {
 }
 
 export class MioBridgeCore {
+  readonly notifications: WebhookService;
   readonly yaml: YamlService; readonly config: ConfigService; readonly state: StateStore;
   readonly artifacts: ArtifactService; readonly status: StatusService;
   readonly logs: LocalLogService; readonly metrics: MetricsService;
@@ -27,8 +30,11 @@ export class MioBridgeCore {
     this.state = options.state;
     this.yaml = options.yaml ?? new YamlService({ paths: options.paths, logger: options.logger });
     this.config = new ConfigService(this.yaml, options.paths, options.metadata.version);
+    this.notifications = new WebhookService(options.state, () => this.config.getFullConfig().notifications?.webhook);
     const config = this.config.getConfig();
     const artifactOptions: ArtifactServiceOptions = {
+      policy: () => ({ nodeDropPercent: this.config.getFullConfig().subscription?.node_drop_percent ?? 30 }),
+      ...(options.activeNodeIds ? { activeNodeIds: options.activeNodeIds } : {}),
       config, local: options.local, remote: options.remote, clash: options.mihomo, logger: options.logger, state: options.state,
       ...(options.now ? { now: options.now } : {}),
     };
@@ -39,7 +45,7 @@ export class MioBridgeCore {
       () => this.status.getStatus(), options.state, options.clusterMetrics, options.now,
     );
   }
-  updateSubscription() { return this.artifacts.updateSubscription(); }
+  updateSubscription(input?: import('./artifacts/artifactService.js').PublicationOptions) { return this.artifacts.updateSubscription(input); }
   createNodeMaintenance(options: NodeMaintenanceServiceOptions) { return new NodeMaintenanceService(options); }
   createAgentAcceptance(client: AgentClient, options?: AgentDeploymentAcceptanceOptions) { return new AgentDeploymentAcceptance(client, options); }
   preflightSubscription() { return this.artifacts.preflight(); }

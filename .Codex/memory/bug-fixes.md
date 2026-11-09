@@ -1,3 +1,7 @@
+## 2026-11-08 · Optimization regressions
+
+Offline sources persist up to 72 hours; publication drop checks preserve previous artifacts, including legacy files without metadata. Atomic state writes and nodes.yaml.bak prevent truncated configuration; mkdir locks serialize CLI/dashboard mutations. Retry text stays editable, schedule toggle saves without overwriting other drafts, and failed onboarding retries Agent installation without duplicating the server. Dashboard download tests establish actual session cookies. See docs/OPTIMIZATION-IMPLEMENTATION.zh-CN.md for validation.
+
 ---
 name: bug-fixes
 description: Compact bug fixes and operational lessons for MioBridge

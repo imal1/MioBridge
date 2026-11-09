@@ -57,9 +57,16 @@ grep -q '"state":"stopped"' /tmp/status-before.json || fail "expected initially 
 run_as_user "$TEST_HOME/.local/bin/miobridge" dashboard start
 run_as_user "$TEST_HOME/.local/bin/miobridge" dashboard start
 wait_for 20 curl -fsS "http://127.0.0.1:$TEST_PORT/health" >/dev/null || fail "provider never became healthy"
+subscription_url="$(run_as_user "$TEST_HOME/.local/bin/miobridge" subscription url)"
+subscription_query="${subscription_url#*\?}"
+[[ "$subscription_query" == token=* ]] || fail "new install did not protect subscription URLs"
 for path in /subscription.txt /clash.yaml /raw.txt; do
-  curl -fsS "http://127.0.0.1:$TEST_PORT$path" >/dev/null || fail "compatibility URL failed: $path"
+  status="$(curl -sS -o /dev/null -w '%{http_code}' "http://127.0.0.1:$TEST_PORT$path")"
+  [[ "$status" == 401 ]] || fail "unprotected compatibility URL: $path"
+  curl -fsS "http://127.0.0.1:$TEST_PORT$path?$subscription_query" >/dev/null || fail "authenticated compatibility URL failed: $path"
 done
+status="$(curl -sS -o /dev/null -w '%{http_code}' "http://127.0.0.1:$TEST_PORT/api/status")"
+[[ "$status" == 401 ]] || fail "unauthenticated management API was accessible"
 run_as_user "$TEST_HOME/.local/bin/miobridge" dashboard status --json > /tmp/status-reconnect.json
 grep -q '"state":"running"' /tmp/status-reconnect.json || fail "service not discoverable after reconnect"
 grep -q '"linger":true' /tmp/status-reconnect.json || fail "status did not report linger"

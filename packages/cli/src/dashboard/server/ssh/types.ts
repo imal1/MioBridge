@@ -126,6 +126,7 @@ export interface DeploymentConnection {
 }
 
 export interface DeploymentServiceOptions {
+  readonly timeouts?: () => { ssh: number; task: number };
   readonly runLocal?: (command: string, input?: string) => Promise<ExecResult>;
   readonly connect?: (target: SshTarget) => Promise<DeploymentConnection>;
   readonly fetch?: typeof globalThis.fetch;

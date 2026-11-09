@@ -80,7 +80,7 @@ export function registerConfigRoutes(
           if (!taskId) throw new Error('订阅任务日志需要 taskId');
           const events = await deps.subscription.events(taskId);
           const lines = events.success
-            ? ((events.data as { events?: Array<Record<string, unknown>> } | undefined)?.events ?? []).map(event => JSON.stringify(event))
+            ? ((events.data as { events?: Array<Record<string, unknown>> } | undefined)?.events ?? []).map(event => `${String(event.timestamp ?? '')} [${String(event.status ?? '')}] ${String(event.message ?? '')} (${String(event.progress ?? 0)}%)`)
             : [];
           result = events.success
             ? { success: true, data: taskLogResult('subscription', taskId, lines.join('\n'), level, query, component, from, to), timestamp: NOW() }
