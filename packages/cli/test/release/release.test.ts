@@ -3,6 +3,7 @@ import { chmodSync, copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, 
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
+import { parse } from 'yaml';
 
 const root = resolve(import.meta.dirname, '../../../..');
 const packageScript = join(root, 'scripts/package-cli-release.sh');
@@ -68,6 +69,24 @@ function fakePlatform(dir: string, machine: string) {
 }
 
 describe('CLI release distribution', () => {
+  it.each([
+    ['v1.3.0-beta.1', '1.3.0-beta.1', 'true'],
+    ['1.3.0-rc.2', '1.3.0-rc.2', 'true'],
+    ['v1.3.0', '1.3.0', 'false'],
+  ])('classifies release %s before publishing', (requested, version, prerelease) => {
+    const workflow = parse(readFileSync(join(root, '.github/workflows/release.yml'), 'utf8'));
+    const steps = workflow.jobs.cli.steps;
+    const output = join(temporary('miobridge-release-classification-'), 'outputs');
+    execFileSync('bash', ['-c', steps.find((step: { id?: string }) => step.id === 'release').run], {
+      env: { ...process.env, REQUESTED_VERSION: requested, GITHUB_OUTPUT: output },
+    });
+    const values = Object.fromEntries(readFileSync(output, 'utf8').trim().split('\n').map(line => line.split('=')));
+    expect(values).toEqual({ version, tag: `v${version}`, prerelease });
+    const publish = steps.find((step: { uses?: string }) => step.uses?.startsWith('softprops/action-gh-release@'));
+    expect(publish.with.prerelease).toBe("${{ steps.release.outputs.prerelease == 'true' }}");
+    expect(publish.with.make_latest).toBe("${{ steps.release.outputs.prerelease == 'true' && 'false' || 'legacy' }}");
+  });
+
   it('cleans and rebuilds core before compiling release sources', () => {
     const sandbox = temporary('miobridge-release-clean-');
     const sandboxScript = join(sandbox, 'scripts', 'package-cli-release.sh');

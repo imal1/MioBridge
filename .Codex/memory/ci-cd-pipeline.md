@@ -114,3 +114,12 @@ Agent gzip files, `install-agent.sh`, and `SHA256SUMS`. Never publish a Release 
 the PR head.
 
 - 2026-11-09: systemd E2E now verifies unauthenticated API/subscription requests return 401, and checks compatibility files using the separate subscription token emitted by the installed CLI. Core cross-process lock test resolves its compiled module relative to import.meta.url so workspace and root coverage runs both work.
+
+## 2026-11-09 — Explicit branch prereleases
+
+When the user explicitly requests a prerelease from a new branch, publish that
+branch after its CI passes; the main-only rule above remains the stable-release
+default. Synchronize workspace and fallback versions, run CI and systemd E2E
+on the release branch, then tag the verified commit. `release.yml` classifies
+hyphenated versions as prereleases and sets `make_latest: false`, preserving the
+stable Latest release. Verify uploaded checksums and compiled versions afterward.
