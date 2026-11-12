@@ -10,7 +10,7 @@ const api = vi.hoisted(() => ({
 vi.mock('@/lib/api', () => ({ apiService: api }))
 
 const localNode = {
-  nodeId: 'local', name: '本机节点', host: '127.0.0.1', location: '本机', enabled: true,
+  nodeId: 'local', name: '本机', host: '127.0.0.1', location: '本机', enabled: true,
   online: false, configuredKernels: [{ type: 'sing-box' as const }],
   kernels: [
     { type: 'sing-box' as const, detected: false, monitored: true, accessible: false, nodesCount: 0, configPaths: [] },
@@ -40,14 +40,14 @@ describe('Default local node display', () => {
     const { default: NodesPage } = await import('@/pages/nodes')
     const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
     render(<QueryClientProvider client={client}><MemoryRouter><NodesPage /></MemoryRouter></QueryClientProvider>)
-    // 本机节点是普通子节点：不被过滤、不带特殊徽标，走与其他节点相同的表格行。
-    await screen.findByText('本机节点')
+    // 本机是普通子节点：不被过滤、不带特殊徽标，走与其他节点相同的表格行。
+    await screen.findByText('本机')
     expect(screen.getByText('127.0.0.1 · 本机')).toBeTruthy()
     expect(screen.getByText('东京节点')).toBeTruthy()
     // 部署入口在选中节点后的详情标签页，不再是每行按钮；离线本机与在线子节点各有一个 Agent 状态徽标。
     expect(screen.getByText('未安装')).toBeTruthy()
     expect(screen.getByText('在线')).toBeTruthy()
-    expect(screen.queryByText('本机', { exact: true })).toBeNull()
+    expect(screen.getByText('本机', { exact: true })).toBeTruthy()
     fireEvent.click(screen.getByText('东京节点').closest('tr')!)
     fireEvent.click(screen.getByRole('button', { name: 'Agent' }))
     expect(screen.getByText('历史错误（当前已恢复）')).toBeTruthy()

@@ -6,7 +6,10 @@ import {
 } from '../config';
 import * as fs from 'fs';
 import * as path from 'path';
-import { execFileSync } from 'child_process';
+import { execFile } from 'child_process';
+import { promisify } from 'node:util';
+const execFileAsync = promisify(execFile);
+const binaryCache = new Map<string, { at: number; value: string | undefined }>();
 import { hmacVerify } from '../hmac';
 
 interface IncomingRequest {
@@ -63,24 +66,27 @@ export interface KernelNodeSource {
   url: string;
 }
 
-function findKernelBinary(type: KernelType): string | undefined {
+async function findKernelBinary(type: KernelType): Promise<string | undefined> {
+  const key = `${process.env.PATH}:${type}`;
+  const cached = binaryCache.get(key);
+  if (cached && Date.now() - cached.at < 300_000) return cached.value;
   for (const dir of (process.env.PATH || '').split(path.delimiter)) {
     if (!dir) continue;
     try {
       const candidate = path.join(dir, type);
       if (!fs.statSync(candidate).isFile()) continue;
       fs.accessSync(candidate, fs.constants.X_OK);
-      const help = execFileSync(candidate, ['help'], {
+      const { stdout: help } = await execFileAsync(candidate, ['help'], {
         encoding: 'utf8',
         timeout: 5_000,
         maxBuffer: 1024 * 1024,
-        stdio: ['ignore', 'pipe', 'pipe'],
       });
-      if (help.includes('url [name]')) return candidate;
+      if (help.includes('url [name]')) { binaryCache.set(key, { at: Date.now(), value: candidate }); return candidate; }
     } catch {
       // Continue searching the remaining PATH entries.
     }
   }
+  binaryCache.set(key, { at: Date.now(), value: undefined });
   return undefined;
 }
 
@@ -272,24 +278,24 @@ function xrayInboundToUrls(inbound: any, host: string): string[] {
   return [];
 }
 
-function urlsFromWrapper(executable: string, file: string): string[] {
+async function urlsFromWrapper(executable: string, file: string): Promise<string[]> {
   // 233boy's `url [name]` resolves a config inside its own conf directory.
   // Passing an absolute path makes the wrapper miss the config and forces the
   // structured fallback to advertise the Agent request host (127.0.0.1 for the
   // managed local node) instead of the server's public address.
-  const output = execFileSync(executable, ['url', path.basename(file)], {
+  const { stdout } = await execFileAsync(executable, ['url', path.basename(file)], {
     encoding: 'utf8', timeout: 10_000, maxBuffer: 4 * 1024 * 1024,
-    stdio: ['ignore', 'pipe', 'pipe'],
-  }).replace(/\u001b\[[0-9;]*m/g, '');
+  });
+  const output = stdout.replace(/\u001b\[[0-9;]*m/g, '');
   return output.split(/\r?\n/).map(line => line.trim()).filter(line =>
     /^(?:vless|vmess|ss|ssr|trojan|hysteria2|hy2|tuic|wireguard):\/\//.test(line));
 }
 
-function extractKernelNodeUrls(kernel: AgentKernelConfig, configPaths: string[], host: string, executable?: string): {
+async function extractKernelNodeUrls(kernel: AgentKernelConfig, configPaths: string[], host: string, executable?: string): Promise<{
   urls: string[];
   readableFiles: number;
   errors: string[];
-} {
+}> {
   const urls: string[] = [];
   const errors: string[] = [];
   let readableFiles = 0;
@@ -297,7 +303,7 @@ function extractKernelNodeUrls(kernel: AgentKernelConfig, configPaths: string[],
     try {
       if (executable) {
         try {
-          const generated = urlsFromWrapper(executable, file);
+          const generated = await urlsFromWrapper(executable, file);
           if (generated.length > 0) {
             urls.push(...generated);
             readableFiles += 1;
@@ -321,17 +327,17 @@ function extractKernelNodeUrls(kernel: AgentKernelConfig, configPaths: string[],
   return { urls: Array.from(new Set(urls)), readableFiles, errors };
 }
 
-export function collectKernelSources(config: AgentConfig, host: string): {
+async function readKernelSources(config: AgentConfig, host: string): Promise<{
   sources: KernelNodeSource[];
   kernels: KernelRuntimeStatus[];
-} {
+}> {
   const sources: KernelNodeSource[] = [];
   const kernels: KernelRuntimeStatus[] = [];
   const seenUrls = new Set<string>();
 
   for (const type of SUPPORTED_KERNELS) {
     const kernel = config.kernels.find(item => item.type === type);
-    const binaryPath = findKernelBinary(type);
+    const binaryPath = await findKernelBinary(type);
     const status: KernelRuntimeStatus = {
       type,
       detected: Boolean(binaryPath),
@@ -350,7 +356,7 @@ export function collectKernelSources(config: AgentConfig, host: string): {
     try {
       status.configPaths = discoverKernelConfigFiles(kernel);
       if (status.configPaths.length > 0) {
-        const extracted = extractKernelNodeUrls(kernel, status.configPaths, host, binaryPath);
+        const extracted = await extractKernelNodeUrls(kernel, status.configPaths, host, binaryPath);
         for (const url of extracted.urls) {
           if (seenUrls.has(url)) continue;
           seenUrls.add(url);
@@ -370,7 +376,28 @@ export function collectKernelSources(config: AgentConfig, host: string): {
   return { sources, kernels };
 }
 
-export function handleUrls(req: IncomingRequest, config: AgentConfig): Response {
+type SourceResult = Awaited<ReturnType<typeof readKernelSources>> & { collectedAt: string };
+const sourceCache = new Map<string, { signature: string; value?: SourceResult; pending?: Promise<SourceResult> }>();
+export async function collectKernelSources(config: AgentConfig, host: string): Promise<SourceResult> {
+  const key = JSON.stringify([config.kernels, host, process.env.PATH]);
+  const signature = JSON.stringify(config.kernels.flatMap(kernel => discoverKernelConfigFiles(kernel)).map(file => {
+    try { const stat = fs.statSync(file); return [file, stat.mtimeMs, stat.size]; } catch { return [file, null]; }
+  }));
+  const cached = sourceCache.get(key);
+  if (cached?.value && cached.signature === signature && Date.now() - Date.parse(cached.value.collectedAt) < 300_000) return cached.value;
+  if (cached?.pending) return cached.value ?? cached.pending;
+  const entry: { signature: string; value?: SourceResult; pending?: Promise<SourceResult> } = { signature, ...(cached?.value ? { value: cached.value } : {}) };
+  entry.pending = readKernelSources(config, host).then(value => {
+    entry.value = { ...value, collectedAt: new Date().toISOString() };
+    return entry.value;
+  }).finally(() => { delete entry.pending; });
+  sourceCache.set(key, entry);
+  if (sourceCache.size > 32) sourceCache.delete(sourceCache.keys().next().value!);
+  if (entry.value) { void entry.pending.catch(() => undefined); return entry.value; }
+  return entry.pending;
+}
+
+export async function handleUrls(req: IncomingRequest, config: AgentConfig): Promise<Response> {
   if (config.node.secret) {
     const { valid, error } = hmacVerify(req, config.node.secret);
     if (!valid) {
@@ -381,7 +408,7 @@ export function handleUrls(req: IncomingRequest, config: AgentConfig): Response 
     }
   }
 
-  const data = collectKernelSources(config, requestHost(req));
+  const data = await collectKernelSources(config, requestHost(req));
   return new Response(
     JSON.stringify({
       success: true,

@@ -1,7 +1,6 @@
 import { createServer, IncomingMessage, ServerResponse } from 'http';
 import { checkConfig } from './config';
 import { handleStatus } from './handlers/status';
-import { handleUpdate } from './handlers/update';
 import { handleHealth } from './handlers/health';
 import { handleUrls } from './handlers/urls';
 import { handleLogs } from './handlers/logs';
@@ -31,12 +30,8 @@ async function main() {
         const response = await handleStatus(req, config);
         res.writeHead(response.status, Object.fromEntries(response.headers));
         res.end(await response.text());
-      } else if (url === '/api/update') {
-        const response = await handleUpdate(req, config);
-        res.writeHead(response.status, Object.fromEntries(response.headers));
-        res.end(await response.text());
       } else if (url === '/api/urls') {
-        const response = handleUrls(req, config);
+        const response = await handleUrls(req, config);
         res.writeHead(response.status, Object.fromEntries(response.headers));
         res.end(await response.text());
       } else if (url.startsWith('/api/logs')) {

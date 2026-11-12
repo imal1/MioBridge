@@ -25,6 +25,7 @@ export const applicationEnvelope: Schema = {
         code: { type: 'string' },
         message: { type: 'string' },
         retryable: { type: 'boolean' },
+        hint: { type: 'string' },
         field: { type: 'string' },
       },
     },

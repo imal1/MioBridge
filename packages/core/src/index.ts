@@ -49,3 +49,13 @@ export type { ClusterStatus, KernelRuntimeStatus, LogsResult, NodeAgentInfo, Nod
 export { ArtifactService, type ArtifactServiceOptions, type ClashConverter, type LocalSourceCollector, type RemoteSourceCollector, type SourceCollection, type SubscriptionPreflight, type UpdateResult } from './artifacts/artifactService.js';
 export { StatusService, type BuildMetadata, type StatusInfo, type StatusKernel, type StatusServiceOptions } from './status/statusService.js';
 export { MioBridgeCore, type MioBridgeCoreOptions } from './mioBridgeCore.js';
+
+export { validateSchedule, nextScheduledRun } from './config/schedule.js';
+
+export { PublicationBlockedError, type PublicationOptions } from './artifacts/artifactService.js';
+
+export { AuthService, type AuthConfig } from './auth/authService.js';
+
+export { default as qrcode } from 'qrcode-generator';
+
+export { WebhookService, type NotificationEvent } from './notifications/webhookService.js';

@@ -52,8 +52,8 @@ describe('source normalization', () => {
     const second = { url: 'vless://id2@b:443#node', kernel: 'xray' as const, nodeId: 'b', location: '香港' };
     const output = decodeURIComponent(buildClashSubscription([first, first, second]));
     expect(output.split('\n')).toHaveLength(2);
-    expect(output).toContain(`香港 node [${first.url}]`);
-    expect(output).toContain(`香港 node [${second.url}]`);
+    expect(output.split('\n').map(line => line.split('#')[1])).toEqual(['香港 node', '香港 node 2']);
+    expect(output.split('\n').every(line => !line.split('#')[1]!.includes('://'))).toBe(true);
   });
 
   it('isolates malformed VMess without exposing unrelated sources', () => {

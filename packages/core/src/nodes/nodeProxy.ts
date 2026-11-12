@@ -28,7 +28,8 @@ export function validateNodeProxy(value: unknown): NodeProxyConfig | undefined {
   const server = rawServer?.replace(/^\[(.*)\]$/, '$1');
   if (server && !HOSTNAME.test(server) && isIP(server) === 0) throw new Error('连接域名必须是有效的域名或 IP 地址');
   const sni = text(input.sni, 'sni');
-  if (sni && !HOSTNAME.test(sni)) throw new Error('TLS SNI 必须是有效的域名');
+  // RFC 6066 禁止 SNI 携带 IP 字面量；纯数字标签又能通过主机名规则，必须单独排除。
+  if (sni && (!HOSTNAME.test(sni) || isIP(sni) !== 0)) throw new Error('TLS SNI 必须是有效的域名');
   const certVerify = text(input.certVerify, 'certVerify');
   if (certVerify && certVerify !== 'strict' && certVerify !== 'insecure') throw new Error('证书校验策略只能是 strict 或 insecure');
   const displayName = text(input.displayName, 'displayName');

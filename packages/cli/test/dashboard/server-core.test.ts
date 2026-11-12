@@ -77,8 +77,8 @@ describe('core routes', () => {
     expect(body.error).toBe('boom');
   });
 
-  it('GET /api/update returns 200 with message', async () => {
-    const { handled, res } = await dispatch('GET', '/api/update');
+  it('POST /api/update returns 200 with message', async () => {
+    const { handled, res } = await dispatch('POST', '/api/update');
     expect(handled).toBe(true);
     expect(res.statusCode).toBe(200);
     const body = JSON.parse(res.body);
@@ -86,11 +86,11 @@ describe('core routes', () => {
     expect(body.message).toBe('订阅更新成功');
   });
 
-  it('GET /api/update returns 500 on error', async () => {
+  it('POST /api/update returns 500 on error', async () => {
     const deps = stubDeps({
       updateSubscription: async () => { throw new Error('fail'); },
     });
-    const { handled, res } = await dispatch('GET', '/api/update', deps);
+    const { handled, res } = await dispatch('POST', '/api/update', deps);
     expect(handled).toBe(true);
     expect(res.statusCode).toBe(500);
     const body = JSON.parse(res.body);
@@ -186,7 +186,7 @@ describe('compatibility URLs', () => {
     const { handled, res } = await dispatch('GET', '/subscription.txt', deps);
     expect(handled).toBe(true);
     expect(res.statusCode).toBe(404);
-    expect(res.body).toContain('获取文件失败');
+    expect(res.body).toBe('Not Found');
   });
 });
 

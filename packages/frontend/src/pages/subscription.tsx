@@ -1,3 +1,6 @@
+import { StatusPill } from '@/components/shared/Compact'
+import { errorMessage as message } from '@/lib/errorMessage';
+import { SubscriptionLinks } from '@/components/SubscriptionLinks';
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { Icon } from '@iconify/react'
@@ -17,11 +20,7 @@ const STEP_LABELS: Record<SubscriptionJob['step'], string> = {
 }
 const ARTIFACT_LABEL: Record<string, string> = { 'raw.txt': 'raw.txt', 'subscription.txt': 'subscription.txt', 'clash.yaml': 'clash.yaml' }
 
-function message(value: unknown, fallback: string) {
-  if (typeof value === 'string') return value
-  if (value && typeof value === 'object' && 'message' in value && typeof value.message === 'string') return value.message
-  return fallback
-}
+
 function freshnessLabel(v: ArtifactState['freshness']) {
   return v === 'fresh' ? '新鲜' : v === 'expiring' ? '即将过期' : v === 'stale' ? '已过期' : '无效'
 }
@@ -34,7 +33,7 @@ function jobTone(job: SubscriptionJob): 'success' | 'warning' | 'danger' | 'mute
   return 'muted'
 }
 function jobStatusText(job: SubscriptionJob) {
-  return job.status === 'succeeded' ? '成功' : job.status === 'partial' ? '部分成功' : job.status === 'failed' ? '失败' : job.status === 'queued' ? '排队中' : '生成中'
+  return job.status === 'blocked' ? '已拦截' : job.status === 'succeeded' ? '成功' : job.status === 'partial' ? '部分成功' : job.status === 'failed' ? '失败' : job.status === 'queued' ? '排队中' : '生成中'
 }
 
 export default function SubscriptionPage() {
@@ -43,7 +42,7 @@ export default function SubscriptionPage() {
   const clusterQuery = useClusterStatus(pollOptions)
   // 预检是一次对全部节点的实时扇出（还会在本机 spawn sing-box），耗时远超 5s 轮询间隔，
   // 按 5s 轮它只会让请求互相叠压。它不是实时指标，30s 足够。
-  const preflightQuery = useSubscriptionPreflight({ ...pollOptions, refetchInterval: 30000 })
+  const preflightQuery = useSubscriptionPreflight({ ...pollOptions, refetchInterval: false })
   const jobsQuery = useSubscriptionJobs(pollOptions)
   const artifactsQuery = useArtifacts()
   const statusQuery = useStatus()
@@ -107,15 +106,26 @@ export default function SubscriptionPage() {
 
   // ---- schedule policy (local editable copy) ----
   const [policy, setPolicy] = useState<SubscriptionPolicy | null>(null)
-  useEffect(() => { if (policyQuery.data) setPolicy(policyQuery.data) }, [policyQuery.data])
+  const [retryText, setRetryText] = useState('')
+  const [freshnessText, setFreshnessText] = useState('')
+  const [dropText, setDropText] = useState('')
+  useEffect(() => { if (policyQuery.data && !policy) {
+    setPolicy(policyQuery.data); setRetryText(policyQuery.data.retryDelaysMinutes.join(', '))
+    setFreshnessText(String(policyQuery.data.freshnessHours)); setDropText(String(policyQuery.data.nodeDropPercent))
+  } }, [policyQuery.data, policy])
   const savePolicy = useCallback(async () => {
     if (!policy) return
     try {
-      const r = await updatePolicy.mutateAsync(policy)
+      const retryDelaysMinutes = retryText.trim() ? retryText.split(',').map(value => {
+        if (!value.trim() || !Number.isFinite(Number(value)) || Number(value) < 0) throw new Error('请输入以逗号分隔的非负分钟数')
+        return Number(value)
+      }) : []
+      if (!freshnessText.trim() || !dropText.trim() || !Number.isFinite(Number(freshnessText)) || !Number.isFinite(Number(dropText))) throw new Error('请输入有效数值')
+      const r = await updatePolicy.mutateAsync({ ...policy, freshnessHours: Number(freshnessText), nodeDropPercent: Number(dropText), retryDelaysMinutes })
       if (!r.success) throw new Error(message(r.error, '策略保存失败'))
       toast.success('定时生成策略已保存')
     } catch (caught) { const d = caught instanceof Error ? caught.message : '策略保存失败'; setError(d); toast.error('策略保存失败', { description: d }) }
-  }, [policy, updatePolicy])
+  }, [policy, retryText, freshnessText, dropText, updatePolicy])
 
   // ---- health checks ----
   const allExist = artifacts.length > 0 && artifacts.every(a => a.exists)
@@ -132,9 +142,10 @@ export default function SubscriptionPage() {
 
   return (
     <>
+      <SubscriptionLinks />
       <PageHeader
         title="订阅"
-        description="生成、健康状态与定时策略。产物的预览与下载在总览页。"
+        description="生成、健康状态与定时策略。订阅文件的预览与下载在总览页。"
         actions={(
           <button onClick={generate} disabled={loading || !preflight?.ready || activeJobs.length > 0} className="mb-pill-btn primary">
             {/* 按钮被 preflight.ready 把着，预检没回来之前它是禁用的。标签必须说明原因，
@@ -212,12 +223,20 @@ export default function SubscriptionPage() {
                         <span style={{ fontWeight: 600, fontSize: 12.5 }}>{job.nodesGenerated} 个节点</span><br />
                         <span style={{ fontSize: 11, color: 'var(--muted-foreground)' }}>{new Date(job.createdAt).toLocaleString('zh-CN')} · 来源 {job.sourcesSucceeded}/{job.sourcesTotal}</span>
                       </td>
-                      <td style={{ padding: '9px 10px', borderTop: '1px solid var(--border)', fontSize: 11.5, color: 'var(--muted-foreground)' }}>{STEP_LABELS[job.step]} · {job.message}</td>
+                      <td style={{ padding: '9px 10px', borderTop: '1px solid var(--border)', fontSize: 11.5, color: 'var(--muted-foreground)' }}>{STEP_LABELS[job.step]} · {job.message}{job.diff && <details><summary>查看差异</summary><p>新增：{job.diff.added.join('、') || '无'}</p><p>删除：{job.diff.removed.join('、') || '无'}</p></details>}</td>
                       <td style={{ padding: '9px 10px', borderTop: '1px solid var(--border)' }}>
-                        <span style={{ display: 'inline-flex', padding: '2px 9px', borderRadius: 99, background: tone === 'muted' ? 'var(--card2)' : `var(--${tone}-bg)`, color: tone === 'muted' ? 'var(--muted-foreground)' : `var(--${tone})`, fontSize: 11, fontWeight: 600 }}>{jobStatusText(job)}</span>
+                        <StatusPill tone={tone}>{jobStatusText(job)}</StatusPill>
                       </td>
                       <td style={{ padding: '9px 18px', borderTop: '1px solid var(--border)', textAlign: 'right' }}>
                         <span style={{ display: 'inline-flex', gap: 6 }}>
+                          {job.status === 'blocked' && <button className="mb-pill-btn" onClick={async () => {
+                            if (!window.confirm('强制发布可能移除客户端中的代理节点。已查看差异并确认继续？')) return
+                            try {
+                              const response = await fetch('/api/subscription-jobs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ force: true }) })
+                              if (!response.ok) throw new Error('强制发布失败')
+                              await jobsQuery.refetch()
+                            } catch (error) { toast.error(error instanceof Error ? error.message : '强制发布失败') }
+                          }}>强制发布</button>}
                           {job.status === 'failed' || job.status === 'partial' ? <button className="mb-pill-btn" style={{ height: 26, padding: '0 10px', fontSize: 11, borderRadius: 99 }} onClick={() => retry(job)}>重试</button> : null}
                           <Link to={`/logs?source=subscription&task=${encodeURIComponent(job.id)}`} className="mb-pill-btn" style={{ height: 26, padding: '0 10px', fontSize: 11, borderRadius: 99 }}>日志</Link>
                         </span>
@@ -244,7 +263,7 @@ export default function SubscriptionPage() {
                   <div key={node.nodeId} className="flex items-center justify-between gap-2" style={{ padding: '8px 11px', borderRadius: 10, background: 'var(--card2)' }}>
                     <div><p style={{ margin: 0, fontSize: 12.5, fontWeight: 600 }}>{node.name}</p><p style={{ margin: 0, fontSize: 10.5, color: 'var(--muted-foreground)' }}>{node.configuredKernels.map(k => k.type).join(' · ') || '未配置监控核心'} · {node.nodesCount ?? 0} 个来源</p></div>
                     <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '2px 9px', borderRadius: 99, background: `var(--${tone}-bg)`, color: `var(--${tone})`, fontSize: 10.5, fontWeight: 600 }}>
-                      <span style={{ width: 5, height: 5, borderRadius: 99, background: `var(--${tone})` }} />{node.online ? '可读' : '缓存'}
+                      <span style={{ width: 5, height: 5, borderRadius: 99, background: `var(--${tone})` }} />{node.sourceCached ? `缓存（${Math.max(0, (Date.now() - Date.parse(node.sourceCollectedAt ?? '')) / 3600000).toFixed(1)} 小时前）` : node.online ? '可读' : '不可读'}
                     </span>
                   </div>
                 )
@@ -263,7 +282,14 @@ export default function SubscriptionPage() {
             <div className="mb-2.5 flex items-center justify-between">
               <h2 style={{ margin: 0, fontSize: 14.5, fontWeight: 700 }}>定时生成策略</h2>
               <button
-                onClick={() => setPolicy(p => p ? { ...p, enabled: !p.enabled } : p)} disabled={!policy}
+                onClick={async () => {
+                  if (!policy) return
+                  try {
+                    const response = await updatePolicy.mutateAsync({ ...(policyQuery.data ?? policy), enabled: !policy.enabled })
+                    if (!response.success) throw new Error(message(response.error, '策略保存失败'))
+                    setPolicy(current => current ? { ...current, enabled: !policy.enabled } : current)
+                  } catch (error) { toast.error(error instanceof Error ? error.message : '策略保存失败') }
+                }} disabled={!policy || updatePolicy.isPending}
                 style={{ position: 'relative', width: 36, height: 20, border: 'none', borderRadius: 99, cursor: 'pointer', transition: 'background .2s', background: policy?.enabled ? 'var(--primary)' : 'var(--border)', padding: 0 }}
                 aria-pressed={Boolean(policy?.enabled)} aria-label="启用定时生成"
               >
@@ -271,12 +297,14 @@ export default function SubscriptionPage() {
               </button>
             </div>
             <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+              <label>执行频率<select aria-label="执行频率" value={['0 */6 * * *', '0 4 * * *', '0 4 * * 1'].includes(policy?.cron ?? '') ? policy?.cron : 'custom'} onChange={event => { if (event.target.value !== 'custom') setPolicy(value => value ? { ...value, cron: event.target.value } : value) }}><option value="0 */6 * * *">每 6 小时</option><option value="0 4 * * *">每天 04:00</option><option value="0 4 * * 1">每周一 04:00</option><option value="custom">高级 Cron</option></select></label>
               <PolicyField label="Cron" value={policy?.cron ?? ''} disabled={!policy} onChange={v => setPolicy(p => p ? { ...p, cron: v } : p)} />
-              <PolicyField label="新鲜度目标（小时）" value={String(policy?.freshnessHours ?? '')} disabled={!policy} onChange={v => setPolicy(p => p ? { ...p, freshnessHours: Number(v) || 0 } : p)} />
-              <PolicyField label="节点突降阈值（%）" value={String(policy?.nodeDropPercent ?? '')} disabled={!policy} onChange={v => setPolicy(p => p ? { ...p, nodeDropPercent: Number(v) || 0 } : p)} />
-              <PolicyField label="重试间隔（分钟）" value={(policy?.retryDelaysMinutes ?? []).join(', ')} disabled={!policy} onChange={v => setPolicy(p => p ? { ...p, retryDelaysMinutes: v.split(',').map(x => Number(x.trim())).filter(Number.isFinite) } : p)} />
+              <PolicyField label="新鲜度目标（小时）" value={freshnessText} disabled={!policy} onChange={setFreshnessText} />
+              <PolicyField label="节点突降阈值（%）" value={dropText} disabled={!policy} onChange={setDropText} />
+              <PolicyField label="重试间隔（分钟）" value={retryText} disabled={!policy} onChange={setRetryText} />
             </div>
             <p style={{ margin: '10px 0 0', fontSize: 11, color: 'var(--muted-foreground)' }}>备份保留 {policy?.backupRetention ?? 30} 份</p>
+            <p>下次执行：{policyQuery.data?.nextRun ? new Date(policyQuery.data.nextRun).toLocaleString('zh-CN', { timeZone: policyQuery.data.timezone }) : '未启用'}（{policy?.timezone ?? '系统时区'}）</p>
             <button onClick={savePolicy} disabled={!policy || updatePolicy.isPending} className="mb-pill-btn primary" style={{ marginTop: 10, height: 30, fontSize: 11.5 }}>保存策略</button>
           </div>
         </div>

@@ -1,7 +1,6 @@
 import { afterEach, describe, it, expect } from 'bun:test';
 import { handleStatus } from '../handlers/status';
 import { handleUrls } from '../handlers/urls';
-import { handleUpdate } from '../handlers/update';
 import { handleHealth } from '../handlers/health';
 import { handleLogs } from '../handlers/logs';
 import { AGENT_VERSION } from '../version';
@@ -123,7 +122,7 @@ describe('handleStatus', () => {
     expect(body.data).not.toHaveProperty('subscriptionExists');
     expect(body.data).not.toHaveProperty('clashExists');
     expect(body.data).not.toHaveProperty('rawExists');
-    expect(body.data.mihomoAvailable).toBe(false);
+    expect(body.data).not.toHaveProperty('mihomoAvailable');
   });
 
   it('should reject unauthenticated remote request', async () => {
@@ -271,7 +270,7 @@ describe('handleUrls', () => {
       kernels: [{ type: 'sing-box', configPath: configs }],
     };
 
-    const body = await (handleUrls(mockReq({ headers: { host: '127.0.0.1:3001' } }), config)).json();
+    const body = await (await handleUrls(mockReq({ headers: { host: '127.0.0.1:3001' } }), config)).json();
 
     expect(body.data.sources).toEqual([{
       kernel: 'sing-box',
@@ -308,7 +307,7 @@ describe('handleUrls', () => {
       ],
     };
 
-    const body = await (handleUrls(mockReq({ headers: { host: 'all.example' } }), config)).json();
+    const body = await (await handleUrls(mockReq({ headers: { host: 'all.example' } }), config)).json();
 
     expect(body.data.sources).toHaveLength(8);
     expect(body.data.sources.filter((item: any) => item.kernel === 'sing-box')).toHaveLength(3);
@@ -338,7 +337,7 @@ describe('handleUrls', () => {
       ],
     };
 
-    const res = handleUrls(mockReq({ url: '/api/urls', headers: { host: 'agent.example:3001' } }), config);
+    const res = await handleUrls(mockReq({ url: '/api/urls', headers: { host: 'agent.example:3001' } }), config);
     const body = await res.json();
 
     expect(body.data.sources.map((item: any) => item.kernel)).toEqual([
@@ -361,7 +360,7 @@ describe('handleUrls', () => {
       ],
     };
 
-    const res = handleUrls(mockReq({ url: '/api/urls', headers: { host: 'agent.example' } }), config);
+    const res = await handleUrls(mockReq({ url: '/api/urls', headers: { host: 'agent.example' } }), config);
     const body = await res.json();
     const xray = body.data.kernels.find((item: any) => item.type === 'xray');
 
@@ -409,12 +408,19 @@ describe('handleLogs', () => {
   });
 });
 
-describe('handleUpdate', () => {
-  it('should return update result with message', async () => {
-    const req = mockReq({ url: '/api/update' });
-    const res = await handleUpdate(req, MOCK_CONFIG);
-    const body = await res.json();
-    expect(body.success).toBeDefined();
-    expect(body.message).toBeDefined();
-  });
+
+it('keeps health responsive during slow wrapper collection and coalesces cached source reads', async () => {
+  const bin = isolatedBinDir();
+  const calls = path.join(bin, 'calls');
+  fs.writeFileSync(path.join(bin, 'xray'), `#!/bin/sh\nif [ "$1" = help ]; then echo 'url [name]'; exit; fi\necho x >> '${calls}'\n/bin/sleep 0.3\necho 'vless://test@public.example:443#test'\n`, { mode: 0o755 });
+  const config: AgentConfig = { ...MOCK_CONFIG, node: { ...MOCK_CONFIG.node, secret: '' }, kernels: [{ type: 'xray', configPath: xrayFixture() }] };
+  const req = mockReq({ headers: { host: 'public.example' } });
+  const started = performance.now();
+  const pending = handleUrls(req, config);
+  await new Promise(resolve => setTimeout(resolve, 20));
+  expect(handleHealth(req, config).status).toBe(200);
+  expect(performance.now() - started).toBeLessThan(250);
+  await pending;
+  await Promise.all(Array.from({ length: 10 }, () => handleUrls(req, config)));
+  expect(fs.readFileSync(calls, 'utf8').trim().split('\n')).toHaveLength(1);
 });

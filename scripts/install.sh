@@ -7,6 +7,7 @@ INSTALL_DIR="${MIOBRIDGE_INSTALL_DIR:-$HOME/.local/bin}"
 CONFIG_DIR="${MIOBRIDGE_CONFIG_DIR:-$HOME/.config/miobridge}"
 BASE_URL="${MIOBRIDGE_RELEASE_BASE_URL:-}"
 RUN_SETUP=1
+RUN_START=1
 LOCAL_NODE=1
 
 usage() {
@@ -16,7 +17,7 @@ Install the self-contained MioBridge CLI and its required runtime dependencies.
 Usage: install.sh [--version VERSION] [--repository OWNER/REPO]
                   [--install-dir DIR] [--config-dir DIR]
                   [--base-url URL] [--local-node|--no-local-node]
-                  [--skip-setup]
+                  [--skip-setup] [--no-start]
 
 With no version, the latest GitHub release is installed. Environment equivalents:
 MIOBRIDGE_VERSION, MIOBRIDGE_REPOSITORY, MIOBRIDGE_INSTALL_DIR,
@@ -33,6 +34,7 @@ while [ "$#" -gt 0 ]; do
     --install-dir) INSTALL_DIR=${2:?missing install directory}; shift 2 ;;
     --config-dir) CONFIG_DIR=${2:?missing config directory}; shift 2 ;;
     --base-url) BASE_URL=${2:?missing base URL}; shift 2 ;;
+    --no-start) RUN_START=0; shift ;;
     --skip-setup) RUN_SETUP=0; shift ;;
     --local-node) LOCAL_NODE=1; shift ;;
     --no-local-node) LOCAL_NODE=0; shift ;;
@@ -149,7 +151,12 @@ echo "Dashboard provider installed at $dashboard"
 template_candidate="$CONFIG_DIR/.template.yaml.new.$$"
 cp "$tmp/extract/template.yaml" "$template_candidate"
 chmod 0644 "$template_candidate"
-mv -f "$template_candidate" "$template"
+if [ -f "$template" ]; then
+  mv -f "$template_candidate" "$template.new"
+  echo "Existing template preserved; compare $template.new or use template.user.yaml for custom rules"
+else
+  mv -f "$template_candidate" "$template"
+fi
 echo "Template installed at $template"
 if [ "$RUN_SETUP" -eq 1 ]; then
   echo "Installing required runtime dependencies through the CLI..."
@@ -177,6 +184,32 @@ fi
 
 case ":${PATH:-}:" in
   *:"$INSTALL_DIR":*) ;;
-  *) echo "Add $INSTALL_DIR to PATH, then run: miobridge --help" ;;
+  *)
+    echo "Add $INSTALL_DIR to PATH, then run: miobridge --help"
+    if [ "$(id -u)" -ne 0 ] && [ -t 0 ]; then
+      printf 'Add ~/.local/bin to ~/.profile? [y/N] '
+      read -r path_answer
+      case "$path_answer" in
+        y|Y|yes|YES) printf '\nexport PATH="$HOME/.local/bin:$PATH"\n' >> "$HOME/.profile" ;;
+      esac
+    fi
+    ;;
 esac
 echo "Future upgrades and removal: miobridge upgrade | miobridge uninstall"
+
+if [ "$RUN_START" -eq 1 ] && [ "$RUN_SETUP" -eq 1 ]; then
+  if [ "$LOCAL_NODE" -eq 1 ]; then
+    # Existing local sources are optional; failure leaves the previous subscription intact.
+    MIOBRIDGE_CONFIG_DIR="$CONFIG_DIR" "$binary" update || echo "No readable local sources yet; continue in the dashboard." >&2
+  fi
+  MIOBRIDGE_CONFIG_DIR="$CONFIG_DIR" "$binary" dashboard start || echo "Start failed; run: $binary doctor" >&2
+fi
+if [ "$(id -u)" -eq 0 ] && [ "$INSTALL_DIR" = "$HOME/.local/bin" ]; then
+  if [ ! -e /usr/local/bin/miobridge ] || [ -L /usr/local/bin/miobridge ]; then ln -sfn "$binary" /usr/local/bin/miobridge; fi
+fi
+echo "MioBridge $VERSION installed."
+console_url="$(MIOBRIDGE_CONFIG_DIR="$CONFIG_DIR" "$binary" dashboard url 2>/dev/null || true)"
+echo "Console URL: ${console_url:-miobridge dashboard url} | Login token: miobridge auth show"
+echo "Subscription URL: miobridge subscription url --qr"
+echo "Allow 3000/tcp for the dashboard and 3001/tcp on child servers."
+echo "Next: Open console -> Add server -> Generate subscription -> Import client."

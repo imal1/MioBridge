@@ -1,3 +1,4 @@
+import { errorMessage as displayError } from '@/lib/errorMessage'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Icon } from '@iconify/react'
 import { toast } from 'sonner'
@@ -50,16 +51,12 @@ function inputValue(value: unknown, type: FieldDefinition['type']): string {
   return value === undefined || value === null ? '' : String(value)
 }
 function parseInput(value: string, field: FieldDefinition): unknown {
-  if (field.type === 'number') return Number(value)
-  if (field.type === 'number[]') return value.split(',').map(i => Number(i.trim())).filter(Number.isFinite)
+  if (field.type === 'number') return value.trim() ? Number(value) : null
+  if (field.type === 'number[]') return value.trim() ? value.split(',').map(i => i.trim() && Number.isFinite(Number(i)) ? Number(i) : null) : []
   if (field.type === 'string[]') return value.split(',').map(i => i.trim()).filter(Boolean)
   return value
 }
-function displayError(value: unknown, fallback: string) {
-  if (typeof value === 'string') return value
-  if (value && typeof value === 'object' && 'message' in value && typeof value.message === 'string') return value.message
-  return fallback
-}
+
 
 export default function ConfigPage({ initialConfigs, frontendConfig, initialError = null }: ConfigPageProps = {}) {
   const initialDocument = useMemo<Record<string, unknown>>(() => initialConfigs === undefined ? {} : {
@@ -152,6 +149,7 @@ export default function ConfigPage({ initialConfigs, frontendConfig, initialErro
 
   return (
     <>
+      {effectiveQuery.data?.template && <p>当前模板：{effectiveQuery.data.template}。可创建 template.user.yaml 自定义规则，升级时会保留。</p>}
       <PageHeader
         title="配置"
         description={<>Schema 驱动的草稿、差异与单次原子保存。配置路径 <span className="signal-mono" style={{ fontSize: 11.5 }}>{configPath || '~/.config/miobridge/config.yaml'}</span></>}

@@ -167,3 +167,20 @@ journalctl --user -u miobridge-dashboard.service -f
   user journal。
 - 端口占用或 provider 崩溃：先处理冲突，再使用 `dashboard status` 输出的 journal
   命令。
+
+## Administration and distribution / 管理与分发
+
+```sh
+miobridge nodes list --json
+miobridge dashboard restart
+miobridge dashboard url
+miobridge auth show
+miobridge auth rotate
+miobridge auth rotate --subscription
+miobridge subscription url --qr
+miobridge doctor
+```
+
+`nodes diagnose` and `nodes repair` accept a full ID, a unique ID prefix or a unique server name.
+`LANG=zh_CN.UTF-8 miobridge --help` displays Chinese help; `LC_ALL` takes precedence.
+Token rotation invalidates existing sessions or subscription URLs. Keep `auth show` output private.

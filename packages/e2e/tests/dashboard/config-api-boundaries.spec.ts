@@ -108,9 +108,9 @@ test.describe('E18 · Webhook 禁用、网络与空历史', () => {
     expect(external.ok()).toBeTruthy();
 
     const response = await request.post('/api/notifications/test');
-    expect(response.status()).toBe(400);
+    expect(response.status()).toBe(502);
     // The harness blocks any egress off its own origin; nothing may be delivered.
-    expect((await response.json() as ErrorEnvelope).error?.message).toContain('blocked external fetch');
+    expect((await response.json()).data).toMatchObject({ ok: false, attempts: 4 });
     expect((await snapshot()).webhooks).toEqual([]);
   });
 

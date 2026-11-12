@@ -2,7 +2,7 @@ import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { createNodeCore } from '../../src/index.js';
+import { createNodeCore, type NodeCoreComposition } from '../../src/index.js';
 import { createNodeDashboardDependencies } from '../../src/dashboard/server/nodeDependencies.js';
 
 const roots: string[] = [];
@@ -13,11 +13,22 @@ const TROJAN = 'trojan://secret@203.0.113.7:8443?type=tcp&security=tls&allowInse
 const HYSTERIA2 = 'hysteria2://secret@203.0.113.7:8444?alpn=h3&insecure=1#233boy-hysteria2-203.0.113.7';
 
 function compose(baseDir: string) {
-  const composition = createNodeCore({
+  const composition: NodeCoreComposition = createNodeCore({
     platformBaseDir: baseDir,
     env: { PATH: '' },
-    local: { isAvailable: async () => true, extractNodeUrls: async () => [TROJAN, HYSTERIA2] },
-    remote: { collectRemoteNodeSources: async () => ({ sources: [], errors: [] }) },
+    // 本机节点登记后，来源经由它的 Agent 采集而不再直接读取本机内核；这里代替 Agent，
+    // 并按聚合层的约定为每条来源附上该节点当前的出口设置。
+    remote: {
+      async collectRemoteNodeSources() {
+        const node = (await composition.repository.list()).find(item => item.id === 'local');
+        return {
+          sources: node ? [TROJAN, HYSTERIA2].map(url => ({
+            url, kernel: 'sing-box' as const, nodeId: node.id, location: node.location, ...(node.proxy ? { proxy: node.proxy } : {}),
+          })) : [],
+          errors: [],
+        };
+      },
+    },
     mihomo: {
       checkHealth: async () => true,
       getVersion: async () => ({ version: 'test' }),

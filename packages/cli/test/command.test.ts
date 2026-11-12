@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import type { NodeProxyConfig } from '@miobridge/core';
 import { formatMetrics, formatStatus, helpText, parseCommand, runCli, type CliCore } from '../src/index.js';
 
 const metrics = {
@@ -172,11 +173,84 @@ describe('CLI command contract', () => {
     expect(run.stderr.at(-1)).toContain('公网 HMAC 验收失败');
   });
 
+  it('parses subscription endpoint edits field by field and rejects ambiguous input', () => {
+    expect(parseCommand(['nodes', 'proxy', 'ht'])).toEqual({ kind: 'nodes-proxy', nodeId: 'ht', json: false, clear: false, changes: {} });
+    expect(parseCommand(['nodes', 'proxy', 'ht', '--server', 'ht.example.com', '--sni', 'ht.example.com', '--cert-verify', 'strict', '--protocols', 'trojan, hy2', '--name', 'HT', '--json'])).toEqual({
+      kind: 'nodes-proxy', nodeId: 'ht', json: true, clear: false,
+      changes: { server: 'ht.example.com', sni: 'ht.example.com', certVerify: 'strict', protocols: ['trojan', 'hy2'], displayName: 'HT' },
+    });
+    // 空值 / inherit / all 表示清除单个字段，回到内核上报值。
+    expect(parseCommand(['nodes', 'proxy', 'ht', '--server', '', '--cert-verify', 'inherit', '--protocols', 'all', '--name', ''])).toEqual({
+      kind: 'nodes-proxy', nodeId: 'ht', json: false, clear: false,
+      changes: { server: null, certVerify: null, protocols: null, displayName: null },
+    });
+    expect(parseCommand(['nodes', 'proxy', 'ht', '--clear'])).toMatchObject({ clear: true, changes: {} });
+    expect(() => parseCommand(['nodes', 'proxy'])).toThrow('Usage: miobridge nodes proxy <id>');
+    expect(() => parseCommand(['nodes', 'proxy', 'ht', '--server'])).toThrow('--server requires a value');
+    expect(() => parseCommand(['nodes', 'proxy', 'ht', '--sni', '--json'])).toThrow('--sni requires a value');
+    expect(() => parseCommand(['nodes', 'proxy', 'ht', '--cert-verify', 'auto'])).toThrow('--cert-verify must be strict, insecure or inherit');
+    expect(() => parseCommand(['nodes', 'proxy', 'ht', '--server', 'a.example.com', '--server', 'b.example.com'])).toThrow('--server was given more than once');
+    expect(() => parseCommand(['nodes', 'proxy', 'ht', '--clear', '--name', 'HT'])).toThrow('--clear cannot be combined');
+    expect(() => parseCommand(['nodes', 'proxy', 'ht', '--host', 'x'])).toThrow('Unexpected argument: --host');
+  });
+
+  it('shows, edits and clears a node subscription endpoint without composing core', async () => {
+    const run = harness(createCore());
+    let stored: NodeProxyConfig | undefined = { server: 'old.example.com', certVerify: 'insecure', protocols: ['trojan'] };
+    const view = () => ({ id: 'ht', name: 'HT 节点', host: '198.51.100.9', ...(stored ? { proxy: stored } : {}) });
+    const nodeProxy = {
+      read: vi.fn(async () => view()),
+      write: vi.fn(async (_nodeId: string, edit: (current: NodeProxyConfig | undefined) => unknown) => {
+        stored = edit(stored) as NodeProxyConfig | undefined;
+        return view();
+      }),
+    };
+    const dependencies = { ...run.dependencies, nodeProxy };
+
+    expect(await runCli(['nodes', 'proxy', 'ht'], dependencies)).toBe(0);
+    expect(nodeProxy.write).not.toHaveBeenCalled();
+    expect(run.stdout.at(-1)).toBe([
+      'Node: ht (HT 节点)', 'Agent address: 198.51.100.9', 'Server: old.example.com', 'SNI: (kernel-reported)',
+      'Certificate verification: insecure', 'Protocols: trojan', 'Display name: (location + kernel node name)',
+    ].join('\n'));
+
+    // 只改动给出的字段；未给出的 certVerify 保持，protocols 用 all 清除。
+    expect(await runCli(['nodes', 'proxy', 'ht', '--server', 'ht.example.com', '--sni', 'ht.example.com', '--protocols', 'all', '--name', 'HT'], dependencies)).toBe(0);
+    expect(nodeProxy.write).toHaveBeenCalledWith('ht', expect.any(Function));
+    expect(stored).toEqual({ server: 'ht.example.com', sni: 'ht.example.com', certVerify: 'insecure', displayName: 'HT' });
+    expect(run.stdout.at(-1)).toContain('Server: ht.example.com');
+    expect(run.stdout.at(-1)).toContain('Agent address: 198.51.100.9');
+    expect(run.stdout.at(-1)).toContain('Run "miobridge update"');
+
+    expect(await runCli(['nodes', 'proxy', 'ht', '--cert-verify', 'strict', '--json'], dependencies)).toBe(0);
+    expect(JSON.parse(run.stdout.at(-1)!)).toEqual({
+      id: 'ht', name: 'HT 节点', host: '198.51.100.9',
+      proxy: { server: 'ht.example.com', sni: 'ht.example.com', certVerify: 'strict', displayName: 'HT' },
+    });
+
+    expect(await runCli(['nodes', 'proxy', 'ht', '--clear', '--json'], dependencies)).toBe(0);
+    expect(stored).toBeUndefined();
+    expect(JSON.parse(run.stdout.at(-1)!)).toEqual({ id: 'ht', name: 'HT 节点', host: '198.51.100.9', proxy: null });
+    expect(run.stderr).toEqual([]);
+    expect(run.createCore).not.toHaveBeenCalled();
+  });
+
+  it('reports rejected subscription endpoint edits as failures', async () => {
+    const run = harness(createCore());
+    const nodeProxy = { read: vi.fn(), write: vi.fn(async () => { throw new Error('连接域名必须是有效的域名或 IP 地址'); }) };
+    expect(await runCli(['nodes', 'proxy', 'ht', '--server', 'bad host'], { ...run.dependencies, nodeProxy })).toBe(1);
+    expect(run.stderr.at(-1)).toContain('连接域名必须是有效的域名或 IP 地址');
+    expect(await runCli(['nodes', 'proxy', 'ht', '--server', 'bad host', '--json'], { ...run.dependencies, nodeProxy })).toBe(1);
+    expect(JSON.parse(run.stdout.at(-1)!)).toEqual({ success: false, error: '连接域名必须是有效的域名或 IP 地址' });
+    expect(await runCli(['nodes', 'proxy', 'ht'], run.dependencies)).toBe(1);
+    expect(run.stderr.at(-1)).toContain('adapters are unavailable');
+  });
+
   it('publishes only the locked local command surface in help', () => {
     for (const command of ['setup', 'nodes', 'upgrade', 'uninstall', 'update', 'status', 'config', 'logs', 'metrics', 'dashboard']) {
       expect(helpText).toMatch(new RegExp(`\\n  ${command}(?: |\\n)`));
     }
-    for (const excluded of ['node', 'deploy', 'agent', 'runtime', 'subscription', 'artifact', 'policy', 'notification', 'task', 'watch', 'retry', 'cancel']) {
+    for (const excluded of ['node', 'deploy', 'agent', 'runtime', 'artifact', 'policy', 'notification', 'task', 'watch', 'retry', 'cancel']) {
       expect(helpText).not.toMatch(new RegExp(`\\n  ${excluded}(?: |\\n)`));
     }
   });
@@ -392,4 +466,11 @@ describe('CLI command contract', () => {
       expect(run.stderr).toEqual([]);
     }
   });
+});
+
+it('returns operation failure for an extended command and usage failure for unknown arguments', async () => {
+  const output = { stdout: vi.fn(), stderr: vi.fn() };
+  expect(await runCli(['dashboard', 'restart'], { createCore, output, extraCommand: async () => { throw new Error('service restart failed'); } })).toBe(1);
+  expect(output.stderr).toHaveBeenCalledWith('Error: service restart failed');
+  expect(await runCli(['not-a-command'], { createCore, output, extraCommand: async () => undefined })).toBe(2);
 });

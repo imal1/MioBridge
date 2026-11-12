@@ -1,3 +1,5 @@
+import { existsSync } from 'node:fs';
+import { join } from 'node:path';
 import type { RuntimePaths } from '../runtime/runtimePaths.js';
 import type {
   Config, ConfigApplyResult, ConfigFieldDefinition, ConfigValidationResult, FullConfig,
@@ -6,6 +8,10 @@ import type { YamlService } from './yamlService.js';
 import { CONFIG_FIELDS, validateConfigDocument, validateField } from './configValidation.js';
 
 export class ConfigService {
+  private readonly listeners = new Set<(config: FullConfig) => void>();
+  onChange(listener: (config: FullConfig) => void): () => void { this.listeners.add(listener); return () => this.listeners.delete(listener); }
+  private changed(): void { const config = this.getFullConfig(); for (const listener of this.listeners) listener(config); }
+
   constructor(
     private readonly yaml: YamlService,
     private readonly paths: RuntimePaths,
@@ -13,6 +19,7 @@ export class ConfigService {
   ) {}
 
   getFullConfig(): FullConfig { return this.yaml.getFullConfig(); }
+  getTemplatePath(): string { const user = join(this.paths.baseDir, 'template.user.yaml'); return existsSync(user) ? user : this.paths.templateFile; }
   getSource(): string { return this.yaml.getConfigSource(); }
   getConfigPath(): string { return this.yaml.getConfigPath(); }
   getAppVersion(): string { return this.getFullConfig().app?.version ?? this.version; }
@@ -57,6 +64,7 @@ export class ConfigService {
     const validation = this.validateDocument(document);
     if (!validation.valid) throw new Error(validation.issues.map(issue => `${issue.path}: ${issue.message}`).join('; '));
     const replaced = this.yaml.replaceConfig(document);
+    this.changed();
     const results = prepared.map(({ path, value, definition }) => ({
       path, value, applied: true as const, restartRequired: definition.restartRequired,
       ...(replaced.backupPath ? { backupPath: replaced.backupPath } : {}),
@@ -69,13 +77,14 @@ export class ConfigService {
     const candidateValidation = this.validateDocument(candidate);
     if (!candidateValidation.valid) throw new Error(candidateValidation.issues.map(issue => `${issue.path}: ${issue.message}`).join('; '));
     const restored = this.yaml.restoreLastGood();
+    this.changed();
     return restored;
   }
 
   replaceSource(source: string): { backupPath?: string } {
     const validation = this.validate(source);
     if (!validation.valid) throw new Error(formatValidationIssues(validation));
-    return this.yaml.replaceConfigSource(source);
+    const result = this.yaml.replaceConfigSource(source); this.changed(); return result;
   }
 
   getConfig(): Config {
@@ -83,7 +92,7 @@ export class ConfigService {
     return {
       singBoxConfigs: full.protocols?.sing_box_configs ?? ['vless-reality', 'hysteria2', 'trojan', 'tuic', 'vmess'],
       mihomoPath: full.binaries?.mihomo_path ?? this.paths.managedBinDir,
-      clashFilename: full.subscription?.clash_filename ?? 'clash.yaml',
+      clashFilename: 'clash.yaml',
       staticDir: full.directories?.data_dir ?? this.paths.dataDir,
       logDir: full.directories?.log_dir ?? this.paths.logDir,
       backupDir: full.directories?.backup_dir ?? this.paths.backupDir,

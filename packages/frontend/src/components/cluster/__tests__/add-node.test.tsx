@@ -1,6 +1,8 @@
 // @vitest-environment jsdom
 import { describe, expect, it, vi } from 'vitest'
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import * as setup from '@/lib/serverSetup'
+import { apiService } from '@/lib/api'
 import { AddNodeForm } from '@/components/cluster/AddNodeForm'
 
 const passedPreflight = {
@@ -16,7 +18,7 @@ const passedPreflight = {
 }
 
 function fillPasswordForm() {
-  fireEvent.change(screen.getByLabelText('节点名称'), { target: { value: '新加坡' } })
+  fireEvent.change(screen.getByLabelText('服务器名称'), { target: { value: '新加坡' } })
   fireEvent.change(screen.getByLabelText('主机地址'), { target: { value: 'sg.example.com' } })
   fireEvent.change(screen.getByLabelText('地域标签'), { target: { value: 'SG' } })
   fireEvent.change(screen.getByLabelText('密码'), { target: { value: 'secret' } })
@@ -49,7 +51,8 @@ describe('AddNodeForm', () => {
     fireEvent.click(screen.getByRole('button', { name: '执行 SSH 预检' }))
     expect(await screen.findByText('主机指纹：')).toBeDefined()
     expect(preflightNode).toHaveBeenCalledWith({ host: 'sg.example.com', user: 'root', port: 22, authMethod: 'password', password: 'secret' })
-    fireEvent.click(screen.getByRole('button', { name: '确认指纹并保存节点' }))
+    fireEvent.click(screen.getByRole('checkbox', { name: '自动安装 Agent、识别协议内核并更新订阅' }))
+    fireEvent.click(screen.getByRole('button', { name: '确认指纹并保存服务器' }))
     await waitFor(() => expect(onComplete).toHaveBeenCalledWith('node-sg'))
     expect(createNode).toHaveBeenCalledWith(expect.objectContaining({
       name: '新加坡', host: 'sg.example.com', location: 'SG', kernels: [], sshHostKey: 'sha256:fingerprint',
@@ -64,7 +67,7 @@ describe('AddNodeForm', () => {
     fillPasswordForm()
     fireEvent.click(screen.getByRole('button', { name: '执行 SSH 预检' }))
     expect(await screen.findByText('SSH 连接失败')).toBeDefined()
-    expect((screen.getByLabelText('节点名称') as HTMLInputElement).value).toBe('新加坡')
+    expect((screen.getByLabelText('服务器名称') as HTMLInputElement).value).toBe('新加坡')
     expect(createNode).not.toHaveBeenCalled()
   })
 })
@@ -76,4 +79,24 @@ describe('DeployProgressDialog', () => {
     expect(screen.getByText('正在部署 新加坡')).toBeDefined()
     expect(screen.getByText('下载并安装已校验 Agent...')).toBeDefined()
   })
+})
+
+it('retries Agent installation without duplicating a saved server, then adopts and generates', async () => {
+  const deploy = vi.spyOn(setup, 'deployAndWait').mockRejectedValueOnce(new Error('Agent 安装失败')).mockResolvedValue(undefined)
+  const adopt = vi.spyOn(setup, 'adoptAndGenerate').mockResolvedValue(3)
+  vi.spyOn(apiService, 'updateNode').mockResolvedValue({ success: true, timestamp: '' })
+  vi.spyOn(apiService, 'detectKernels').mockResolvedValue([{ type: 'xray', installed: true, name: 'Xray', version: '1', defaultConfigPath: '/etc/xray/config.json' }])
+  const createNode = vi.fn(async () => ({ success: true, data: { id: 'retry-server' }, timestamp: '' }))
+  const onComplete = vi.fn()
+  render(<AddNodeForm isOpen onClose={() => {}} onComplete={onComplete} createNode={createNode} preflightNode={async () => passedPreflight} />)
+  fillPasswordForm()
+  fireEvent.click(screen.getByRole('button', { name: '执行 SSH 预检' }))
+  fireEvent.click(await screen.findByRole('button', { name: '确认指纹并保存服务器' }))
+  await screen.findByText('Agent 安装失败')
+  fireEvent.click(screen.getByRole('button', { name: '确认指纹并保存服务器' }))
+  await waitFor(() => expect(onComplete).toHaveBeenCalledWith('retry-server'))
+  expect(createNode).toHaveBeenCalledTimes(1)
+  expect(deploy).toHaveBeenCalledTimes(2)
+  expect(adopt).toHaveBeenCalledWith('retry-server', ['xray'])
+  vi.restoreAllMocks()
 })

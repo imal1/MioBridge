@@ -1,5 +1,7 @@
 # Troubleshooting
 
+[中文版](TROUBLESHOOTING.zh-CN.md). Start with `miobridge doctor` for service, PATH, port, template and connectivity checks.
+
 Start with the CLI-owned service state:
 
 ```bash
@@ -25,8 +27,10 @@ curl -fsS http://127.0.0.1:3000/health
 - The subscription still exports a public IP or `skip-cert-verify: true` after a
   domain certificate was installed: the 233boy `url` export does not reflect the
   certificate. Set the node's 订阅出口 (connection domain, SNI, certificate
-  verification) in the dashboard and run `miobridge update`; do not edit the
-  generated files or the kernel scripts.
+  verification) in the dashboard, or with
+  `miobridge nodes proxy <node-id> --server <domain> --sni <domain> --cert-verify strict`,
+  and run `miobridge update`; do not edit the generated files or the kernel
+  scripts. `miobridge nodes proxy <node-id>` shows what is currently applied.
 
 ## Install a specific release
 

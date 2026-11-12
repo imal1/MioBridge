@@ -18,6 +18,7 @@ export interface SelfMaintenanceAdapters {
   installAtomic(path: string, data: Uint8Array, validate: (temporaryPath: string) => Promise<void>): Promise<void>;
   installDashboard(path: string, archive: Uint8Array): Promise<void>;
   /** 原子写入普通文件（先写临时文件再 rename），已存在则覆盖。 */
+  readFile?(path: string): Promise<Uint8Array>;
   writeFileAtomic(path: string, data: Uint8Array): Promise<void>;
   probeVersion(path: string): Promise<string>;
   writeVersion(path: string, version: string): Promise<void>;
@@ -25,6 +26,7 @@ export interface SelfMaintenanceAdapters {
 }
 
 export interface SelfMaintenanceOptions {
+  readonly afterInstall?: (version: string) => Promise<string>;
   readonly currentVersion: string;
   readonly executablePath: string;
   readonly adapters: SelfMaintenanceAdapters;
@@ -120,8 +122,9 @@ export class SelfMaintenanceService {
     await this.options.adapters.installDashboard(this.options.dashboardPath, archiveData);
     await this.installTemplate(archiveData, progress);
     await this.options.adapters.writeVersion(join(dirname(this.options.executablePath), '.miobridge-cli-version'), version);
+    const linked = await this.options.afterInstall?.(version) ?? '';
     const upgraded = `MioBridge and dashboard upgraded from ${this.options.currentVersion} to ${version}.`;
-    return `${upgraded}${await this.handOverRunningDashboard(version, progress)}`;
+    return `${upgraded}${linked ? ` ${linked}` : ''}${await this.handOverRunningDashboard(version, progress)}`;
   }
 
   /**
@@ -133,7 +136,12 @@ export class SelfMaintenanceService {
     const path = join(this.options.configDir, 'template.yaml');
     try {
       const template = await this.options.adapters.extractTarGzipEntry(archiveData, 'template.yaml');
-      await this.options.adapters.writeFileAtomic(path, template);
+      let existing: Uint8Array | undefined;
+      try { existing = await this.options.adapters.readFile?.(path); }
+      catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error; }
+      const destination = existing ? `${path}.new` : path;
+      await this.options.adapters.writeFileAtomic(destination, template);
+      if (existing) progress(`Existing template preserved; review ${destination}. Use template.user.yaml for custom rules.`);
       progress(`Mihomo template installed at ${path}`);
     } catch (error) {
       // 二进制和 dashboard 已经就位，模板补装失败只降级为警告。

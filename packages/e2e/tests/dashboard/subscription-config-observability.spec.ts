@@ -35,7 +35,7 @@ async function grantClipboard(page: Page): Promise<void> {
   await page.context().grantPermissions(['clipboard-read', 'clipboard-write']);
 }
 
-/** 产物从独立的 /outputs 页并入总览，现在是「输出产物」表格的一行。 */
+/** 订阅文件从独立的 /outputs 页并入总览，现在是「输出订阅文件」表格的一行。 */
 function artifactRow(page: Page, name: 'raw.txt' | 'subscription.txt' | 'clash.yaml'): Locator {
   return page.locator('tbody tr').filter({ hasText: `/${name}` });
 }
@@ -282,8 +282,8 @@ test.describe('E11 · 订阅历史、恢复与重试', () => {
   });
 });
 
-test.describe('E12 · 正式产物', () => {
-  test('三个正式产物可验证、预览、复制 URL 和下载', async ({ page, request }) => {
+test.describe('E12 · 正式订阅文件', () => {
+  test('三个正式订阅文件可验证、预览、复制 URL 和下载', async ({ page, request }) => {
     await grantClipboard(page);
     await page.goto('/');
     await expect(page.getByText('原始链接', { exact: true })).toBeVisible();
@@ -294,7 +294,7 @@ test.describe('E12 · 正式产物', () => {
       response.url().endsWith('/api/artifacts/validate') && response.request().method() === 'POST');
     await page.getByRole('button', { name: '验证全部' }).click();
     expect((await validated).ok()).toBeTruthy();
-    await expect(page.getByText('三个正式产物均通过验证')).toBeVisible();
+    await expect(page.getByText('三个正式订阅文件均通过验证')).toBeVisible();
 
     const cases = [
       { name: 'raw.txt', contentType: 'text/plain' },
@@ -310,7 +310,7 @@ test.describe('E12 · 正式产物', () => {
       const expectedContent = await publicResponse.text();
 
       await row.getByRole('button', { name: '复制 URL', exact: true }).click();
-      expect(await clipboardText(page)).toBe(new URL(`/${item.name}`, page.url()).toString());
+      await expect.poll(() => clipboardText(page)).toBe(new URL(`/${item.name}`, page.url()).toString());
 
       await row.getByRole('button', { name: '预览', exact: true }).click();
       const preview = page.getByRole('dialog');
@@ -322,12 +322,12 @@ test.describe('E12 · 正式产物', () => {
       const downloadPromise = page.waitForEvent('download');
       await row.getByRole('link', { name: '下载', exact: true }).click();
       const download = await downloadPromise;
-      expect(download.suggestedFilename()).toBe(item.name);
+      expect(download.suggestedFilename()).toBe(item.name === 'clash.yaml' ? 'MioBridge.yaml' : item.name);
       expect(await downloadText(download)).toBe(expectedContent);
     }
   });
 
-  test('产物缺失时禁用分发动作', async ({ page, control }) => {
+  test('订阅文件缺失时禁用分发动作', async ({ page, control }) => {
     await control({ artifactsMissing: true });
     await page.goto('/');
     await expect(page.getByText('无效/缺失')).toHaveCount(3);
@@ -339,10 +339,10 @@ test.describe('E12 · 正式产物', () => {
       // 所以用文本定位，顺带证明它已经不可点。
       await expect(row.locator('a').filter({ hasText: '下载' })).not.toHaveAttribute('href', /./);
     }
-    await expect(page.getByText('产物待生成')).toBeVisible();
+    await expect(page.getByText('订阅文件待生成')).toBeVisible();
   });
 
-  test('无效产物显示验证错误，过期产物显示 stale 状态且均保留诊断动作', async ({ page, control }) => {
+  test('无效订阅文件显示验证错误，过期订阅文件显示 stale 状态且均保留诊断动作', async ({ page, control }) => {
     await control({ artifactInvalid: 'raw.txt', artifactStale: 'clash.yaml' });
     await page.goto('/');
     const invalid = artifactRow(page, 'raw.txt');
@@ -354,10 +354,10 @@ test.describe('E12 · 正式产物', () => {
     await expect(stale.getByRole('link', { name: '下载', exact: true })).toBeVisible();
 
     await page.getByRole('button', { name: '验证全部' }).click();
-    await expect(page.getByText('1 个产物未通过验证')).toBeVisible();
+    await expect(page.getByText('1 个订阅文件未通过验证')).toBeVisible();
   });
 
-  test('验证接口 success:false 时不得报告全部产物通过', async ({ page }) => {
+  test('验证接口 success:false 时不得报告全部订阅文件通过', async ({ page }) => {
     await page.route('**/api/artifacts/validate', route => route.fulfill({
       status: 200,
       contentType: 'application/json',
@@ -372,12 +372,12 @@ test.describe('E12 · 正式产物', () => {
     await page.goto('/');
     await page.getByRole('button', { name: '验证全部' }).click();
     await expect(page.getByRole('button', { name: '验证全部' })).toBeEnabled();
-    await expect(page.getByText('三个正式产物均通过验证')).toHaveCount(0);
+    await expect(page.getByText('三个正式订阅文件均通过验证')).toHaveCount(0);
   });
 });
 
 test.describe('E13 · 临时转换', () => {
-  test('空输入不可提交；有效输入可复制、清空且不修改正式产物', async ({ page, request, snapshot }) => {
+  test('空输入不可提交；有效输入可复制、清空且不修改正式订阅文件', async ({ page, request, snapshot }) => {
     const before = await (await request.get('/raw.txt')).text();
     await grantClipboard(page);
     await page.goto('/');
@@ -443,7 +443,7 @@ test.describe('E13 · 临时转换', () => {
 });
 
 test.describe('E14 · 订阅健康与策略', () => {
-  test('健康检查覆盖产物、转换器与公共 URL，策略以单次 PUT 保存', async ({ page, snapshot }) => {
+  test('健康检查覆盖订阅文件、转换器与公共 URL，开关即时保存且不覆盖待保存草稿', async ({ page, snapshot }) => {
     await page.goto('/subscription');
     await expect(page.getByRole('heading', { name: '健康检查', exact: true })).toBeVisible();
     for (const label of ['raw.txt', 'subscription.txt', 'clash.yaml', 'mihomo 转换器', '公共兼容 URL', '节点突降阈值']) {
@@ -462,8 +462,9 @@ test.describe('E14 · 订阅健康与策略', () => {
     await expect(page.getByText('定时生成策略已保存')).toBeVisible();
 
     const writes = requests(await snapshot(), 'PUT', '/api/subscription-policy');
-    expect(writes).toHaveLength(1);
-    expect(writes[0]?.body).toMatchObject({ enabled: true, freshnessHours: 12, nodeDropPercent: 25 });
+    expect(writes).toHaveLength(2);
+    expect(writes[0]?.body).toMatchObject({ enabled: true });
+    expect(writes[1]?.body).toMatchObject({ enabled: true, freshnessHours: 12, nodeDropPercent: 25 });
   });
 
   test('数值下界与上界可保存，越界时服务端拒绝并保留草稿', async ({ page, snapshot }) => {
@@ -562,7 +563,7 @@ test.describe('E14 · 订阅健康与策略', () => {
     expect(exactRequests(await snapshot(), 'PUT', '/api/subscription-policy')).toHaveLength(1);
   });
 
-  test('公共兼容 URL 检查与三个真实产物一致', async ({ page, request }) => {
+  test('公共兼容 URL 检查与三个真实订阅文件一致', async ({ page, request }) => {
     await page.goto('/subscription');
     const check = healthCheck(page, '公共兼容 URL');
     await expect(check).toContainText('/raw.txt · /subscription.txt · /clash.yaml');
@@ -888,7 +889,7 @@ test.describe('E18 · Webhook 通知', () => {
     ]));
 
     expect((await snapshot()).webhooks)
-      .toEqual(expect.arrayContaining([expect.objectContaining({ event: 'test', status: 'ok' })]));
+      .toEqual(expect.arrayContaining([expect.objectContaining({ event: 'test', message: '通知测试' })]));
   });
 
   test('Webhook 非 2xx 时返回 502 并在历史里保留 HTTP 状态', async ({ request, control }) => {
@@ -1027,7 +1028,6 @@ test.describe('E20 · 安全、兼容 URL 与 API contract', () => {
 
   test('SPA 未调用的只读兼容 API 保持可达且返回约定内容类型', async ({ request }) => {
     const contracts = [
-      { path: '/api/update', contentType: 'application/json' },
       { path: '/api/file/subscription', contentType: 'text/plain' },
       { path: '/api/file/clash', contentType: 'text/yaml' },
       { path: '/api/file/raw', contentType: 'text/plain' },
@@ -1041,6 +1041,7 @@ test.describe('E20 · 安全、兼容 URL 与 API contract', () => {
       { path: '/api/cluster/deploy/status', contentType: 'application/json' },
     ] as const;
 
+    expect((await request.get('/api/update')).status()).toBe(405);
     for (const contract of contracts) {
       await test.step(`GET ${contract.path}`, async () => {
         const response = await request.get(contract.path);

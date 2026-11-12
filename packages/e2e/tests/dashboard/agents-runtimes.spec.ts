@@ -82,7 +82,7 @@ test.describe('E07 · Agent 运行维护', () => {
     await control({ agentFailure: true });
     const panel = await openNode(page, 'node-ready', READY_NAME, 'Agent');
     await panel.getByRole('button', { name: '停止', exact: true }).click();
-    await expect(page.getByText('节点操作失败')).toBeVisible();
+    await expect(page.getByText('服务器操作失败')).toBeVisible();
     await expect(page.getByText('Agent 操作失败（E2E fixture）')).toBeVisible();
     // State must not advance: the stop control is still the one on offer.
     await expect(panel.getByRole('button', { name: '停止', exact: true })).toBeVisible();
@@ -195,19 +195,16 @@ test.describe('E07 · Agent 运行维护', () => {
 });
 
 test.describe('E08–E09 · 协议运行时与监控事务', () => {
-  test('运行时标签展示 mihomo 与三种协议核心的纳管状态', async ({ page }) => {
+  test('远端运行时只展示协议内核，mihomo 留在主控', async ({ page }) => {
     const panel = await openNode(page, 'node-ready', READY_NAME, '运行时');
 
-    const mihomo = runtimeRow(panel, 'mihomo');
-    await expect(mihomo).toContainText('可用');
-    await expect(mihomo).toContainText('CLI 转换器');
-    await expect(mihomo).toContainText('v1.19.0-e2e');
+    await expect(panel.getByText('mihomo', { exact: true })).toHaveCount(0);
 
     const singBox = runtimeRow(panel, 'sing-box');
     await expect(singBox).toContainText('已监控');
     await expect(singBox).toContainText('/opt/e2e/sing-box.json');
     // Runtime truth, not just config readability: state, accessibility, sources.
-    await expect(singBox).toContainText('运行中 · 可读 · 3 个来源');
+    await expect(singBox).toContainText('可读 · 3 个来源');
 
     await expect(runtimeRow(panel, 'Xray')).toContainText('未监控');
   });
@@ -221,7 +218,7 @@ test.describe('E08–E09 · 协议运行时与监控事务', () => {
   test('运行时检测失败展示明确恢复错误且不放行监控编辑', async ({ page, control }) => {
     await control({ kernelFailure: true });
     const panel = await openNode(page, 'node-ready', READY_NAME, '运行时');
-    await expect(page.getByText('节点操作失败')).toBeVisible();
+    await expect(page.getByText('服务器操作失败')).toBeVisible();
     await expect(page.getByText('运行时检测失败（E2E fixture）')).toBeVisible();
     // No detections came back, so the editor stays shut rather than opening empty.
     await expect(panel.getByRole('button', { name: '编辑监控范围', exact: true })).toBeDisabled();

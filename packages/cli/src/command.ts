@@ -1,6 +1,7 @@
+import { cliLanguage, localized } from './locale.js';
 import type {
   ConfigApplyResult, ConfigValidationResult, FullConfig, LocalLogEntry, LocalLogQuery,
-  LocalLogResult, MetricsSnapshot, NodeDiagnosticsReport, StatusInfo, UpdateResult,
+  LocalLogResult, MetricsSnapshot, NodeDiagnosticsReport, NodeProxyConfig, StatusInfo, UpdateResult,
 } from '@miobridge/core';
 import { parse as parseYaml, stringify as stringifyYaml } from 'yaml';
 import { formatSetupStatus, type DependencySetupService } from './setup/service.js';
@@ -23,12 +24,31 @@ export interface CliCore {
   getMetricsSnapshot(): Promise<MetricsSnapshot>;
 }
 
+/** A node's subscription endpoint settings next to the Agent address they never change. */
+export interface NodeProxyView {
+  readonly id: string;
+  readonly name: string;
+  /** Agent management address; shown so operators can see it is independent of `proxy.server`. */
+  readonly host: string;
+  readonly proxy?: NodeProxyConfig;
+}
+
+/** Field-wise edit from `nodes proxy`: a string sets the field, null clears it, absent keeps it. */
+export interface NodeProxyChanges {
+  readonly server?: string | null;
+  readonly sni?: string | null;
+  readonly certVerify?: string | null;
+  readonly protocols?: readonly string[] | null;
+  readonly displayName?: string | null;
+}
+
 export interface CliOutput {
   stdout(message: string): void;
   stderr(message: string): void;
 }
 
 export interface CliDependencies {
+  readonly extraCommand?: (args: readonly string[]) => Promise<string | undefined>;
   readonly createCore: () => CliCore;
   readonly output: CliOutput;
   readonly version?: string;
@@ -46,6 +66,11 @@ export interface CliDependencies {
     repair(nodeId: string): Promise<NodeDiagnosticsReport>;
     migrate(nodeId: string, runtimeUser: string): Promise<NodeDiagnosticsReport>;
   };
+  readonly nodeProxy?: {
+    read(nodeId: string): Promise<NodeProxyView>;
+    /** Applies `edit` to the stored settings atomically; the result is validated before it is persisted. */
+    write(nodeId: string, edit: (current: NodeProxyConfig | undefined) => unknown): Promise<NodeProxyView>;
+  };
   readonly dashboard?: {
     foreground(): Promise<{ readonly exitCode: number; readonly healthUrl: string }>;
     daemon?(action: DashboardDaemonAction): Promise<DashboardDaemonStatus>;
@@ -61,6 +86,7 @@ type ParsedCommand =
   | { readonly kind: 'nodes-agent-config'; readonly output: string }
   | { readonly kind: 'nodes-diagnose' | 'nodes-repair'; readonly nodeId: string; readonly json: boolean }
   | { readonly kind: 'nodes-migrate-service'; readonly nodeId: string; readonly user: string; readonly json: boolean }
+  | { readonly kind: 'nodes-proxy'; readonly nodeId: string; readonly json: boolean; readonly clear: boolean; readonly changes: NodeProxyChanges }
   | { readonly kind: 'upgrade' }
   | { readonly kind: 'uninstall'; readonly purge: boolean }
   | { readonly kind: 'dashboard-foreground' }
@@ -91,11 +117,24 @@ Commands:
                   Repair supported Agent service issues and verify recovery
   nodes migrate-service <id> --user <nonroot> [--json]
                   Migrate an Agent to a system service with rollback on failure
+  nodes proxy <id|name|prefix> [--server <domain>] [--sni <domain>]
+                   [--cert-verify strict|insecure|inherit]
+                   [--protocols <list>|all] [--name <display-name>]
+                   [--clear] [--json]
+                  Show or set how a node is exported in subscriptions; an empty
+                  value clears one field, the Agent address is never changed
   upgrade         Upgrade this CLI to the latest verified release
   uninstall [--purge]
                   Remove this CLI; --purge also removes configuration and data
   update [--json] Generate subscription artifacts
-  status [--json] Show headless runtime status
+  nodes list [--json] List server IDs, names, addresses and Agent versions
+  dashboard restart Restart the dashboard service
+  dashboard url    Print the dashboard address
+  auth show        Print the administrator token and subscription address
+  auth rotate [--subscription] Rotate administrator or subscription token
+  subscription url [--qr] Print subscription address and optional terminal QR
+  doctor           Diagnose installation, services, ports and connectivity
+  status [--json] Show runtime and dashboard status
   config path     Show the local runtime configuration path
   config show [--json]
                   Show the effective local configuration
@@ -118,7 +157,44 @@ Commands:
 
 Options:
   -h, --help      Show help
-  -v, --version   Show version`;
+  -v, --version   Show version
+
+Exit codes: 0 = success, 1 = operation failed, 2 = invalid arguments, 3 = partial generation`;
+
+export const chineseHelpText = `MioBridge ${CLI_VERSION}
+用法：miobridge <命令> [选项]
+
+  setup [--yes] [--local-node|--no-local-node] 安装依赖并配置本机
+  nodes configure [--local-node|--no-local-node] 配置本机角色
+  nodes list [--json]                        列出服务器 ID、名称、地址和版本
+  nodes diagnose <ID|名称|前缀> [--json]      检查 Agent、权限、端口和连接
+  nodes repair <ID|名称|前缀> [--json]        修复 Agent 并验收
+  nodes migrate-service <id> --user <用户>   迁移系统服务（失败回滚）
+  nodes agent-config --output <agent.yaml>   导出本机 Agent 配置（0600）
+  nodes proxy <ID|名称|前缀> [--server <域名>] [--sni <域名>]
+              [--cert-verify strict|insecure|inherit] [--protocols <列表>|all]
+              [--name <显示名称>] [--clear] [--json]
+                                             查看或设置订阅出口（域名、SNI、证书校验、
+                                             显示名称）；空值清除单个字段，不改 Agent 地址
+  dashboard foreground|start|stop|restart    前台运行或管理控制台服务
+  dashboard status [--json]                  查看服务状态和地址
+  dashboard url                             显示控制台地址
+  auth show                                 显示管理员令牌和订阅地址
+  auth rotate [--subscription]               轮换管理员或订阅令牌
+  subscription url [--qr]                    显示订阅地址或终端二维码
+  doctor                                    诊断服务、端口、依赖和网络
+  update [--json]                            生成订阅文件，输出警告
+  status [--json]                            查看服务器、控制台和订阅状态
+  config path|show|get <字段>|set <字段> <值> 查看或修改配置
+  config validate [--file <文件>] [--json]    验证配置
+  logs [--lines N] [--level LEVEL] [--follow] 查看控制台日志
+  metrics [--json]                           查看指标
+  upgrade                                   升级主控及本机 Agent
+  uninstall [--purge]                        卸载；--purge 同时清除配置和数据
+  -h, --help                                帮助
+  -v, --version                             版本
+
+退出码：0 成功；1 操作失败；2 参数错误；3 部分生成成功。`;
 
 export function parseCommand(args: readonly string[]): ParsedCommand {
   if (args.length === 0 || args[0] === 'help' || args[0] === '-h' || args[0] === '--help') {
@@ -176,6 +252,7 @@ export function parseCommand(args: readonly string[]): ParsedCommand {
     }
     return { kind: action === 'diagnose' ? 'nodes-diagnose' : 'nodes-repair', nodeId, json };
   }
+  if (args[0] === 'nodes' && args[1] === 'proxy') return parseNodesProxyCommand(args.slice(2));
   if (args[0] === 'nodes') {
     throw new Error(args.length === 1 ? 'Missing nodes action' : `Unknown nodes action: ${args[1]}`);
   }
@@ -214,6 +291,68 @@ export function parseCommand(args: readonly string[]): ParsedCommand {
     throw new Error(args.length === 1 ? 'Missing dashboard action' : `Unknown dashboard action: ${args[1]}`);
   }
   throw new Error(`Unknown command: ${args[0]}`);
+}
+
+const NODES_PROXY_USAGE = 'Usage: miobridge nodes proxy <id> [--server <domain>] [--sni <domain>] [--cert-verify strict|insecure|inherit] [--protocols <list>|all] [--name <display-name>] [--clear] [--json]';
+
+function parseNodesProxyCommand(args: readonly string[]): ParsedCommand {
+  const nodeId = args[0];
+  if (!isOptionValue(nodeId) || !nodeId) throw new Error(NODES_PROXY_USAGE);
+  let json = false;
+  let clear = false;
+  const changes: { -readonly [Key in keyof NodeProxyChanges]: NodeProxyChanges[Key] } = {};
+  const value = (index: number): string => {
+    const next = args[index + 1];
+    // An empty string is a real value here: it clears the field.
+    if (!isOptionValue(next)) throw new Error(`${args[index]} requires a value`);
+    return next.trim();
+  };
+  const once = (field: keyof NodeProxyChanges, option: string) => {
+    if (field in changes) throw new Error(`${option} was given more than once`);
+  };
+  for (let index = 1; index < args.length; index += 1) {
+    const argument = args[index];
+    if (argument === '--json' && !json) json = true;
+    else if (argument === '--clear' && !clear) clear = true;
+    else if (argument === '--server') { once('server', argument); changes.server = value(index++) || null; }
+    else if (argument === '--sni') { once('sni', argument); changes.sni = value(index++) || null; }
+    else if (argument === '--name') { once('displayName', argument); changes.displayName = value(index++) || null; }
+    else if (argument === '--cert-verify') {
+      once('certVerify', argument);
+      const policy = value(index++);
+      if (policy !== 'strict' && policy !== 'insecure' && policy !== 'inherit' && policy !== '') throw new Error('--cert-verify must be strict, insecure or inherit');
+      changes.certVerify = policy === 'strict' || policy === 'insecure' ? policy : null;
+    } else if (argument === '--protocols') {
+      once('protocols', argument);
+      const list = value(index++);
+      changes.protocols = list === '' || list === 'all' ? null : list.split(',').map(item => item.trim()).filter(Boolean);
+    } else throw new Error(`Unexpected argument: ${argument}`);
+  }
+  if (clear && Object.keys(changes).length) throw new Error('--clear cannot be combined with other subscription endpoint options');
+  return { kind: 'nodes-proxy', nodeId, json, clear, changes };
+}
+
+/** Merges a field-wise CLI edit onto the stored settings; validation happens where it is persisted. */
+export function mergeNodeProxyChanges(current: NodeProxyConfig | undefined, changes: NodeProxyChanges): Record<string, unknown> {
+  const next: Record<string, unknown> = { ...current };
+  for (const [field, value] of Object.entries(changes)) {
+    if (value === null) delete next[field];
+    else next[field] = value;
+  }
+  return next;
+}
+
+export function formatNodeProxy(view: NodeProxyView): string {
+  const inherited = '(kernel-reported)';
+  return [
+    `Node: ${view.id} (${view.name})`,
+    `Agent address: ${view.host}`,
+    `Server: ${view.proxy?.server ?? inherited}`,
+    `SNI: ${view.proxy?.sni ?? inherited}`,
+    `Certificate verification: ${view.proxy?.certVerify ?? inherited}`,
+    `Protocols: ${view.proxy?.protocols?.join(', ') ?? 'all'}`,
+    `Display name: ${view.proxy?.displayName ?? '(location + kernel node name)'}`,
+  ].join('\n');
 }
 
 function parseConfigCommand(args: readonly string[]): ParsedCommand {
@@ -269,14 +408,14 @@ function formatBoolean(value: boolean): string {
 export function formatStatus(status: StatusInfo): string {
   const lines = [
     `MioBridge ${status.version}`,
-    `Subscription: ${formatBoolean(status.subscriptionExists)}`,
-    `Raw sources: ${formatBoolean(status.rawExists)}`,
-    `Clash config: ${formatBoolean(status.clashExists)}`,
+    `${localized('Subscription', '订阅文件')}: ${formatBoolean(status.subscriptionExists)}`,
+    `${localized('Raw sources', '原始来源')}: ${formatBoolean(status.rawExists)}`,
+    `${localized('Clash config', 'Clash 配置')}: ${formatBoolean(status.clashExists)}`,
     `Mihomo: ${status.mihomoAvailable ? `available (${status.mihomoVersion ?? 'unknown'})` : 'unavailable'}`,
-    `Nodes: ${status.nodesCount ?? 0}`,
-    `Uptime: ${status.uptime}s`,
+    `${localized('Nodes', '代理节点')}: ${status.nodesCount ?? 0}`,
+    `${localized('Uptime', '运行时间')}: ${status.uptime}s`,
   ];
-  if (status.subscriptionLastUpdated) lines.push(`Last update: ${status.subscriptionLastUpdated}`);
+  if (status.subscriptionLastUpdated) lines.push(`${localized('Last update', '上次更新')}: ${status.subscriptionLastUpdated}`);
   return lines.join('\n');
 }
 
@@ -302,14 +441,21 @@ export function formatMetrics(metrics: MetricsSnapshot): string {
 export async function runCli(args: readonly string[], dependencies: CliDependencies): Promise<number> {
   let command: ParsedCommand;
   try {
+    const extra = await dependencies.extraCommand?.(args);
+    if (extra !== undefined) { dependencies.output.stdout(extra); return 0; }
+  } catch (error) {
+    dependencies.output.stderr(`${localized('Error', '错误')}: ${error instanceof Error ? error.message : String(error)}`);
+    return 1;
+  }
+  try {
     command = parseCommand(args);
   } catch (error) {
-    dependencies.output.stderr(`Error: ${error instanceof Error ? error.message : String(error)}\nRun "miobridge --help" for usage.`);
+    dependencies.output.stderr(`${localized('Error', '错误')}: ${error instanceof Error ? error.message : String(error)}\n${localized('Run "miobridge --help" for usage.', '运行 miobridge --help 查看用法。')}`);
     return 2;
   }
 
   if (command.kind === 'help') {
-    dependencies.output.stdout(helpText.replace(CLI_VERSION, dependencies.version ?? CLI_VERSION));
+    dependencies.output.stdout((cliLanguage() === 'zh' ? chineseHelpText : helpText).replace(CLI_VERSION, dependencies.version ?? CLI_VERSION));
     return 0;
   }
   if (command.kind === 'version') {
@@ -357,6 +503,17 @@ export async function runCli(args: readonly string[], dependencies: CliDependenc
       ].join('\n'));
       return report.healthy ? 0 : 1;
     }
+    if (command.kind === 'nodes-proxy') {
+      if (!dependencies.nodeProxy) throw new Error('Node subscription endpoint adapters are unavailable');
+      const changed = command.clear || Object.keys(command.changes).length > 0;
+      const view = !changed
+        ? await dependencies.nodeProxy.read(command.nodeId)
+        : await dependencies.nodeProxy.write(command.nodeId, current => command.clear ? undefined : mergeNodeProxyChanges(current, command.changes));
+      dependencies.output.stdout(command.json
+        ? JSON.stringify({ id: view.id, name: view.name, host: view.host, proxy: view.proxy ?? null })
+        : `${formatNodeProxy(view)}${changed ? '\nSaved. Run "miobridge update" to regenerate the subscription artifacts.' : ''}`);
+      return 0;
+    }
     if (command.kind === 'upgrade') {
       if (!dependencies.maintenance) throw new Error('CLI maintenance adapters are unavailable');
       dependencies.output.stdout(await dependencies.maintenance.upgrade());
@@ -383,7 +540,7 @@ export async function runCli(args: readonly string[], dependencies: CliDependenc
     const core = dependencies.createCore();
     if (command.kind === 'update') {
       const result = await core.updateSubscription();
-      dependencies.output.stdout(command.json ? JSON.stringify(result) : `${result.message}\nNodes: ${result.nodesCount}\nClash generated: ${formatBoolean(result.clashGenerated)}\nBackup: ${result.backupCreated}`);
+      dependencies.output.stdout(command.json ? JSON.stringify(result) : `${result.message}\nNodes: ${result.nodesCount}\nClash generated: ${formatBoolean(result.clashGenerated)}\nBackup: ${result.backupCreated}${result.warnings?.length ? `\nWarnings:\n${result.warnings.join("\n")}` : ""}`);
       return result.success && result.clashGenerated ? 0 : result.success ? 3 : 1;
     }
     if (command.kind === 'status') {
@@ -424,9 +581,9 @@ export async function runCli(args: readonly string[], dependencies: CliDependenc
     return 0;
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    if ((command.kind === 'nodes-diagnose' || command.kind === 'nodes-repair' || command.kind === 'nodes-migrate-service') && command.json) {
+    if ((command.kind === 'nodes-diagnose' || command.kind === 'nodes-repair' || command.kind === 'nodes-migrate-service' || command.kind === 'nodes-proxy') && command.json) {
       dependencies.output.stdout(JSON.stringify({ success: false, error: message }));
-    } else dependencies.output.stderr(`Error: ${message}`);
+    } else dependencies.output.stderr(`${localized('Error', '错误')}: ${message}`);
     return 1;
   }
 }

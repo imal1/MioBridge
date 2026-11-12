@@ -38,6 +38,9 @@ experience over account systems:
 4. Preserve compatibility URLs: `/subscription.txt`, `/clash.yaml`, `/raw.txt`,
    and `/health`.
 
+Correctness, daily-use and onboarding fixes that precede v1.3/v1.4 are planned
+in [`docs/OPTIMIZATION-PLAN.zh-CN.md`](../../docs/OPTIMIZATION-PLAN.zh-CN.md).
+
 ## Shipped Baseline
 
 v0.1 and v1.0 form the stable baseline:

@@ -69,7 +69,7 @@ async function waitForSubscription(request: APIRequestContext, jobId: string) {
   return result!;
 }
 
-test('E20 · 完整串行 SOP：节点 → Agent → 内核 → 订阅 → 产物 → 策略 → 日志 → API', async ({ page, request }) => {
+test('E20 · 完整串行 SOP：节点 → Agent → 内核 → 订阅 → 订阅文件 → 策略 → 日志 → API', async ({ page, request }) => {
   const host = 'full-sop-node.e2e.invalid';
 
   const hostKey = await test.step('1. SSH 九项预检并确认主机指纹', async () => {
@@ -165,7 +165,7 @@ test('E20 · 完整串行 SOP：节点 → Agent → 内核 → 订阅 → 产�
     return started.data.jobId;
   });
 
-  await test.step('5. 校验并分发三个正式产物', async () => {
+  await test.step('5. 校验并分发三个正式订阅文件', async () => {
     const artifacts = await envelope<{ artifacts: Array<{ name: string; exists: boolean; valid: boolean }> }>(
       await request.post('/api/artifacts/validate', { data: {} }),
     );
@@ -182,9 +182,9 @@ test('E20 · 完整串行 SOP：节点 → Agent → 内核 → 订阅 → 产�
       expect(response.headers()['content-type']).toContain(contentType);
       expect((await response.text()).length).toBeGreaterThan(0);
     }
-    // 衍生输出页已并入总览，产物就绪度显示在「就绪检查」里。
+    // 衍生输出页已并入总览，订阅文件就绪度显示在「就绪检查」里。
     await page.goto('/');
-    await expect(page.getByText('三个输出产物均可用', { exact: true })).toBeVisible();
+    await expect(page.getByText('三个输出订阅文件均可用', { exact: true })).toBeVisible();
   });
 
   await test.step('6. 保存订阅策略并验证持久化回读', async () => {

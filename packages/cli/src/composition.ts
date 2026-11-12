@@ -1,3 +1,4 @@
+import { createFileLogger } from './logs/fileLogger.js';
 import { execFile } from 'node:child_process';
 import { CLI_VERSION } from './command.js';
 import { access, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
@@ -11,7 +12,7 @@ import {
   LOCAL_NODE_ID,
   MihomoAdapter,
   MioBridgeCore,
-  NodeAggregationService,
+  NodeAggregationService, WebhookService,
   NodeRepository,
   SingBoxAdapter,
   YamlService,
@@ -83,6 +84,7 @@ function createKernelFileSystem() {
 }
 
 export interface NodeCoreComposition {
+  readonly logger: CoreLogger;
   readonly core: MioBridgeCore;
   readonly paths: RuntimePaths;
   readonly repository: NodeRepository;
@@ -100,7 +102,11 @@ export function createNodeCore(options: NodeCoreOptions = {}): NodeCoreCompositi
     ...(options.applicationRoot ? { applicationRoot: options.applicationRoot } : {}),
     ...(options.platformBaseDir ? { platformBaseDir: options.platformBaseDir } : {}),
   });
-  const logger = options.logger ?? silentLogger;
+  const logConfig = new YamlService({ paths });
+  const logger = options.logger ?? createFileLogger(logConfig.getFullConfig().directories?.log_dir ?? paths.logDir, () => {
+    const config = logConfig.getFullConfig().logs;
+    return { level: config?.level ?? 'info', retentionDays: config?.task_retention_days ?? 14 };
+  });
   const processRunner = createProcessRunner(env);
   const state = createStateStore({ paths, env, logger });
   const repository = new NodeRepository(state);
@@ -116,7 +122,8 @@ export function createNodeCore(options: NodeCoreOptions = {}): NodeCoreCompositi
       : {}),
   });
   const agent = new AgentClient();
-  const aggregation = new NodeAggregationService(repository, agent, state);
+  const notifications = new WebhookService(state, () => configService.getFullConfig().notifications?.webhook);
+  const aggregation = new NodeAggregationService(repository, agent, state, { logger, expectedVersion: options.metadata?.version ?? CLI_VERSION, notify: (event, message) => { void notifications.send(event, message).catch(() => undefined); }, staleSourceMaxHours: () => configService.getFullConfig().subscription?.stale_source_max_hours ?? 72 });
   const remote = options.remote ?? aggregation;
   const mihomo = options.mihomo ?? new MihomoAdapter({
     paths, process: processRunner, fs: createKernelFileSystem(), logger,
@@ -125,7 +132,11 @@ export function createNodeCore(options: NodeCoreOptions = {}): NodeCoreCompositi
   });
   const core = new MioBridgeCore({
     paths, state, logger, metadata: options.metadata ?? { version: CLI_VERSION }, yaml,
-    local, remote, mihomo,
+    activeNodeIds: async () => { const nodes = await repository.list(); return [...nodes.map(node => node.id), ...(!await repository.isLocalNodeConfigured() ? ['local'] : [])]; },
+    local: {
+      isAvailable: async () => !await repository.isLocalNodeConfigured() && local.isAvailable(),
+      extractNodeUrls: () => local.extractNodeUrls(),
+    }, remote, mihomo,
     async localNodeProxy() {
       return (await repository.list({ enabledOnly: false })).find(node => node.id === LOCAL_NODE_ID)?.proxy;
     },
@@ -137,7 +148,7 @@ export function createNodeCore(options: NodeCoreOptions = {}): NodeCoreCompositi
     },
     ...(options.uptime ? { uptime: options.uptime } : {}),
   });
-  return { core, paths, repository, aggregation, agent, mihomo, configuredBinaries: {
+  return { logger, core, paths, repository, aggregation, agent, mihomo, configuredBinaries: {
     ...(fullConfig.binaries?.mihomo_path ? { mihomo: fullConfig.binaries.mihomo_path } : {}),
     ...(fullConfig.binaries?.sing_box_path ? { 'sing-box': fullConfig.binaries.sing_box_path } : {}),
   } };

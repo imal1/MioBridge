@@ -56,6 +56,9 @@ describe('validateNodeProxy', () => {
     expect(() => validateNodeProxy({ server: 'bad host/evil' })).toThrow('连接域名');
     expect(() => validateNodeProxy({ server: 'a.example#frag' })).toThrow('连接域名');
     expect(() => validateNodeProxy({ sni: 'not a domain' })).toThrow('SNI');
+    // SNI 不能是 IP 字面量（RFC 6066），即使它形似由数字标签组成的主机名。
+    expect(() => validateNodeProxy({ sni: '203.0.113.7' })).toThrow('TLS SNI 必须是有效的域名');
+    expect(() => validateNodeProxy({ sni: '2001:db8::1' })).toThrow('TLS SNI 必须是有效的域名');
     expect(() => validateNodeProxy({ certVerify: 'auto' })).toThrow('证书校验策略');
     expect(() => validateNodeProxy({ protocols: ['socks'] })).toThrow('不支持的出口协议');
     expect(() => validateNodeProxy({ displayName: 'a\nb' })).toThrow('订阅显示名称');
@@ -226,5 +229,107 @@ describe('node endpoint settings in generated artifacts', () => {
     const cleared = await reloaded.update('ht', current => ({ ...current, proxy: {} }));
     expect(cleared).not.toHaveProperty('proxy');
     expect(await store.get('nodes.yaml')).not.toContain('proxy');
+  });
+});
+
+describe('endpoint settings changed while sources are being collected or cached', () => {
+  const kernels = [
+    { type: 'sing-box', detected: true, monitored: true, accessible: true, nodesCount: 2, configPaths: ['/etc/sing-box/conf/a.json'] },
+    { type: 'xray', detected: false, monitored: false, accessible: false, nodesCount: 0, configPaths: [] },
+    { type: 'v2ray', detected: false, monitored: false, accessible: false, nodesCount: 0, configPaths: [] },
+  ];
+  const agentBody = JSON.stringify({ data: { kernels, sources: [{ kernel: 'sing-box', url: TROJAN }, { kernel: 'sing-box', url: HYSTERIA2 }] } });
+  const OLD: NodeProxyConfig = { server: 'old.example.com', certVerify: 'insecure', displayName: 'OLD' };
+  const NEW: NodeProxyConfig = { server: 'new.example.com', sni: 'new.example.com', certVerify: 'strict', displayName: 'NEW' };
+  const newUrls = [
+    'trojan://p%40ss@new.example.com:8443?type=tcp&security=tls&sni=new.example.com#NEW%20Trojan',
+    'hysteria2://secret@new.example.com:8444?alpn=h3&sni=new.example.com#NEW%20Hysteria2',
+  ];
+
+  function keyedStore(): StateStore {
+    const values = new Map<string, string>();
+    return {
+      kind: 'file', get: async key => values.get(key) ?? null, set: async (key, value) => { values.set(key, value); },
+      del: async key => { values.delete(key); }, withLock: async (_key, fn) => fn(),
+    };
+  }
+
+  async function setup() {
+    const root = await mkdtemp(join(tmpdir(), 'miobridge-core-node-proxy-race-')); roots.push(root);
+    const store = keyedStore();
+    await store.set('nodes.yaml', YAML.stringify({ nodes: [{
+      id: 'ht', name: 'HT', host: '203.0.113.7', secret: 'secret', kernels: [{ type: 'sing-box' }], location: '香港', enabled: true, proxy: OLD,
+    }] }));
+    const repository = new NodeRepository(store);
+    // 每次 /api/urls 请求都挂起，由测试决定何时返回、返回成功还是失败。
+    const pending: Array<{ respond(): void; fail(): void }> = [];
+    let notify: (() => void) | undefined;
+    const client = new AgentClient({ fetch: (() => new Promise<Response>((resolveResponse, reject) => {
+      pending.push({ respond: () => resolveResponse(new Response(agentBody, { status: 200 })), fail: () => reject(new Error('connect ECONNREFUSED')) });
+      notify?.();
+    })) as typeof fetch });
+    const requestStarted = (count: number) => new Promise<void>(done => {
+      const check = () => { if (pending.length >= count) done(); };
+      notify = check; check();
+    });
+    const aggregation = new NodeAggregationService(repository, client, store);
+    const service = new ArtifactService({
+      config: { staticDir: join(root, 'www'), logDir: join(root, 'log'), backupDir: join(root, 'backup'), clashFilename: 'clash.yaml' },
+      logger, clash: mihomo(), remote: aggregation,
+      local: { isAvailable: async () => false, extractNodeUrls: async () => [] },
+    });
+    return { repository, aggregation, service, pending, requestStarted };
+  }
+
+  it('applies the settings saved after a collection started to a preflight that reuses that in-flight collection', async () => {
+    const { repository, aggregation, service, pending, requestStarted } = await setup();
+
+    // 旧配置下发起采集，Agent 尚未返回。
+    const started = aggregation.collectRemoteNodeSources();
+    await requestStarted(1);
+
+    // 用户保存新域名并收紧为严格校验，随即预检；预检复用仍在进行中的旧请求。
+    await repository.update('ht', current => ({ ...current, proxy: NEW }));
+    const preflight = service.preflight();
+    await new Promise(resolve => setTimeout(resolve, 10));
+    expect(pending).toHaveLength(1);
+    pending[0]!.respond();
+
+    const result = await preflight;
+    expect(result.ready).toBe(true);
+    expect(result.snapshot!.sources.map(source => source.url)).toEqual(newUrls);
+    expect(result.snapshot!.sources.map(source => source.proxy)).toEqual([NEW, NEW]);
+    // 修改之前发起的那次调用，得到的是它当时读到的配置。
+    expect((await started).sources.map(source => source.proxy)).toEqual([OLD, OLD]);
+  });
+
+  it('applies the current settings to sources served from the status cache and the offline snapshot', async () => {
+    const { repository, aggregation, service, pending, requestStarted } = await setup();
+
+    // 一次成功采集写入内存缓存和持久化快照，当时的出口设置是旧值。
+    const first = aggregation.collectRemoteNodeSources();
+    await requestStarted(1);
+    pending[0]!.respond();
+    expect((await first).sources.map(source => source.proxy)).toEqual([OLD, OLD]);
+
+    await repository.update('ht', current => ({ ...current, location: '东京', proxy: NEW }));
+
+    // 子服务器离线：采集失败后回落到持久化快照，但出口设置和地域标签取当前档案。
+    const offline = service.preflight();
+    await requestStarted(2);
+    pending[1]!.fail();
+    const result = await offline;
+    expect(result.warnings.some(warning => warning.includes('缓存'))).toBe(true);
+    expect(result.snapshot!.sources.map(source => source.url)).toEqual(newUrls);
+    expect(result.snapshot!.sources.map(source => ({ location: source.location, proxy: source.proxy }))).toEqual([
+      { location: '东京', proxy: NEW }, { location: '东京', proxy: NEW },
+    ]);
+
+    // 清除出口设置后，缓存来源也不再带任何旧设置。
+    await repository.update('ht', ({ proxy: _removed, ...current }) => current);
+    const cleared = service.preflight();
+    await requestStarted(3);
+    pending[2]!.fail();
+    expect((await cleared).snapshot!.sources.map(source => source.url)).toEqual([TROJAN, HYSTERIA2]);
   });
 });

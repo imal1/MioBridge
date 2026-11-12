@@ -24,11 +24,12 @@ export function registerCompatRoutes(
         try {
           const content = String(await deps.core.artifacts.getFileContent(entry.filename));
           res.header('Content-Type', entry.contentType);
-          res.header('Content-Disposition', contentDisposition(req.query, entry.filename));
+          res.header('Cache-Control', 'private, no-store');
+          res.header('profile-update-interval', '6');
+          res.header('Content-Disposition', contentDisposition(req.query, entry.filename === 'clash.yaml' ? 'MioBridge.yaml' : entry.filename));
           res.text(content);
         } catch (error: unknown) {
-          const msg = error instanceof Error ? error.message : 'Unknown error';
-          res.status(404).text(`获取文件失败: ${msg}`);
+          res.status(404).text('Not Found');
         }
       },
     });

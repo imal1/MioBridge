@@ -24,19 +24,47 @@ export function validateNodeKernels(value: unknown, allowEmpty = true): NodeKern
 
 /** Persistence-only node registry; callers own deployment and SSH operations. */
 export class NodeRepository {
+  private readonly listeners = new Set<() => void>();
+  onChange(listener: () => void): () => void { this.listeners.add(listener); return () => this.listeners.delete(listener); }
+  async add(node: NodeConfig): Promise<void> {
+    await this.store.withLock(this.key, async () => {
+      const nodes = await this.list({ enabledOnly: false });
+      if (nodes.some(value => value.id === node.id || value.host === node.host)) throw new Error('服务器已存在');
+      await this.save([...nodes, node]);
+    });
+  }
+  async remove(nodeId: string): Promise<void> {
+    await this.store.withLock(this.key, async () => { await this.save((await this.list({ enabledOnly: false })).filter(node => node.id !== nodeId)); });
+  }
+
   constructor(private readonly store: StateStore, private readonly key = NODES_KEY) {}
 
   async list(options: { enabledOnly?: boolean } = {}): Promise<NodeConfig[]> {
     const raw = await this.store.get(this.key);
     if (raw === null) return [];
-    const document = parse(raw) as { nodes?: unknown } | null;
-    if (!document || !Array.isArray(document.nodes)) throw new Error('nodes.yaml 必须包含 nodes 数组');
-    const nodes = document.nodes.map(value => this.normalize(value));
+    let nodes: NodeConfig[];
+    try { nodes = this.decode(raw); }
+    catch (error) {
+      const backup = await this.store.get(`${this.key}.bak`);
+      if (!backup) throw error;
+      nodes = this.decode(backup);
+      console.warn('nodes.yaml 损坏，已回退到备份；请检查磁盘并重新保存服务器配置');
+    }
     return options.enabledOnly === false ? nodes : nodes.filter(node => node.enabled);
   }
 
   async save(nodes: NodeConfig[]): Promise<void> {
+    const previous = await this.store.get(this.key);
+    if (previous) {
+      let valid = false;
+      try { this.decode(previous); valid = true; } catch { /* Preserve the last valid backup. */ }
+      if (valid) await this.store.set(`${this.key}.bak`, previous);
+    }
     await this.store.set(this.key, stringify({ nodes: nodes.map(node => this.normalize(node)) }, { lineWidth: 0 }));
+    const topology = (items: NodeConfig[]) => JSON.stringify(items.map(node => [node.id, node.host, node.enabled, node.location, node.kernels]));
+    let changed = true;
+    try { changed = !previous || topology(this.decode(previous)) !== topology(nodes); } catch { /* Recovered registry changed. */ }
+    if (changed) for (const listener of this.listeners) listener();
   }
 
   /** The local node is persisted like every child node so every later workflow can manage it. */
@@ -82,6 +110,12 @@ export class NodeRepository {
       await this.save(nodes);
       return nodes[index];
     });
+  }
+
+  private decode(raw: string): NodeConfig[] {
+    const document = parse(raw) as { nodes?: unknown } | null;
+    if (!document || !Array.isArray(document.nodes)) throw new Error('nodes.yaml 必须包含 nodes 数组');
+    return document.nodes.map(value => this.normalize(value));
   }
 
   private normalize(value: unknown): NodeConfig {

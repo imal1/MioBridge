@@ -90,7 +90,8 @@ export class MihomoAdapter {
     return output;
   }
   private async loadTemplate(): Promise<YAML.Document.Parsed> {
-    const path = this.getTemplatePath();
+    const userTemplate = join(this.options.paths.baseDir, 'template.user.yaml');
+    const path = await this.options.fs.exists(userTemplate) ? userTemplate : this.getTemplatePath();
     if (!await this.options.fs.exists(path)) {
       throw new Error(`Mihomo YAML 模板不存在: ${path}；请重新安装 MioBridge 或创建该文件`);
     }

@@ -1,3 +1,7 @@
+## 2026-11-08 · Optimization regressions
+
+Offline sources persist up to 72 hours; publication drop checks preserve previous artifacts, including legacy files without metadata. Atomic state writes and nodes.yaml.bak prevent truncated configuration; mkdir locks serialize CLI/dashboard mutations. Retry text stays editable, schedule toggle saves without overwriting other drafts, and failed onboarding retries Agent installation without duplicating the server. Dashboard download tests establish actual session cookies. See docs/OPTIMIZATION-IMPLEMENTATION.zh-CN.md for validation.
+
 ---
 name: bug-fixes
 description: Compact bug fixes and operational lessons for MioBridge
@@ -7,6 +11,16 @@ metadata:
 
 # Bug Fixes
 
+- 2026-11-12: Source collection results are reused three ways (in-flight
+  request per node, 5-minute memory cache, persisted offline snapshot). They
+  must hold only raw Agent sources; `location` and `proxy` are bound when
+  `collectSources` returns, from the node profile the caller just read. Baking
+  profile data into a shared result let a preflight that joined an older
+  in-flight request publish the previous domain and `insecure` policy.
+- 2026-11-12: `proxy.sni` accepted IP literals because all-numeric labels pass
+  the hostname pattern; it now rejects anything `isIP` recognises. The E2E
+  harness had its own weaker copy of the proxy validation — it now calls
+  `validateNodeProxy` directly so fixture and server cannot drift.
 - 2026-11-12: Subscriptions no longer depend on the 233boy `url` export for
   the client endpoint (#48). Per-node `proxy` settings (server, sni, certVerify,
   protocols, displayName) are applied on the main node while generating all
