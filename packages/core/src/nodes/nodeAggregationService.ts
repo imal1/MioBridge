@@ -138,16 +138,23 @@ export class NodeAggregationService {
 
   private async collectSources(node: NodeConfig, timeoutMs?: number, force = false): Promise<RemoteSourceCollection> {
     if (!node.enabled) return { sources: [], errors: [] };
+    // 内存缓存、进行中的请求和持久化快照只保存 Agent 的原始来源。地域标签与出口设置是随时可改的
+    // 档案数据，必须在返回时按「本次调用读到的节点档案」绑定：否则复用一个在修改前发起的请求，
+    // 会把旧域名和旧证书校验策略带进本次生成的订阅。
+    const bind = (value: RemoteSourceCollection): RemoteSourceCollection => ({
+      ...value,
+      sources: value.sources.map(({ proxy: _collectedWith, ...source }) => ({ ...source, location: node.location, ...(node.proxy ? { proxy: node.proxy } : {}) })),
+    });
     const cached = this.sourcesCache.get(node.id);
-    if (!force && cached && this.now() - cached.at < 300_000) return cached.value;
+    if (!force && cached && this.now() - cached.at < 300_000) return bind(cached.value);
     const existing = this.sourcesInFlight.get(node.id);
-    if (existing) return existing;
+    if (existing) return existing.then(bind);
     const request = this.fetchSources(node, timeoutMs).then(value => {
       this.sourcesCache.set(node.id, { at: this.now(), value });
       return value;
     }).finally(() => this.sourcesInFlight.delete(node.id));
     this.sourcesInFlight.set(node.id, request);
-    return request;
+    return request.then(bind);
   }
 
   private async fetchSources(node: NodeConfig, timeoutMs?: number): Promise<RemoteSourceCollection> {
@@ -172,7 +179,7 @@ export class NodeAggregationService {
         }
       }
       for (const kernel of kernels) if (sources.filter(s => s.kernel === kernel.type).length !== kernel.nodesCount) throw new Error(`Agent 内核 ${kernel.type} 的来源数量与 nodesCount 不一致`);
-      const result: RemoteSourceCollection = { sources: sources.sort((a,b) => KERNEL_TYPES.indexOf(a.kernel)-KERNEL_TYPES.indexOf(b.kernel)).map(s => ({ ...s, nodeId: node.id, location: node.location, ...(node.proxy ? { proxy: node.proxy } : {}) })), errors: kernels.filter(k => (k.monitored && !k.accessible) || k.error).map(k => this.error(node, `内核 ${k.type}: ${k.error || '已监控但不可访问'}`)), kernels };
+      const result: RemoteSourceCollection = { sources: sources.sort((a,b) => KERNEL_TYPES.indexOf(a.kernel)-KERNEL_TYPES.indexOf(b.kernel)).map(s => ({ ...s, nodeId: node.id, location: node.location })), errors: kernels.filter(k => (k.monitored && !k.accessible) || k.error).map(k => this.error(node, `内核 ${k.type}: ${k.error || '已监控但不可访问'}`)), kernels };
       if (result.errors.length) throw new Error(result.errors.join('; '));
       const collectedAt = typeof data.collectedAt === 'string' && Number.isFinite(Date.parse(data.collectedAt)) ? Math.min(this.now(), Date.parse(data.collectedAt)) : this.now();
       await this.state?.set(`node-sources/${node.id}.json`, JSON.stringify({ ...result, collectedAt, agentVersion: node.agent?.version }));
@@ -187,7 +194,7 @@ export class NodeAggregationService {
           const snapshot = JSON.parse(raw) as RemoteSourceCollection & { collectedAt: number };
           const age = this.now() - snapshot.collectedAt;
           if (age >= 0 && age <= this.cacheMaxHours() * 3600_000 && Array.isArray(snapshot.sources)) {
-            return { cached: true, collectedAt: new Date(snapshot.collectedAt).toISOString(), sources: snapshot.sources.filter(source => node.kernels.some(kernel => kernel.type === source.kernel)).map(({ proxy: _cached, ...source }) => ({ ...source, location: node.location, ...(node.proxy ? { proxy: node.proxy } : {}) })), ...(snapshot.kernels ? { kernels: snapshot.kernels } : {}),
+            return { cached: true, collectedAt: new Date(snapshot.collectedAt).toISOString(), sources: snapshot.sources.filter(source => node.kernels.some(kernel => kernel.type === source.kernel)).map(source => ({ ...source, location: node.location })), ...(snapshot.kernels ? { kernels: snapshot.kernels } : {}),
               errors: [...errors, this.error(node, `使用 ${(age / 3600_000).toFixed(1)} 小时前的缓存`)] };
           }
         }

@@ -11,6 +11,12 @@ metadata:
 
 # Bug Fixes
 
+- 2026-11-12: Source collection results are reused three ways (in-flight
+  request per node, 5-minute memory cache, persisted offline snapshot). They
+  must hold only raw Agent sources; `location` and `proxy` are bound when
+  `collectSources` returns, from the node profile the caller just read. Baking
+  profile data into a shared result let a preflight that joined an older
+  in-flight request publish the previous domain and `insecure` policy.
 - 2026-11-12: `proxy.sni` accepted IP literals because all-numeric labels pass
   the hostname pattern; it now rejects anything `isIP` recognises. The E2E
   harness had its own weaker copy of the proxy validation — it now calls
