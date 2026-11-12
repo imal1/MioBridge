@@ -144,7 +144,7 @@ export class NodeAggregationService {
         }
       }
       for (const kernel of kernels) if (sources.filter(s => s.kernel === kernel.type).length !== kernel.nodesCount) throw new Error(`Agent 内核 ${kernel.type} 的来源数量与 nodesCount 不一致`);
-      return { sources: sources.sort((a,b) => KERNEL_TYPES.indexOf(a.kernel)-KERNEL_TYPES.indexOf(b.kernel)).map(s => ({ ...s, nodeId: node.id, location: node.location })), errors: kernels.filter(k => (k.monitored && !k.accessible) || k.error).map(k => this.error(node, `内核 ${k.type}: ${k.error || '已监控但不可访问'}`)), kernels };
+      return { sources: sources.sort((a,b) => KERNEL_TYPES.indexOf(a.kernel)-KERNEL_TYPES.indexOf(b.kernel)).map(s => ({ ...s, nodeId: node.id, location: node.location, ...(node.proxy ? { proxy: node.proxy } : {}) })), errors: kernels.filter(k => (k.monitored && !k.accessible) || k.error).map(k => this.error(node, `内核 ${k.type}: ${k.error || '已监控但不可访问'}`)), kernels };
     } catch (error) { return { sources: [], errors: [this.error(node, error instanceof Error ? error.message : String(error))] }; }
   }
 
@@ -153,6 +153,7 @@ export class NodeAggregationService {
       nodeId: node.id, name: node.name, host: node.host, configuredKernels: node.kernels,
       kernels: unavailable(node.kernels), location: node.location, enabled: node.enabled,
       ...(node.tags?.length ? { tags: node.tags } : {}),
+      ...(node.proxy ? { proxy: node.proxy } : {}),
       online: false, ...(node.agent ? { agent: node.agent } : {}),
       ...(node.ssh ? { sshUser: node.ssh.user, sshPort: node.ssh.port ?? 22, sshHostKey: node.ssh.hostKey, sshAuthMethod: node.ssh.authMethod } : {}),
     };

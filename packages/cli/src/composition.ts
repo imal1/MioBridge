@@ -8,6 +8,7 @@ import { promisify } from 'node:util';
 import {
   AgentClient,
   ConfigService,
+  LOCAL_NODE_ID,
   MihomoAdapter,
   MioBridgeCore,
   NodeAggregationService,
@@ -125,6 +126,9 @@ export function createNodeCore(options: NodeCoreOptions = {}): NodeCoreCompositi
   const core = new MioBridgeCore({
     paths, state, logger, metadata: options.metadata ?? { version: CLI_VERSION }, yaml,
     local, remote, mihomo,
+    async localNodeProxy() {
+      return (await repository.list({ enabledOnly: false })).find(node => node.id === LOCAL_NODE_ID)?.proxy;
+    },
     clusterMetrics: {
       async snapshot() {
         const status = await aggregation.getClusterStatus();

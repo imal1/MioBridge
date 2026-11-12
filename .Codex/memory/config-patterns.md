@@ -36,3 +36,9 @@ metadata:
 - Agent configs use a non-empty, duplicate-free `kernels` list of sing-box,
   Xray, and/or V2Ray entries, each with an optional config path. A node config
   may use the exact `kernels: []` draft form until its first successful deploy.
+- A node's optional `proxy` block in nodes.yaml (`server`, `sni`, `certVerify:
+  strict|insecure`, `protocols`, `displayName`) describes how clients reach its
+  proxies in generated subscriptions. It is independent of `host` (the Agent
+  management address), every field is explicit with "unset = keep the
+  kernel-reported value", and an empty block is never persisted. `sni` and
+  `certVerify` apply only to certificate-based TLS links, never to Reality.

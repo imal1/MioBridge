@@ -674,6 +674,21 @@ const KERNELS_SCHEMA = {
   }, ['type']),
 } as const;
 
+const NODE_PROXY_SCHEMA = {
+  type: ['object', 'null'],
+  description: '订阅出口设置：只影响生成的订阅产物，与 Agent 管理地址 host 无关。提交即整体替换，null 或空对象表示清除；各字段缺省时沿用内核上报值',
+  properties: {
+    server: { type: 'string', description: '客户端连接域名或 IP' },
+    sni: { type: 'string', description: 'TLS server name；Reality 与非 TLS 协议不受影响' },
+    certVerify: { type: 'string', enum: ['strict', 'insecure'], description: 'strict 导出 skip-cert-verify: false；insecure 用于自签证书' },
+    protocols: {
+      type: 'array', description: 'server / sni / certVerify 生效的协议范围；缺省对全部协议生效',
+      items: { type: 'string', enum: ['vless', 'vmess', 'trojan', 'hysteria2', 'tuic', 'ss'] },
+    },
+    displayName: { type: 'string', maxLength: 64, description: '订阅显示名称；节点导出为「显示名称 + 协议」，策略组引用同步更新' },
+  },
+} as const;
+
 const CHANGES_SCHEMA = {
   type: 'array',
   description: '一次原子提交的字段变更集合',
@@ -683,12 +698,12 @@ const CHANGES_SCHEMA = {
 const REQUEST_BODIES: Record<string, Record<string, unknown>> = {
   'POST /api/cluster/nodes': jsonBody('新建节点档案', true, objectSchema({
     name: STRING_SCHEMA, host: STRING_SCHEMA, location: STRING_SCHEMA,
-    tags: { type: 'array', items: STRING_SCHEMA }, kernels: KERNELS_SCHEMA, ...SSH_PROPERTIES,
+    tags: { type: 'array', items: STRING_SCHEMA }, kernels: KERNELS_SCHEMA, proxy: NODE_PROXY_SCHEMA, ...SSH_PROPERTIES,
   }, ['name', 'host'])),
   'PATCH /api/cluster/nodes/{id}': jsonBody('更新节点档案；只提交需要变更的字段', true, objectSchema({
     nodeId: STRING_SCHEMA, name: STRING_SCHEMA, host: STRING_SCHEMA, location: STRING_SCHEMA,
     enabled: { type: 'boolean', description: '是否纳管该节点' },
-    tags: { type: 'array', items: STRING_SCHEMA }, ...SSH_PROPERTIES,
+    tags: { type: 'array', items: STRING_SCHEMA }, proxy: NODE_PROXY_SCHEMA, ...SSH_PROPERTIES,
   })),
   'POST /api/cluster/nodes/{id}/preflight': jsonBody('可选的临时 SSH 覆盖参数', false, objectSchema({
     ssh: objectSchema(SSH_PROPERTIES),

@@ -174,6 +174,39 @@ Clash subscription are prefixed with the child node's `location`. If multiple
 sources still produce the same name, MioBridge appends the source URL in
 brackets so every generated proxy name remains unique.
 
+### Subscription endpoint: domain, SNI, and certificate verification
+
+The 233boy management scripts export share links by public IP and always add
+skip-verification parameters. After installing a real domain certificate on the
+kernel, open **Overview → 订阅出口** in the node detail and set the node's
+connection domain, TLS SNI, certificate verification policy, and subscription
+display name. The settings are stored in the main node's
+`~/.config/miobridge/nodes.yaml` and applied to `raw.txt`, `subscription.txt`,
+and `clash.yaml` on every subscription update, so neither an update nor a
+dashboard restart restores the old values. Nothing on the child node, in the
+233boy scripts, or in generated artifacts needs to be edited.
+
+```yaml
+nodes:
+  - id: ht
+    host: 203.0.113.7            # Agent management address; never changed by these settings
+    proxy:
+      server: ht.example.com     # address clients connect to
+      sni: ht.example.com        # TLS server name
+      certVerify: strict         # strict → skip-cert-verify: false; insecure → self-signed
+      protocols: [trojan, hysteria2]   # optional; defaults to every protocol of the node
+      displayName: HT            # exported as "HT Trojan", "HT Hysteria2"
+```
+
+Every field is an explicit choice and an empty field keeps the kernel-reported
+value: MioBridge never treats a configured `server_name` as proof that the
+certificate is trusted. `sni` and `certVerify` apply only to certificate-based
+TLS protocols (Trojan, Hysteria2, TUIC, VLESS/VMess over TLS); Reality and
+plaintext protocols are left alone, and ports, passwords, and all other
+parameters keep their original values. The display name is written to both the
+Clash proxies and the template policy-group references. The API is the `proxy`
+field of `PATCH /api/cluster/nodes/{id}`; send `null` to clear it.
+
 ## Operations
 
 ```bash

@@ -48,6 +48,7 @@ type SnapshotNode = {
   ssh?: { hostKey?: string }
   configuredKernels?: Array<{ type: string; configPath?: string }>
   agent?: { deployed?: boolean; status?: string }
+  proxy?: { server?: string; sni?: string; certVerify?: string; protocols?: string[]; displayName?: string }
 }
 
 type DeploymentTask = {
@@ -509,6 +510,66 @@ test.describe('E03 — 节点档案管理', () => {
     const replacementCredential = editor.getByLabel('密码', { exact: true })
     await expect.soft(replacementCredential).toBeVisible()
     await expect.soft(replacementCredential).toHaveValue('')
+  })
+
+  test('订阅出口：域名、SNI、证书校验与显示名称独立于 Agent 管理地址持久保存', async ({ page, snapshot }) => {
+    const target = remoteNode(fixtureSnapshot(await snapshot()))
+
+    await page.goto('/nodes')
+    await page.getByLabel('搜索节点').fill(target.name)
+    const panel = await openTab(page, target.name, '概览')
+    await expect(panel.getByText('沿用内核上报值')).toBeVisible()
+    await panel.getByRole('button', { name: '订阅出口', exact: true }).click()
+    const dialog = page.getByRole('dialog', { name: '订阅出口设置' })
+    await expect(dialog.getByRole('button', { name: '沿用内核', exact: true })).toHaveAttribute('aria-pressed', 'true')
+
+    // 服务端校验失败时保留对话框与输入，不得 toast 成功。
+    await dialog.getByLabel('连接域名', { exact: true }).fill('bad host/evil')
+    await dialog.getByRole('button', { name: '保存出口设置' }).click()
+    await expect(dialog.getByText('连接域名必须是有效的域名或 IP 地址')).toBeVisible()
+    await expect(page.getByText('订阅出口设置已保存')).toHaveCount(0)
+
+    await dialog.getByLabel('连接域名', { exact: true }).fill('proxy.e2e.example')
+    await dialog.getByLabel('TLS SNI', { exact: true }).fill('proxy.e2e.example')
+    await dialog.getByRole('button', { name: '严格校验', exact: true }).click()
+    await dialog.getByRole('button', { name: 'Trojan', exact: true }).click()
+    await dialog.getByRole('button', { name: 'Hysteria2', exact: true }).click()
+    await dialog.getByLabel('订阅显示名称', { exact: true }).fill('E2E 出口')
+    const saveRequest = page.waitForRequest(request =>
+      request.method() === 'PATCH' && pathname(request.url()) === '/api/cluster/nodes')
+    await dialog.getByRole('button', { name: '保存出口设置' }).click()
+    expect((await saveRequest).postDataJSON()).toEqual({
+      nodeId: nodeId(target),
+      proxy: {
+        server: 'proxy.e2e.example', sni: 'proxy.e2e.example', certVerify: 'strict',
+        protocols: ['trojan', 'hysteria2'], displayName: 'E2E 出口',
+      },
+    })
+    await expect(page.getByText('订阅出口设置已保存')).toBeVisible()
+    await expect(dialog).toBeHidden()
+    await expect(panel.getByText('名称 E2E 出口 · 域名 proxy.e2e.example · SNI proxy.e2e.example · 严格校验 · 仅 trojan/hysteria2')).toBeVisible()
+
+    const saved = fixtureSnapshot(await snapshot()).nodes.find(node => nodeId(node) === nodeId(target))
+    // Agent 管理地址与 host key 不随出口域名变化。
+    expect(saved).toMatchObject({ host: target.host, sshHostKey: target.sshHostKey, proxy: { server: 'proxy.e2e.example', certVerify: 'strict' } })
+
+    // 刷新后回显已保存的值；全部清空即恢复为沿用内核上报值。
+    await page.reload()
+    await page.getByLabel('搜索节点').fill(target.name)
+    const reopened = await openTab(page, target.name, '概览')
+    await reopened.getByRole('button', { name: '订阅出口', exact: true }).click()
+    await expect(dialog.getByLabel('连接域名', { exact: true })).toHaveValue('proxy.e2e.example')
+    await expect(dialog.getByRole('button', { name: '严格校验', exact: true })).toHaveAttribute('aria-pressed', 'true')
+    await dialog.getByLabel('连接域名', { exact: true }).fill('')
+    await dialog.getByLabel('TLS SNI', { exact: true }).fill('')
+    await dialog.getByRole('button', { name: '沿用内核', exact: true }).click()
+    await dialog.getByLabel('订阅显示名称', { exact: true }).fill('')
+    const clearRequest = page.waitForRequest(request =>
+      request.method() === 'PATCH' && pathname(request.url()) === '/api/cluster/nodes')
+    await dialog.getByRole('button', { name: '保存出口设置' }).click()
+    expect((await clearRequest).postDataJSON()).toEqual({ nodeId: nodeId(target), proxy: null })
+    await expect(reopened.getByText('沿用内核上报值')).toBeVisible()
+    expect(fixtureSnapshot(await snapshot()).nodes.find(node => nodeId(node) === nodeId(target))).not.toHaveProperty('proxy')
   })
 
   test('本机档案可填写用户名和密码', async ({ page, snapshot }) => {
