@@ -207,6 +207,19 @@ parameters keep their original values. The display name is written to both the
 Clash proxies and the template policy-group references. The API is the `proxy`
 field of `PATCH /api/cluster/nodes/{id}`; send `null` to clear it.
 
+On a server without a browser, use the CLI for the same settings. It edits field
+by field: only the options you pass change, an empty value (or
+`--cert-verify inherit`, `--protocols all`) clears one field, and `--clear`
+removes everything. Without options it prints the current settings next to the
+Agent management address, which it never changes.
+
+```bash
+miobridge nodes proxy ht --server ht.example.com --sni ht.example.com \
+  --cert-verify strict --protocols trojan,hysteria2 --name HT
+miobridge nodes proxy ht --json     # show the current settings
+miobridge update --json             # regenerate the subscription artifacts
+```
+
 ## Operations
 
 ```bash

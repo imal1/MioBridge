@@ -1,6 +1,6 @@
 import type {
   ConfigApplyResult, ConfigValidationResult, FullConfig, LocalLogEntry, LocalLogQuery,
-  LocalLogResult, MetricsSnapshot, NodeDiagnosticsReport, StatusInfo, UpdateResult,
+  LocalLogResult, MetricsSnapshot, NodeDiagnosticsReport, NodeProxyConfig, StatusInfo, UpdateResult,
 } from '@miobridge/core';
 import { parse as parseYaml, stringify as stringifyYaml } from 'yaml';
 import { formatSetupStatus, type DependencySetupService } from './setup/service.js';
@@ -21,6 +21,24 @@ export interface CliCore {
   getLocalLogs(options?: LocalLogQuery): Promise<LocalLogResult>;
   followLocalLogs(options?: LocalLogQuery): AsyncIterable<LocalLogEntry>;
   getMetricsSnapshot(): Promise<MetricsSnapshot>;
+}
+
+/** A node's subscription endpoint settings next to the Agent address they never change. */
+export interface NodeProxyView {
+  readonly id: string;
+  readonly name: string;
+  /** Agent management address; shown so operators can see it is independent of `proxy.server`. */
+  readonly host: string;
+  readonly proxy?: NodeProxyConfig;
+}
+
+/** Field-wise edit from `nodes proxy`: a string sets the field, null clears it, absent keeps it. */
+export interface NodeProxyChanges {
+  readonly server?: string | null;
+  readonly sni?: string | null;
+  readonly certVerify?: string | null;
+  readonly protocols?: readonly string[] | null;
+  readonly displayName?: string | null;
 }
 
 export interface CliOutput {
@@ -46,6 +64,11 @@ export interface CliDependencies {
     repair(nodeId: string): Promise<NodeDiagnosticsReport>;
     migrate(nodeId: string, runtimeUser: string): Promise<NodeDiagnosticsReport>;
   };
+  readonly nodeProxy?: {
+    read(nodeId: string): Promise<NodeProxyView>;
+    /** Applies `edit` to the stored settings atomically; the result is validated before it is persisted. */
+    write(nodeId: string, edit: (current: NodeProxyConfig | undefined) => unknown): Promise<NodeProxyView>;
+  };
   readonly dashboard?: {
     foreground(): Promise<{ readonly exitCode: number; readonly healthUrl: string }>;
     daemon?(action: DashboardDaemonAction): Promise<DashboardDaemonStatus>;
@@ -61,6 +84,7 @@ type ParsedCommand =
   | { readonly kind: 'nodes-agent-config'; readonly output: string }
   | { readonly kind: 'nodes-diagnose' | 'nodes-repair'; readonly nodeId: string; readonly json: boolean }
   | { readonly kind: 'nodes-migrate-service'; readonly nodeId: string; readonly user: string; readonly json: boolean }
+  | { readonly kind: 'nodes-proxy'; readonly nodeId: string; readonly json: boolean; readonly clear: boolean; readonly changes: NodeProxyChanges }
   | { readonly kind: 'upgrade' }
   | { readonly kind: 'uninstall'; readonly purge: boolean }
   | { readonly kind: 'dashboard-foreground' }
@@ -91,6 +115,12 @@ Commands:
                   Repair supported Agent service issues and verify recovery
   nodes migrate-service <id> --user <nonroot> [--json]
                   Migrate an Agent to a system service with rollback on failure
+  nodes proxy <id> [--server <domain>] [--sni <domain>]
+                   [--cert-verify strict|insecure|inherit]
+                   [--protocols <list>|all] [--name <display-name>]
+                   [--clear] [--json]
+                  Show or set how a node is exported in subscriptions; an empty
+                  value clears one field, the Agent address is never changed
   upgrade         Upgrade this CLI to the latest verified release
   uninstall [--purge]
                   Remove this CLI; --purge also removes configuration and data
@@ -176,6 +206,7 @@ export function parseCommand(args: readonly string[]): ParsedCommand {
     }
     return { kind: action === 'diagnose' ? 'nodes-diagnose' : 'nodes-repair', nodeId, json };
   }
+  if (args[0] === 'nodes' && args[1] === 'proxy') return parseNodesProxyCommand(args.slice(2));
   if (args[0] === 'nodes') {
     throw new Error(args.length === 1 ? 'Missing nodes action' : `Unknown nodes action: ${args[1]}`);
   }
@@ -214,6 +245,68 @@ export function parseCommand(args: readonly string[]): ParsedCommand {
     throw new Error(args.length === 1 ? 'Missing dashboard action' : `Unknown dashboard action: ${args[1]}`);
   }
   throw new Error(`Unknown command: ${args[0]}`);
+}
+
+const NODES_PROXY_USAGE = 'Usage: miobridge nodes proxy <id> [--server <domain>] [--sni <domain>] [--cert-verify strict|insecure|inherit] [--protocols <list>|all] [--name <display-name>] [--clear] [--json]';
+
+function parseNodesProxyCommand(args: readonly string[]): ParsedCommand {
+  const nodeId = args[0];
+  if (!isOptionValue(nodeId) || !nodeId) throw new Error(NODES_PROXY_USAGE);
+  let json = false;
+  let clear = false;
+  const changes: { -readonly [Key in keyof NodeProxyChanges]: NodeProxyChanges[Key] } = {};
+  const value = (index: number): string => {
+    const next = args[index + 1];
+    // An empty string is a real value here: it clears the field.
+    if (!isOptionValue(next)) throw new Error(`${args[index]} requires a value`);
+    return next.trim();
+  };
+  const once = (field: keyof NodeProxyChanges, option: string) => {
+    if (field in changes) throw new Error(`${option} was given more than once`);
+  };
+  for (let index = 1; index < args.length; index += 1) {
+    const argument = args[index];
+    if (argument === '--json' && !json) json = true;
+    else if (argument === '--clear' && !clear) clear = true;
+    else if (argument === '--server') { once('server', argument); changes.server = value(index++) || null; }
+    else if (argument === '--sni') { once('sni', argument); changes.sni = value(index++) || null; }
+    else if (argument === '--name') { once('displayName', argument); changes.displayName = value(index++) || null; }
+    else if (argument === '--cert-verify') {
+      once('certVerify', argument);
+      const policy = value(index++);
+      if (policy !== 'strict' && policy !== 'insecure' && policy !== 'inherit' && policy !== '') throw new Error('--cert-verify must be strict, insecure or inherit');
+      changes.certVerify = policy === 'strict' || policy === 'insecure' ? policy : null;
+    } else if (argument === '--protocols') {
+      once('protocols', argument);
+      const list = value(index++);
+      changes.protocols = list === '' || list === 'all' ? null : list.split(',').map(item => item.trim()).filter(Boolean);
+    } else throw new Error(`Unexpected argument: ${argument}`);
+  }
+  if (clear && Object.keys(changes).length) throw new Error('--clear cannot be combined with other subscription endpoint options');
+  return { kind: 'nodes-proxy', nodeId, json, clear, changes };
+}
+
+/** Merges a field-wise CLI edit onto the stored settings; validation happens where it is persisted. */
+export function mergeNodeProxyChanges(current: NodeProxyConfig | undefined, changes: NodeProxyChanges): Record<string, unknown> {
+  const next: Record<string, unknown> = { ...current };
+  for (const [field, value] of Object.entries(changes)) {
+    if (value === null) delete next[field];
+    else next[field] = value;
+  }
+  return next;
+}
+
+export function formatNodeProxy(view: NodeProxyView): string {
+  const inherited = '(kernel-reported)';
+  return [
+    `Node: ${view.id} (${view.name})`,
+    `Agent address: ${view.host}`,
+    `Server: ${view.proxy?.server ?? inherited}`,
+    `SNI: ${view.proxy?.sni ?? inherited}`,
+    `Certificate verification: ${view.proxy?.certVerify ?? inherited}`,
+    `Protocols: ${view.proxy?.protocols?.join(', ') ?? 'all'}`,
+    `Display name: ${view.proxy?.displayName ?? '(location + kernel node name)'}`,
+  ].join('\n');
 }
 
 function parseConfigCommand(args: readonly string[]): ParsedCommand {
@@ -357,6 +450,17 @@ export async function runCli(args: readonly string[], dependencies: CliDependenc
       ].join('\n'));
       return report.healthy ? 0 : 1;
     }
+    if (command.kind === 'nodes-proxy') {
+      if (!dependencies.nodeProxy) throw new Error('Node subscription endpoint adapters are unavailable');
+      const changed = command.clear || Object.keys(command.changes).length > 0;
+      const view = !changed
+        ? await dependencies.nodeProxy.read(command.nodeId)
+        : await dependencies.nodeProxy.write(command.nodeId, current => command.clear ? undefined : mergeNodeProxyChanges(current, command.changes));
+      dependencies.output.stdout(command.json
+        ? JSON.stringify({ id: view.id, name: view.name, host: view.host, proxy: view.proxy ?? null })
+        : `${formatNodeProxy(view)}${changed ? '\nSaved. Run "miobridge update" to regenerate the subscription artifacts.' : ''}`);
+      return 0;
+    }
     if (command.kind === 'upgrade') {
       if (!dependencies.maintenance) throw new Error('CLI maintenance adapters are unavailable');
       dependencies.output.stdout(await dependencies.maintenance.upgrade());
@@ -424,7 +528,7 @@ export async function runCli(args: readonly string[], dependencies: CliDependenc
     return 0;
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    if ((command.kind === 'nodes-diagnose' || command.kind === 'nodes-repair' || command.kind === 'nodes-migrate-service') && command.json) {
+    if ((command.kind === 'nodes-diagnose' || command.kind === 'nodes-repair' || command.kind === 'nodes-migrate-service' || command.kind === 'nodes-proxy') && command.json) {
       dependencies.output.stdout(JSON.stringify({ success: false, error: message }));
     } else dependencies.output.stderr(`Error: ${message}`);
     return 1;

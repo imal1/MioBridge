@@ -9,6 +9,7 @@ import { SelfMaintenanceService } from './self/service.js';
 import { createNodeSelfMaintenanceAdapters } from './self/nodeAdapters.js';
 import { LocalNodeConfigurationService } from './nodes/localConfiguration.js';
 import { createNodeMaintenanceService } from './dashboard/server/ssh/maintenance.js';
+import { validateNodeProxy } from '@miobridge/core';
 import { chmod, readFile, writeFile } from 'node:fs/promises';
 
 const output = {
@@ -78,6 +79,15 @@ const exitCode = await runCli(process.argv.slice(2), {
     diagnose: async nodeId => nodeMaintenance.diagnose(await maintenanceNode(nodeId)),
     repair: async nodeId => nodeMaintenance.repair(await maintenanceNode(nodeId)),
     migrate: async (nodeId, runtimeUser) => nodeMaintenance.migrate(await maintenanceNode(nodeId), runtimeUser),
+  },
+  nodeProxy: {
+    read: async nodeId => maintenanceNode(nodeId),
+    // 与 Dashboard 的 PATCH 写同一份 nodes.yaml，且同样只改 proxy：host（Agent 管理地址）保持不变。
+    write: (nodeId, edit) => composition.repository.update(nodeId, current => {
+      const { proxy: stored, ...profile } = current;
+      const proxy = validateNodeProxy(edit(stored));
+      return proxy ? { ...profile, proxy } : profile;
+    }),
   },
   maintenance: {
     upgrade: () => maintenance.upgrade(),

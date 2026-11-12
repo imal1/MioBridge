@@ -1,4 +1,5 @@
 import type { DashboardOperationsPort, OperationsResult } from '@miobridge/cli';
+import { validateNodeProxy } from '@miobridge/core';
 import type {
   FixtureDeploymentEvent,
   FixtureDeploymentTask,
@@ -485,18 +486,10 @@ export function createOperations(state: HarnessState): DashboardOperationsPort {
       }
       if (input.enabled !== undefined) node.enabled = Boolean(input.enabled);
       // 与真实服务端一致：提交 proxy 即整体替换，null / 空对象清除；它不触碰 host 与 host key。
+      // 校验直接复用服务端的 validateNodeProxy，夹具不会放行真实 API 会拒绝的输入。
       if (Object.hasOwn(input, 'proxy')) {
-        const proxy = input.proxy === null ? {} : inputObject(input.proxy);
-        if (typeof proxy.server === 'string' && /[\s/#?@]/.test(proxy.server.trim())) throw new Error('连接域名必须是有效的域名或 IP 地址');
-        if (proxy.certVerify !== undefined && proxy.certVerify !== 'strict' && proxy.certVerify !== 'insecure') throw new Error('证书校验策略只能是 strict 或 insecure');
-        const next: NonNullable<FixtureNode['proxy']> = {
-          ...(typeof proxy.server === 'string' && proxy.server.trim() ? { server: proxy.server.trim() } : {}),
-          ...(typeof proxy.sni === 'string' && proxy.sni.trim() ? { sni: proxy.sni.trim() } : {}),
-          ...(proxy.certVerify ? { certVerify: proxy.certVerify } : {}),
-          ...(Array.isArray(proxy.protocols) && proxy.protocols.length ? { protocols: proxy.protocols.map(String) } : {}),
-          ...(typeof proxy.displayName === 'string' && proxy.displayName.trim() ? { displayName: proxy.displayName.trim() } : {}),
-        };
-        if (Object.keys(next).length) node.proxy = next;
+        const next = validateNodeProxy(input.proxy);
+        if (next) node.proxy = next;
         else delete node.proxy;
       }
       if (nextHost !== node.host) {

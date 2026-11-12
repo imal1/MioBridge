@@ -11,6 +11,9 @@
   策略（严格 / 跳过 / 沿用内核）、生效协议范围和订阅显示名称。连接域名与 Agent
   管理地址相互独立；各字段留空即沿用内核上报值，不会因内核配置了
   `server_name` 而推断证书可信。
+- CLI 新增 `miobridge nodes proxy <id>`：在没有浏览器的服务器上查看、逐字段修改
+  或清除节点的订阅出口设置（`--server`、`--sni`、`--cert-verify`、`--protocols`、
+  `--name`、`--clear`、`--json`），与 Dashboard 写入同一份 `nodes.yaml`。
 
 ### Fixed
 
@@ -18,6 +21,8 @@
   `skip-cert-verify: true`：出口设置在每次订阅更新时应用到 `raw.txt`、
   `subscription.txt` 与 `clash.yaml`，订阅更新和 Dashboard 重启后保持不变，端口、
   密码与其余协议参数原样保留（#48）。
+- 订阅出口的 TLS SNI 不再接受 IP 字面量（如 `203.0.113.7`）；此前它会被当作
+  由数字标签组成的域名通过校验。
 - 订阅显示名称可持久配置；重命名同时作用于 Clash 节点和模板策略组引用。此前
   导出名称只取地域标签与内核节点名，修改节点名称不会改变导出结果。
 

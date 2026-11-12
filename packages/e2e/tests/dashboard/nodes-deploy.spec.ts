@@ -529,7 +529,13 @@ test.describe('E03 — 节点档案管理', () => {
     await expect(dialog.getByText('连接域名必须是有效的域名或 IP 地址')).toBeVisible()
     await expect(page.getByText('订阅出口设置已保存')).toHaveCount(0)
 
+    // 夹具与真实服务端共用同一套校验：SNI 只接受域名，IP 或带下划线的值同样被拒绝。
     await dialog.getByLabel('连接域名', { exact: true }).fill('proxy.e2e.example')
+    await dialog.getByLabel('TLS SNI', { exact: true }).fill('bad_sni.e2e.example')
+    await dialog.getByRole('button', { name: '保存出口设置' }).click()
+    await expect(dialog.getByText('TLS SNI 必须是有效的域名')).toBeVisible()
+    await expect(page.getByText('订阅出口设置已保存')).toHaveCount(0)
+
     await dialog.getByLabel('TLS SNI', { exact: true }).fill('proxy.e2e.example')
     await dialog.getByRole('button', { name: '严格校验', exact: true }).click()
     await dialog.getByRole('button', { name: 'Trojan', exact: true }).click()

@@ -1,4 +1,5 @@
 import type { DashboardRequest } from '@miobridge/cli';
+import type { NodeProxyConfig } from '@miobridge/core';
 
 export interface FixtureKernelConfig {
   readonly type: 'sing-box' | 'xray' | 'v2ray';
@@ -39,10 +40,7 @@ export interface FixtureNode {
   };
   lastError?: string;
   /** 订阅出口设置；与真实服务端一致，仅在显式配置后出现。 */
-  proxy?: {
-    server?: string; sni?: string; certVerify?: 'strict' | 'insecure';
-    protocols?: string[]; displayName?: string;
-  };
+  proxy?: NodeProxyConfig;
 }
 
 export interface FixtureDeploymentTask {

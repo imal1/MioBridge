@@ -7,6 +7,10 @@ metadata:
 
 # Bug Fixes
 
+- 2026-11-12: `proxy.sni` accepted IP literals because all-numeric labels pass
+  the hostname pattern; it now rejects anything `isIP` recognises. The E2E
+  harness had its own weaker copy of the proxy validation — it now calls
+  `validateNodeProxy` directly so fixture and server cannot drift.
 - 2026-11-12: Subscriptions no longer depend on the 233boy `url` export for
   the client endpoint (#48). Per-node `proxy` settings (server, sni, certVerify,
   protocols, displayName) are applied on the main node while generating all

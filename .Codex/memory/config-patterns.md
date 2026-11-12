@@ -42,3 +42,8 @@ metadata:
   management address), every field is explicit with "unset = keep the
   kernel-reported value", and an empty block is never persisted. `sni` and
   `certVerify` apply only to certificate-based TLS links, never to Reality.
+  `sni` must be a hostname, never an IP literal. The API replaces the whole
+  block (`null` clears it); `miobridge nodes proxy <id>` edits field by field
+  (empty value / `inherit` / `all` clears one field, `--clear` clears all).
+  Both write the same nodes.yaml and go through `validateNodeProxy`, which the
+  E2E harness reuses too — keep a single validator.

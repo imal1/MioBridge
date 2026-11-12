@@ -56,6 +56,9 @@ describe('validateNodeProxy', () => {
     expect(() => validateNodeProxy({ server: 'bad host/evil' })).toThrow('连接域名');
     expect(() => validateNodeProxy({ server: 'a.example#frag' })).toThrow('连接域名');
     expect(() => validateNodeProxy({ sni: 'not a domain' })).toThrow('SNI');
+    // SNI 不能是 IP 字面量（RFC 6066），即使它形似由数字标签组成的主机名。
+    expect(() => validateNodeProxy({ sni: '203.0.113.7' })).toThrow('TLS SNI 必须是有效的域名');
+    expect(() => validateNodeProxy({ sni: '2001:db8::1' })).toThrow('TLS SNI 必须是有效的域名');
     expect(() => validateNodeProxy({ certVerify: 'auto' })).toThrow('证书校验策略');
     expect(() => validateNodeProxy({ protocols: ['socks'] })).toThrow('不支持的出口协议');
     expect(() => validateNodeProxy({ displayName: 'a\nb' })).toThrow('订阅显示名称');

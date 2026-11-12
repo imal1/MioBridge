@@ -186,6 +186,17 @@ nodes:
 策略组引用。API 为 `PATCH /api/cluster/nodes/{id}` 的 `proxy` 字段，提交 `null`
 即清除。
 
+没有浏览器的服务器上用 CLI 完成同样的设置。它逐字段修改：只改动给出的选项，
+空值（或 `--cert-verify inherit`、`--protocols all`）清除单个字段，`--clear`
+清除全部；不带选项时显示当前设置和不受影响的 Agent 管理地址。
+
+```bash
+miobridge nodes proxy ht --server ht.example.com --sni ht.example.com \
+  --cert-verify strict --protocols trojan,hysteria2 --name HT
+miobridge nodes proxy ht --json     # 查看当前设置
+miobridge update --json             # 重新生成订阅产物
+```
+
 ## 运维
 
 ```bash
