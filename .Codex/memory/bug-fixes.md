@@ -7,6 +7,12 @@ metadata:
 
 # Bug Fixes
 
+- 2026-11-12: Subscriptions no longer depend on the 233boy `url` export for
+  the client endpoint (#48). Per-node `proxy` settings (server, sni, certVerify,
+  protocols, displayName) are applied on the main node while generating all
+  three artifacts; no field is inferred, so an unset policy keeps the
+  kernel-reported insecure flags. Exported names never used the node `name`
+  (only `location` + kernel fragment), which is why renaming it had no effect.
 - 2026-09-24: Agent deployment success requires closed SSH plus delayed public
   HMAC health/version acceptance; intermediate step success is not completion.
   Heartbeat failure thresholds are 1/3/5 with two successes required to recover;

@@ -3,7 +3,9 @@ import { join } from 'node:path';
 import type { CoreLogger } from '../index.js';
 import type { StateStore } from '../state/stateStore.js';
 import type { Config } from '../types/config.js';
-import { buildClashSubscriptionResult, dedupeProxySources, type CollectedProxySource } from './sources.js';
+import { applyNodeProxy } from '../nodes/nodeProxy.js';
+import type { NodeProxyConfig } from '../nodes/types.js';
+import { applyNodeDisplayNames, buildClashSubscriptionResult, dedupeProxySources, type CollectedProxySource } from './sources.js';
 
 export interface SourceCollection { readonly sources: CollectedProxySource[]; readonly errors: string[] }
 export interface SubscriptionPreflight {
@@ -27,6 +29,8 @@ export interface ArtifactServiceOptions {
   readonly config: Pick<Config, 'staticDir' | 'logDir' | 'backupDir' | 'clashFilename'>;
   readonly local: LocalSourceCollector;
   readonly remote: RemoteSourceCollector;
+  /** 本机节点档案的订阅出口设置；本机内核来源不经过 Agent，需要单独查询。 */
+  readonly localNodeProxy?: () => Promise<NodeProxyConfig | undefined>;
   readonly clash: ClashConverter;
   readonly logger: CoreLogger;
   readonly state?: StateStore;
@@ -71,7 +75,7 @@ export class ArtifactService {
     const warnings: string[] = [];
     await this.collectLocal(collected, warnings);
     await this.collectRemote(collected, warnings);
-    const sources = dedupeProxySources(this.extract(collected, warnings));
+    const sources = applyNodeDisplayNames(dedupeProxySources(this.extract(collected, warnings)));
     const blockingErrors = sources.length === 0 ? ['零个可读代理来源'] : [];
     return {
       ready: blockingErrors.length === 0,
@@ -88,7 +92,7 @@ export class ArtifactService {
     const warnings: string[] = [];
     await this.collectLocal(collected, warnings);
     await this.collectRemote(collected, warnings);
-    const sources = dedupeProxySources(this.extract(collected, warnings));
+    const sources = applyNodeDisplayNames(dedupeProxySources(this.extract(collected, warnings)));
     if (sources.length === 0) throw new Error(`没有找到有效的代理URL。来源错误: ${warnings.join('; ') || '无可用节点源'}`);
 
     await this.ensureDirectories();
@@ -170,7 +174,9 @@ export class ArtifactService {
   private async collectLocal(target: CollectedProxySource[], errors: string[]): Promise<void> {
     try {
       if (!await this.options.local.isAvailable()) { errors.push('本机: Sing-box不可用，跳过本机节点源'); return; }
-      target.push(...(await this.options.local.extractNodeUrls()).map(url => ({ url, kernel: 'sing-box' as const, nodeId: 'local', location: '本机' })));
+      const urls = await this.options.local.extractNodeUrls();
+      const proxy = await this.options.localNodeProxy?.().catch(() => undefined);
+      target.push(...urls.map(url => ({ url, kernel: 'sing-box' as const, nodeId: 'local', location: '本机', ...(proxy ? { proxy } : {}) })));
     } catch (error) { errors.push(`本机来源收集失败: ${error instanceof Error ? error.message : String(error)}`); }
   }
 
@@ -184,8 +190,11 @@ export class ArtifactService {
   private extract(sources: readonly CollectedProxySource[], warnings: string[]): CollectedProxySource[] {
     const result: CollectedProxySource[] = [];
     for (const source of sources) for (const line of source.url.replace(/\u001b\[[0-9;]*m/g, '').split('\n')) {
-      const value = line.trim(); const protocol = protocols.find(prefix => value.startsWith(prefix));
-      if (protocol && (protocol === 'vmess://' || (value.includes('@') && value.includes(':'))) && value.length > 20) {
+      const reported = line.trim(); const protocol = protocols.find(prefix => reported.startsWith(prefix));
+      if (protocol && (protocol === 'vmess://' || (reported.includes('@') && reported.includes(':'))) && reported.length > 20) {
+        // 先应用节点的显式出口设置，再判断可路由性：内核只上报回环/IP 地址时，
+        // 用户配置的连接域名正是让该来源可发布的依据。
+        const value = applyNodeProxy(reported, source.proxy);
         if (isNonRoutableProxySource(value)) {
           warnings.push(`节点 ${source.nodeId} 内核 ${source.kernel} 返回了不可路由的回环或监听地址，已跳过`);
           continue;

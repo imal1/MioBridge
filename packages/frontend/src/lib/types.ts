@@ -47,6 +47,21 @@ export interface NodeAgentInfo {
   runtimeUser?: string;
 }
 
+/** 订阅里可被节点出口设置改写的代理协议。 */
+export const NODE_PROXY_PROTOCOLS = ['vless', 'vmess', 'trojan', 'hysteria2', 'tuic', 'ss'] as const;
+export type NodeProxyProtocol = typeof NODE_PROXY_PROTOCOLS[number];
+export type NodeCertVerify = 'strict' | 'insecure';
+
+/** 节点在订阅产物中的出口设置；与 Agent 管理地址 host 无关，缺省字段沿用内核上报值。 */
+export interface NodeProxyConfig {
+  server?: string;
+  sni?: string;
+  certVerify?: NodeCertVerify;
+  /** server / sni / certVerify 生效的协议范围；缺省对全部协议生效。 */
+  protocols?: NodeProxyProtocol[];
+  displayName?: string;
+}
+
 /** Node config from nodes.yaml */
 export interface NodeConfig {
   id: string;
@@ -60,6 +75,7 @@ export interface NodeConfig {
   tags?: string[];
   ssh?: NodeSshConfig;
   agent?: NodeAgentInfo;
+  proxy?: NodeProxyConfig;
 }
 
 /** Runtime status of a single node */
@@ -97,6 +113,8 @@ export interface NodeStatus {
   agent?: NodeAgentInfo;
   /** Agent 打通后检测到、但当前未纳入监控的已装内核，供前端提示用户确认纳管。 */
   adoptableKernels?: KernelType[];
+  /** 订阅出口设置（连接域名、SNI、证书校验、显示名称）。 */
+  proxy?: NodeProxyConfig;
 }
 
 /** Cluster aggregate status */

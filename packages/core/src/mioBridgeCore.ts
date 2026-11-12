@@ -16,6 +16,7 @@ export interface MioBridgeCoreOptions {
   readonly local: LocalSourceCollector; readonly remote: RemoteSourceCollector;
   readonly mihomo: ArtifactServiceOptions['clash'] & StatusKernel;
   readonly clusterMetrics?: ClusterMetricsSource;
+  readonly localNodeProxy?: ArtifactServiceOptions['localNodeProxy'];
   readonly now?: () => Date; readonly uptime?: () => number; readonly yaml?: YamlService;
 }
 
@@ -30,6 +31,7 @@ export class MioBridgeCore {
     const config = this.config.getConfig();
     const artifactOptions: ArtifactServiceOptions = {
       config, local: options.local, remote: options.remote, clash: options.mihomo, logger: options.logger, state: options.state,
+      ...(options.localNodeProxy ? { localNodeProxy: options.localNodeProxy } : {}),
       ...(options.now ? { now: options.now } : {}),
     };
     this.artifacts = new ArtifactService(artifactOptions);

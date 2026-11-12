@@ -134,7 +134,10 @@ export class MihomoAdapter {
       if (line.startsWith('vmess://')) {
         const v = JSON.parse(Buffer.from(line.slice(8), 'base64').toString()) as Record<string, string>;
         const network = v.net || 'tcp';
-        const proxy: ProxyConfig = { name: v.ps || `vmess-${v.add}`, type: 'vmess', server: v.add!, port: Number(v.port), uuid: v.id, alterId: Number(v.aid) || 0, cipher: v.scy || 'auto', network, tls: v.tls === 'tls', 'skip-cert-verify': true };
+        // vmess 分享 JSON 历来不带校验字段，缺省保持跳过校验；只有来源显式声明时才按声明执行。
+        const declared: unknown = v.insecure ?? v.allowInsecure;
+        const skipCertVerify = declared === undefined || declared === '' || ['1', 'true'].includes(String(declared));
+        const proxy: ProxyConfig = { name: v.ps || `vmess-${v.add}`, type: 'vmess', server: v.add!, port: Number(v.port), uuid: v.id, alterId: Number(v.aid) || 0, cipher: v.scy || 'auto', network, tls: v.tls === 'tls', 'skip-cert-verify': skipCertVerify };
         if (v.sni) proxy.servername = v.sni;
         if (network === 'ws') proxy['ws-opts'] = { path: v.path || '/', ...(v.host ? { headers: { Host: v.host } } : {}) };
         return proxy;

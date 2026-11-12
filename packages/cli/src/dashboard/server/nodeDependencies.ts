@@ -1,5 +1,5 @@
 import { randomBytes, randomUUID } from 'node:crypto';
-import { validateNodeKernels, type NodeConfig } from '@miobridge/core';
+import { validateNodeKernels, validateNodeProxy, type NodeConfig } from '@miobridge/core';
 import type { NodeCoreComposition } from '../../composition.js';
 import type { DashboardServerDependencies, OperationsResult } from './composition.js';
 import { SshDeploymentService } from './sshDeployment.js';
@@ -77,6 +77,7 @@ export function createNodeDashboardDependencies(composition: NodeCoreComposition
         if (typeof credential !== 'string' || credential.length === 0) throw new Error('缺少 SSH 凭据');
         const sshPort = input.sshPort === undefined ? 22 : Number(input.sshPort);
         if (!Number.isInteger(sshPort) || sshPort < 1 || sshPort > 65535) throw new Error('SSH 端口无效');
+        const proxy = validateNodeProxy(input.proxy);
         const rootUser = String(input.sshUser).trim() === 'root';
         if (rootUser) deployment.setOneTimeCredential(id, credential);
         else await composition.core.state.set(credentialRef, credential);
@@ -98,6 +99,7 @@ export function createNodeDashboardDependencies(composition: NodeCoreComposition
             hostKey: typeof input.sshHostKey === 'string' ? input.sshHostKey : '',
           },
           agent: { deployed: false, version: '', status: 'not_deployed', lastDeploy: '' },
+          ...(proxy ? { proxy } : {}),
         };
         await composition.repository.save([...nodes, node]);
         return result(publicNode(node));
@@ -124,6 +126,10 @@ export function createNodeDashboardDependencies(composition: NodeCoreComposition
         const tags = input.tags === undefined ? existing.tags : validateTags(input.tags);
         if (!name || !host || !location) throw new Error('名称、主机和地域不能为空');
         if (nodes.some(node => node.id !== nodeId && node.host === host)) throw new Error('该主机已存在');
+        // 出口设置整体替换：提交 proxy 即以其为准（null / 空对象 = 清除），未提交则保持现状。
+        // 它只影响订阅产物，绝不触碰 host（Agent 管理地址）与 SSH host key。
+        const proxyProvided = Object.hasOwn(input, 'proxy');
+        const proxy = proxyProvided ? validateNodeProxy(input.proxy) : undefined;
         const credential = input.sshPassword ?? input.sshPrivateKey;
         const sshUser = input.sshUser === undefined
           ? nodeId === 'local' ? localRuntimeUser() : existing.ssh?.user ?? 'root'
@@ -152,8 +158,9 @@ export function createNodeDashboardDependencies(composition: NodeCoreComposition
         } else if (sshUser === 'root' && existing.ssh?.credentialRef) {
           await composition.core.state.del(existing.ssh.credentialRef);
         }
-        const updated = await composition.repository.update(nodeId, current => ({
+        const updated = await composition.repository.update(nodeId, ({ proxy: currentProxy, ...current }) => ({
           ...current, name, host, location,
+          ...(proxyProvided ? (proxy ? { proxy } : {}) : (currentProxy ? { proxy: currentProxy } : {})),
           ...(tags?.length ? { tags } : { tags: [] }),
           enabled: input.enabled === undefined ? current.enabled : Boolean(input.enabled),
           ssh: {

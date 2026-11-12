@@ -38,6 +38,11 @@ export interface FixtureNode {
     serviceMode?: 'user' | 'system'; runtimeUser?: string;
   };
   lastError?: string;
+  /** 订阅出口设置；与真实服务端一致，仅在显式配置后出现。 */
+  proxy?: {
+    server?: string; sni?: string; certVerify?: 'strict' | 'insecure';
+    protocols?: string[]; displayName?: string;
+  };
 }
 
 export interface FixtureDeploymentTask {

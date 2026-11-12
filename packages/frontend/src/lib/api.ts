@@ -1,5 +1,5 @@
 import ky, { HTTPError } from 'ky';
-import { KERNEL_TYPES, type ArtifactState, type ComponentDeployStatus, type ComponentState, type DeployComponent, type DeployOperation, type KernelDetection, type KernelType, type MetricsSnapshot, type MetricsSummary, type NodeConfig, type NodeKernelConfig, type SshAuthMethod, type SubscriptionJob, type SubscriptionPolicy, type SubscriptionPreflight } from '@/lib/types';
+import { KERNEL_TYPES, type ArtifactState, type ComponentDeployStatus, type ComponentState, type DeployComponent, type DeployOperation, type KernelDetection, type KernelType, type MetricsSnapshot, type MetricsSummary, type NodeConfig, type NodeKernelConfig, type NodeProxyConfig, type SshAuthMethod, type SubscriptionJob, type SubscriptionPolicy, type SubscriptionPreflight } from '@/lib/types';
 import type { FrontendConfig } from '@/lib/configApi';
 
 export type DetectKernelsPayload =
@@ -420,6 +420,8 @@ class ApiService {
     sshUser?: string; sshPort?: number; sshAuthMethod?: SshAuthMethod;
     sshPassword?: string; sshPrivateKey?: string;
     tags?: string[];
+    /** 整体替换订阅出口设置；null 清除。 */
+    proxy?: NodeProxyConfig | null;
   }): Promise<ApiResponse<NodeConfig>> {
     try {
       return await apiClient.patch('api/cluster/nodes', { json: { nodeId, ...patch } }).json<ApiResponse<NodeConfig>>();

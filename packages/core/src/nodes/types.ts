@@ -17,10 +17,32 @@ export interface NodeSshConfig {
   user: string; port?: number; authMethod: 'password' | 'privateKey';
   credentialRef?: string; keyPath?: string; hostKey: string; password?: string;
 }
+/** 订阅里可被节点出口设置改写的代理协议（分享链接 scheme；hy2 归入 hysteria2）。 */
+export const NODE_PROXY_PROTOCOLS = ['vless', 'vmess', 'trojan', 'hysteria2', 'tuic', 'ss'] as const;
+export type NodeProxyProtocol = typeof NODE_PROXY_PROTOCOLS[number];
+/** strict = 客户端必须校验证书；insecure = 跳过校验（自签证书）。缺省沿用内核上报值。 */
+export type NodeCertVerify = 'strict' | 'insecure';
+/**
+ * 节点在订阅产物中的出口设置。它只描述客户端如何连接代理，与 Agent 管理地址
+ * （NodeConfig.host）无关：切换代理域名不会改动控制面的连接方式。
+ * 每个字段都是显式选择，缺省即沿用内核上报值——绝不因为内核配置了 server_name
+ * 就推断证书可信。
+ */
+export interface NodeProxyConfig {
+  /** 客户端连接地址（域名或 IP），替换内核导出的地址。 */
+  server?: string;
+  /** TLS server name / SNI。Reality 与非 TLS 协议不受影响。 */
+  sni?: string;
+  certVerify?: NodeCertVerify;
+  /** server / sni / certVerify 生效的协议范围；缺省对该节点全部协议生效。 */
+  protocols?: NodeProxyProtocol[];
+  /** 订阅中的显示名称；设置后节点导出为「显示名称 + 协议」。 */
+  displayName?: string;
+}
 export interface NodeConfig {
   id: string; name: string; host: string; port?: number; secret: string;
   kernels: NodeKernelConfig[]; location: string; enabled: boolean; tags?: string[];
-  ssh?: NodeSshConfig; agent?: NodeAgentInfo;
+  ssh?: NodeSshConfig; agent?: NodeAgentInfo; proxy?: NodeProxyConfig;
 }
 export type NodeHealth = 'online' | 'fluctuating' | 'abnormal' | 'offline';
 export const NODE_HEALTH_THRESHOLDS = { abnormalFailures: 3, offlineFailures: 5, recoverySuccesses: 2 } as const;
@@ -42,6 +64,8 @@ export interface NodeStatus {
   uptime?: number; agent?: NodeAgentInfo;
   /** Agent 打通后检测到、但当前未纳入监控的已装内核。前端据此提示用户确认纳管。 */
   adoptableKernels?: KernelType[];
+  /** 订阅出口设置不是凭据，原样回传供编辑界面展示现状。 */
+  proxy?: NodeProxyConfig;
 }
 export interface ClusterStatus {
   totalNodes: number; onlineNodes: number; totalProxies: number;

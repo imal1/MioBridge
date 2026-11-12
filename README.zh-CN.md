@@ -158,6 +158,34 @@ kernels:
 地区前缀。如果多个来源加前缀后仍然重名，MioBridge 会在方括号中追加来源
 URL，保证生成的代理名称唯一。
 
+### 订阅出口：域名、SNI 与证书校验
+
+233boy 管理脚本按公网 IP 导出分享链接，并固定带上跳过证书校验的参数。给内核
+配置了正式域名证书后，在节点详情 **概览 → 订阅出口** 中为该节点设置连接域名、
+TLS SNI、证书校验策略和订阅显示名称。设置保存在主节点的
+`~/.config/miobridge/nodes.yaml`，在每次订阅更新时统一应用到 `raw.txt`、
+`subscription.txt` 和 `clash.yaml`，订阅更新和 Dashboard 重启都不会恢复旧值；
+无需修改子节点、233boy 脚本或生成产物。
+
+```yaml
+nodes:
+  - id: ht
+    host: 203.0.113.7            # Agent 管理地址，不受出口设置影响
+    proxy:
+      server: ht.example.com     # 客户端连接域名
+      sni: ht.example.com        # TLS server name
+      certVerify: strict         # strict → skip-cert-verify: false；insecure → 自签证书
+      protocols: [trojan, hysteria2]   # 可选；缺省对该节点全部协议生效
+      displayName: HT            # 导出为「HT Trojan」「HT Hysteria2」
+```
+
+每个字段都是显式选择，留空即沿用内核上报值：MioBridge 不会因为内核配置了
+`server_name` 就认定证书可信。`sni` 与 `certVerify` 只作用于使用证书的 TLS
+协议（Trojan、Hysteria2、TUIC、VLESS/VMess over TLS），Reality 与明文协议不受
+影响；端口、密码和其余协议参数保持原样。显示名称会同时写入 Clash 节点和模板
+策略组引用。API 为 `PATCH /api/cluster/nodes/{id}` 的 `proxy` 字段，提交 `null`
+即清除。
+
 ## 运维
 
 ```bash

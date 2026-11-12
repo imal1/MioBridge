@@ -2,6 +2,7 @@ import { parse, stringify } from 'yaml';
 import type { StateStore } from '../state/stateStore.js';
 import type { NodeConfig, NodeKernelConfig } from './types.js';
 import { KERNEL_TYPES, type KernelType } from '../kernels/types.js';
+import { validateNodeProxy } from './nodeProxy.js';
 
 const NODES_KEY = 'nodes.yaml';
 export const LOCAL_NODE_ID = 'local';
@@ -87,12 +88,17 @@ export class NodeRepository {
     if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('节点配置无效');
     const node = value as Partial<NodeConfig>;
     if (!node.id || !node.name || !node.host) throw new Error('节点缺少 id、name 或 host');
+    let proxy: NodeConfig['proxy'];
+    // 手工编辑 nodes.yaml 出错时必须指明是哪个节点，否则整份档案加载失败却无从定位。
+    try { proxy = validateNodeProxy(node.proxy); }
+    catch (error) { throw new Error(`节点 ${node.id} 的出口设置无效: ${error instanceof Error ? error.message : String(error)}`, { cause: error }); }
     return {
       id: node.id, name: node.name, host: node.host, port: node.port ?? node.agent?.port ?? 3001,
       secret: node.secret ?? '', kernels: validateNodeKernels(node.kernels),
       location: node.location ?? '', enabled: node.enabled !== false,
       ...(normalizeTags(node.tags).length ? { tags: normalizeTags(node.tags) } : {}),
       ...(node.ssh ? { ssh: node.ssh } : {}), ...(node.agent ? { agent: node.agent } : {}),
+      ...(proxy ? { proxy } : {}),
     };
   }
 }

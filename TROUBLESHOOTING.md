@@ -22,6 +22,11 @@ curl -fsS http://127.0.0.1:3000/health
   inspect `journalctl -u miobridge-agent -n 100 --no-pager`.
 - `Dashboard provider is not installed`: reinstall the release or use
   `miobridge upgrade` when a newer release is available.
+- The subscription still exports a public IP or `skip-cert-verify: true` after a
+  domain certificate was installed: the 233boy `url` export does not reflect the
+  certificate. Set the node's 订阅出口 (connection domain, SNI, certificate
+  verification) in the dashboard and run `miobridge update`; do not edit the
+  generated files or the kernel scripts.
 
 ## Install a specific release
 

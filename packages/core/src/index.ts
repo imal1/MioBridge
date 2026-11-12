@@ -31,7 +31,7 @@ export type {
 } from './types/config.js';
 export { LocalLogService, type LocalLogEntry, type LocalLogQuery, type LocalLogResult } from './logs/localLogService.js';
 export { MetricsService, type ArtifactMetric, type ClusterMetricsSource, type MetricsSnapshot } from './metrics/metricsService.js';
-export { buildClashSubscription, buildClashSubscriptionResult, dedupeProxySources, type ClashSubscriptionResult, type CollectedProxySource } from './artifacts/sources.js';
+export { applyNodeDisplayNames, buildClashSubscription, buildClashSubscriptionResult, dedupeProxySources, type ClashSubscriptionResult, type CollectedProxySource } from './artifacts/sources.js';
 export { SingBoxAdapter, type SingBoxAdapterOptions } from './kernels/singBoxAdapter.js';
 export { MihomoAdapter, type MihomoAdapterOptions } from './kernels/mihomoAdapter.js';
 export { V2rayAdapter, XrayAdapter } from './kernels/jsonOutboundAdapters.js';
@@ -40,7 +40,8 @@ export type { KernelFileSystem, ProcessOptions, ProcessResult, ProcessRunner } f
 export { AgentClient, type AgentClientOptions } from './nodes/agentClient.js';
 export { AgentDeploymentAcceptance, AgentDeploymentError, redactAgentDiagnostic } from './nodes/agentAcceptance.js';
 export type { AgentDeploymentAcceptanceOptions, AgentDeploymentAcceptanceResult, AgentDeploymentDiagnostics, AgentDeploymentErrorCode } from './nodes/agentAcceptance.js';
-export { NODE_HEALTH_THRESHOLDS, type NodeHealth } from './nodes/types.js';
+export { NODE_HEALTH_THRESHOLDS, NODE_PROXY_PROTOCOLS, type NodeCertVerify, type NodeHealth, type NodeProxyConfig, type NodeProxyProtocol } from './nodes/types.js';
+export { applyNodeProxy, validateNodeProxy } from './nodes/nodeProxy.js';
 export { NodeMaintenanceService, type NodeMaintenanceServiceOptions, type NodeMaintenancePort, type NodeDiagnosticsReport, type NodeDiagnosticCheck, type NodeServiceMigration } from './nodes/nodeMaintenanceService.js';
 export { LOCAL_NODE_ID, NodeRepository, validateNodeKernels } from './nodes/nodeRepository.js';
 export { NodeAggregationService, type RemoteSourceCollection } from './nodes/nodeAggregationService.js';

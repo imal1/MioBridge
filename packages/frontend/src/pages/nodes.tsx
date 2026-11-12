@@ -7,7 +7,7 @@ import { apiService } from '@/lib/api'
 import { streamServerEvents } from '@/lib/sse'
 import {
   KERNEL_TYPES, type ComponentDeployStatus, type DeployComponent, type DeployOperation,
-  type KernelDetection, type KernelType, type NodeKernelConfig, type NodeStatus, type SshAuthMethod,
+  type KernelDetection, type KernelType, type NodeKernelConfig, type NodeProxyConfig, type NodeStatus, type SshAuthMethod,
 } from '@/lib/types'
 import {
   queryKeys, useAgentAction, useClusterHealthCheck, useClusterStatus, useComponentDeployments,
@@ -16,6 +16,7 @@ import {
 import { AddNodeForm } from '@/components/cluster/AddNodeForm'
 import { KernelDetectionDialog } from '@/components/cluster/KernelDetectionDialog'
 import { NodeMaintenancePanel } from '@/components/cluster/NodeMaintenancePanel'
+import { NodeProxyDialog } from '@/components/cluster/NodeProxyDialog'
 import PageHeader from '@/components/shared/PageHeader'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
@@ -47,6 +48,19 @@ function errorMessage(value: unknown, fallback: string) {
   if (typeof value === 'string') return value
   if (value && typeof value === 'object' && 'message' in value && typeof value.message === 'string') return value.message
   return fallback
+}
+
+const CERT_VERIFY_LABEL = { strict: '严格校验', insecure: '跳过校验' } as const
+/** 概览里的一行摘要：只列出用户显式设置的项，未设置即「沿用内核上报值」。 */
+function proxySummary(proxy: NodeProxyConfig | undefined) {
+  if (!proxy) return '沿用内核上报值'
+  return [
+    proxy.displayName ? `名称 ${proxy.displayName}` : '',
+    proxy.server ? `域名 ${proxy.server}` : '',
+    proxy.sni ? `SNI ${proxy.sni}` : '',
+    proxy.certVerify ? CERT_VERIFY_LABEL[proxy.certVerify] : '',
+    proxy.protocols?.length ? `仅 ${proxy.protocols.join('/')}` : '',
+  ].filter(Boolean).join(' · ') || '沿用内核上报值'
 }
 
 function installed(node: NodeStatus, component: DeployComponent) {
@@ -162,6 +176,20 @@ export default function NodesPage() {
       if (!response.success) throw new Error(response.error || '节点更新失败')
       setEditing(null); toast.success('节点档案已更新')
     } catch (caught) { setError(caught instanceof Error ? caught.message : '节点更新失败') }
+    finally { setBusy(null) }
+  }
+
+  // ---- subscription endpoint dialog ----
+  const [proxyNode, setProxyNode] = useState<NodeStatus | null>(null)
+  const [proxyError, setProxyError] = useState<string | null>(null)
+  const saveProxy = async (proxy: NodeProxyConfig | null) => {
+    if (!proxyNode) return
+    setBusy(`${proxyNode.nodeId}:proxy`); setProxyError(null)
+    try {
+      const response = await updateNode.mutateAsync({ nodeId: proxyNode.nodeId, patch: { proxy } })
+      if (!response.success) throw new Error(response.error || '出口设置保存失败')
+      setProxyNode(null); toast.success('订阅出口设置已保存', { description: '下一次订阅更新时生效' })
+    } catch (caught) { setProxyError(caught instanceof Error ? caught.message : '出口设置保存失败') }
     finally { setBusy(null) }
   }
 
@@ -437,9 +465,14 @@ export default function NodesPage() {
                       <p style={{ margin: 0, fontSize: 10.5, color: 'var(--muted-foreground)' }}>已配置核心</p>
                       <p style={{ margin: '2px 0 0', fontSize: 12.5, fontWeight: 600 }}>{sel.configuredKernels.map(k => KERNEL_LABEL[k.type]).join(' · ') || '无'}</p>
                     </div>
+                    <div style={{ gridColumn: 'span 2', padding: '9px 12px', borderRadius: 10, background: 'var(--card2)' }}>
+                      <p style={{ margin: 0, fontSize: 10.5, color: 'var(--muted-foreground)' }}>订阅出口</p>
+                      <p style={{ margin: '2px 0 0', fontSize: 12.5, fontWeight: 600, wordBreak: 'break-all' }}>{proxySummary(sel.proxy)}</p>
+                    </div>
                   </div>
                   <div className="mt-3 flex flex-wrap gap-1.5">
                     <button className={smallBtn} style={smallBtnStyle} onClick={() => openEdit(sel)}>编辑档案</button>
+                    <button className={smallBtn} style={smallBtnStyle} onClick={() => { setProxyError(null); setProxyNode(sel) }}>订阅出口</button>
                     <button className={smallBtn} style={smallBtnStyle} disabled={busy === sel.nodeId} onClick={() => toggleEnabled(sel)}>{sel.enabled === false ? '启用纳管' : '暂停纳管'}</button>
                     {sel.nodeId !== 'local' ? <button className={smallBtn} style={{ ...smallBtnStyle, color: 'var(--danger)' }} disabled={busy === sel.nodeId} onClick={() => remove(sel)}>删除</button> : null}
                   </div>
@@ -597,6 +630,10 @@ export default function NodesPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {proxyNode ? (
+        <NodeProxyDialog open key={proxyNode.nodeId} nodeName={proxyNode.name} host={proxyNode.nodeId === 'local' ? undefined : proxyNode.host} proxy={proxyNode.proxy} submitting={busy === `${proxyNode.nodeId}:proxy`} error={proxyError} onCancel={() => setProxyNode(null)} onSave={saveProxy} />
+      ) : null}
 
       {editorOpen && sel ? (
         <KernelDetectionDialog open detections={detections} monitored={sel.configuredKernels} submitting={busy === `${sel.nodeId}:monitoring`} error={error} confirmLabel="保存并验证监控配置" onCancel={() => setEditorOpen(false)} onConfirm={saveMonitoring} />
