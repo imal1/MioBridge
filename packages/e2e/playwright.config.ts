@@ -31,6 +31,7 @@ export default defineConfig({
     ['./reporters/markdown.ts'],
   ],
   use: {
+    extraHTTPHeaders: { Authorization: `Bearer ${'e'.repeat(64)}` },
     baseURL,
     locale: 'zh-CN',
     timezoneId: 'Asia/Shanghai',

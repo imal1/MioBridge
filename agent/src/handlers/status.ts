@@ -2,7 +2,6 @@ import type { AgentConfig } from '../config';
 import { hmacVerify } from '../hmac';
 import { collectKernelSources } from './urls';
 import { AGENT_VERSION } from '../version';
-import { spawn } from 'child_process';
 
 interface IncomingRequest {
   method?: string;
@@ -28,8 +27,7 @@ export async function handleStatus(
   try {
     const hostHeader = req.headers.host;
     const host = (Array.isArray(hostHeader) ? hostHeader[0] : hostHeader || '').split(':')[0];
-    const { sources, kernels } = collectKernelSources(config, host);
-    const mihomoVersion = await probeVersion(config.mihomo.path);
+    const { sources, kernels } = await collectKernelSources(config, host);
 
     return new Response(
       JSON.stringify({
@@ -39,8 +37,6 @@ export async function handleStatus(
           nodesCount: sources.length,
           uptime: process.uptime(),
           version: AGENT_VERSION,
-          mihomoAvailable: Boolean(mihomoVersion),
-          ...(mihomoVersion ? { mihomoVersion } : {}),
         },
         timestamp: new Date().toISOString(),
       }),
@@ -52,15 +48,4 @@ export async function handleStatus(
       { status: 500, headers: { 'Content-Type': 'application/json' } },
     );
   }
-}
-
-function probeVersion(binary: string): Promise<string | null> {
-  return new Promise(resolve => {
-    const child = spawn(binary, ['-v'], { timeout: 5_000 });
-    let output = '';
-    child.stdout?.on('data', chunk => { output += chunk.toString(); });
-    child.stderr?.on('data', chunk => { output += chunk.toString(); });
-    child.once('error', () => resolve(null));
-    child.once('close', code => resolve(code === 0 ? output.trim().split(/\r?\n/, 1)[0] || 'unknown' : null));
-  });
 }

@@ -101,6 +101,11 @@ describe('headless CLI composition', () => {
       expect(renamed.stdout).toContain('Display name: (location + kernel node name)');
       expect((await stored()).proxy).toEqual({ server: 'ht.example.com', sni: 'ht.example.com', certVerify: 'strict', protocols: ['trojan', 'hysteria2'] });
 
+      // 与其他 nodes 命令一致：服务器可以用名称或 ID 前缀指定。
+      const byName = await runCompiled(['nodes', 'proxy', 'HT 节点', '--json'], sandbox, baseDir);
+      expect(byName.code).toBe(0);
+      expect(JSON.parse(byName.stdout)).toMatchObject({ id: 'ht', proxy: { server: 'ht.example.com' } });
+
       // 无效输入不落盘。
       const rejected = await runCompiled(['nodes', 'proxy', 'ht', '--server', 'bad host'], sandbox, baseDir);
       expect(rejected.code).toBe(1);

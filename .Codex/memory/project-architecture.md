@@ -87,3 +87,5 @@ metadata:
   runtime identity, version, and deployment nonce; an HTTP 200 from the target
   port alone is not sufficient. Provide an explicit, rollback-safe workflow for
   migrations between Agent runtime users.
+
+- 2026-11-08: AuthService separates admin sessions and subscription tokens; production Fastify startup enforces API authentication. ArtifactService serializes publication with an atomic file-store lock and guards source-count drops before publication. Agent collection is asynchronous and cached; heartbeat and source refresh have separate TTLs.

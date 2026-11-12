@@ -143,6 +143,7 @@ export function createNodeSelfMaintenanceAdapters(): SelfMaintenanceAdapters {
     extractTarGzipEntry,
     installAtomic,
     installDashboard,
+    readFile: path => readFile(path),
     async writeFileAtomic(path, data) {
       await mkdir(dirname(path), { recursive: true, mode: 0o755 });
       const temporary = `${path}.tmp-${randomUUID()}`;

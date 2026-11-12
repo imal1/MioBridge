@@ -32,7 +32,7 @@ export class SshTransport {
         host: target.ssh.host,
         port: target.ssh.port,
         username: target.ssh.user,
-        readyTimeout: 15_000,
+        readyTimeout: this.options.timeouts?.().ssh ?? 15_000,
         ...authentication,
         hostHash: 'sha256',
         hostVerifier: (hashed: Buffer) => {
@@ -42,10 +42,15 @@ export class SshTransport {
           return true;
         },
       };
+      const deadline = Date.now() + (this.options.timeouts?.().task ?? 1800000);
       client.once('ready', () => resolve({
         run: (command, input) => new Promise((resolveCommand, rejectCommand) => {
+          if (Date.now() >= deadline) { rejectCommand(new Error('TASK_TIMEOUT: 部署超时，请检查服务器状态后重试')); return; }
           client.exec(command, (error: Error | undefined, channel: ClientChannel) => {
             if (error) { rejectCommand(error); return; }
+            const timeout = setTimeout(() => { channel.signal('TERM'); channel.close(); rejectCommand(new Error('TASK_TIMEOUT: 部署命令超时')); }, Math.max(1, deadline - Date.now()));
+            channel.once('close', () => clearTimeout(timeout));
+            channel.once('error', (error: Error) => { clearTimeout(timeout); rejectCommand(error); });
             let stdout = '';
             let stderr = '';
             channel.on('data', (data: Buffer) => { stdout += data.toString(); });
@@ -79,7 +84,7 @@ export class SshTransport {
   runLocal(command: string, input?: string): Promise<ExecResult> {
     if (this.options.runLocal) return this.options.runLocal(command, input);
     return new Promise((resolve, reject) => {
-      const child = spawn('/bin/bash', ['-lc', command], { stdio: ['pipe', 'pipe', 'pipe'] });
+      const child = spawn('/bin/bash', ['-lc', command], { stdio: ['pipe', 'pipe', 'pipe'], timeout: this.options.timeouts?.().task ?? 1800000 });
       let stdout = '';
       let stderr = '';
       child.stdout.on('data', data => { stdout += data.toString(); });

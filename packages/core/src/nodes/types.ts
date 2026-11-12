@@ -47,6 +47,8 @@ export interface NodeConfig {
 export type NodeHealth = 'online' | 'fluctuating' | 'abnormal' | 'offline';
 export const NODE_HEALTH_THRESHOLDS = { abnormalFailures: 3, offlineFailures: 5, recoverySuccesses: 2 } as const;
 export interface NodeStatus {
+  sourceCached?: boolean;
+  sourceCollectedAt?: string;
   nodeId: string; name: string; configuredKernels: NodeKernelConfig[];
   kernels: KernelRuntimeStatus[]; location: string; online: boolean; error?: string;
   /** online remains true until offline is confirmed; health distinguishes current alerts. */

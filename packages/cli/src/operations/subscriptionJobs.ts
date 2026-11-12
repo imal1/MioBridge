@@ -1,12 +1,15 @@
+import { PublicationBlockedError, type SourceCollection, validateSchedule, nextScheduledRun } from '@miobridge/core';
 import { randomUUID } from 'node:crypto';
 import { readdir, rm, stat } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { NodeCoreComposition } from '../composition.js';
 
-export type SubscriptionJobStatus = 'queued' | 'running' | 'succeeded' | 'partial' | 'failed';
+export type SubscriptionJobStatus = 'queued' | 'running' | 'succeeded' | 'partial' | 'failed' | 'blocked';
 export type SubscriptionJobStep = 'collect' | 'parse' | 'deduplicate' | 'encode' | 'convert' | 'validate' | 'publish' | 'backup' | 'done';
 
 export interface SubscriptionJob {
+  readonly diff?: { added: string[]; removed: string[] };
+  readonly force?: boolean;
   readonly id: string;
   readonly idempotencyKey: string;
   readonly actorRole: 'admin';
@@ -39,6 +42,8 @@ export interface SubscriptionJobEvent {
 }
 
 export interface SubscriptionPolicy {
+  readonly timezone?: string;
+  readonly nextRun?: string;
   readonly enabled: boolean;
   readonly cron: string;
   readonly freshnessHours: number;
@@ -68,20 +73,32 @@ const DEFAULT_POLICY: SubscriptionPolicy = {
 };
 
 export class SubscriptionJobService {
+  #changeTimer: ReturnType<typeof setTimeout> | undefined;
+  close(): void { clearInterval(this.#timer); if (this.#changeTimer) clearTimeout(this.#changeTimer); }
+  sourcesChanged(): void {
+    if (this.#changeTimer) clearTimeout(this.#changeTimer);
+    if (this.composition.core.getEffectiveConfig().subscription?.auto_regenerate === false) return;
+    this.#changeTimer = setTimeout(() => { void this.start().catch(() => undefined); }, 30_000);
+    this.#changeTimer.unref?.();
+  }
+  #loaded = false;
+  #lastPurge = 0;
+  readonly #snapshots = new Map<string, SourceCollection>();
+  #queue: Promise<void> = Promise.resolve();
   readonly #jobs = new Map<string, SubscriptionJob>();
   readonly #eventCounters = new Map<string, number>();
   readonly #resumed = new Set<string>();
   readonly #timer: ReturnType<typeof setInterval>;
 
   constructor(private readonly composition: NodeCoreComposition, private readonly now: () => Date = () => new Date()) {
-    this.#timer = setInterval(() => { void this.runSchedule(); }, 60_000);
+    this.#timer = setInterval(() => { void this.runSchedule().catch(() => undefined); }, 60_000);
     this.#timer.unref?.();
-    void this.runSchedule();
+    void this.runSchedule().catch(() => undefined);
   }
 
   preflight() { return this.composition.core.preflightSubscription(); }
 
-  async start(input: { idempotencyKey?: string; retryOf?: string; retryAttempt?: number; retryRootId?: string } = {}): Promise<{ jobId: string }> {
+  async start(input: { force?: boolean; idempotencyKey?: string; retryOf?: string; retryAttempt?: number; retryRootId?: string } = {}): Promise<{ jobId: string }> {
     const idempotencyKey = input.idempotencyKey?.trim() || randomUUID();
     const existing = (await this.list()).find(job => job.idempotencyKey === idempotencyKey);
     if (existing) return { jobId: existing.id };
@@ -94,7 +111,7 @@ export class SubscriptionJobService {
       ? [`预计节点从 ${lastSuccess.nodesGenerated} 降至 ${preflight.nodesEstimated}，超过 ${policy.nodeDropPercent}% 突降阈值`]
       : [];
     const job: SubscriptionJob = {
-      id, idempotencyKey, actorRole: 'admin', status: 'queued', step: 'collect', progress: 0,
+      force: input.force === true, id, idempotencyKey, actorRole: 'admin', status: 'queued', step: 'collect', progress: 0,
       message: '订阅生成任务已进入队列', sourcesTotal: preflight.sourcesTotal,
       sourcesSucceeded: preflight.sourcesTotal, nodesGenerated: 0,
       warnings: [...preflight.warnings, ...nodeDropWarning], errors: [], createdAt: this.now().toISOString(),
@@ -102,13 +119,15 @@ export class SubscriptionJobService {
       ...(input.retryAttempt !== undefined ? { retryAttempt: input.retryAttempt } : {}),
       ...(input.retryRootId ? { retryRootId: input.retryRootId } : {}),
     };
+    if (preflight.snapshot) this.#snapshots.set(id, preflight.snapshot);
     await this.save(job);
     setTimeout(() => { void this.run(id); }, 0);
     return { jobId: id };
   }
 
   async list(): Promise<SubscriptionJob[]> {
-    await this.purgeExpiredHistory();
+    if (this.now().getTime() - this.#lastPurge >= 3600_000) { await this.purgeExpiredHistory(); this.#lastPurge = this.now().getTime(); }
+    if (this.#loaded) return [...this.#jobs.values()].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
     const keys = await this.composition.core.state.listKeys('subscription-jobs/');
     for (const key of keys) {
       const raw = await this.composition.core.state.get(key);
@@ -127,6 +146,7 @@ export class SubscriptionJobService {
         }
       } catch { /* Ignore malformed history. */ }
     }
+    this.#loaded = true;
     return [...this.#jobs.values()].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
   }
 
@@ -157,15 +177,34 @@ export class SubscriptionJobService {
   }
 
   async policy(): Promise<SubscriptionPolicy> {
-    const raw = await this.composition.core.state.get('subscription-policy.json');
-    if (!raw) return DEFAULT_POLICY;
-    try { return validatePolicy(JSON.parse(raw)); }
-    catch { return DEFAULT_POLICY; }
+    return this.composition.core.state.withLock('subscription-policy', async () => {
+      const raw = await this.composition.core.state.get('subscription-policy.json');
+      if (raw) {
+        const legacy = validatePolicy(JSON.parse(raw));
+        await this.updatePolicy(legacy);
+        await this.composition.core.state.set('subscription-policy.json.migrated', raw);
+        await this.composition.core.state.del('subscription-policy.json');
+      }
+      const config = this.composition.core.getEffectiveConfig().subscription ?? {};
+      const policy = validatePolicy({ enabled: config.enabled, cron: config.cron, freshnessHours: config.freshness_hours,
+        nodeDropPercent: config.node_drop_percent, retryDelaysMinutes: config.retry_delays_minutes, backupRetention: config.backup_retention });
+      const timezone = this.composition.core.getEffectiveConfig().app?.timezone ?? Intl.DateTimeFormat().resolvedOptions().timeZone;
+      const next = policy.enabled ? nextScheduledRun(policy.cron, this.now(), timezone) : null;
+      return { ...policy, timezone, ...(next ? { nextRun: next.toISOString() } : {}) };
+    });
   }
 
   async updatePolicy(value: unknown): Promise<SubscriptionPolicy> {
     const policy = validatePolicy(value);
-    await this.composition.core.state.set('subscription-policy.json', JSON.stringify(policy));
+    validateSchedule(policy.cron, this.composition.core.getEffectiveConfig().app?.timezone);
+    await this.composition.core.setConfigValues([
+      { path: 'subscription.enabled', value: policy.enabled },
+      { path: 'subscription.cron', value: policy.cron },
+      { path: 'subscription.freshness_hours', value: policy.freshnessHours },
+      { path: 'subscription.node_drop_percent', value: policy.nodeDropPercent },
+      { path: 'subscription.retry_delays_minutes', value: [...policy.retryDelaysMinutes] },
+      { path: 'subscription.backup_retention', value: policy.backupRetention },
+    ]);
     return policy;
   }
 
@@ -174,11 +213,11 @@ export class SubscriptionJobService {
     return Promise.all((['raw.txt', 'subscription.txt', 'clash.yaml'] as const).map(name => this.artifact(name, policy)));
   }
 
-  async preview(name: string): Promise<{ name: string; content: string; truncated: boolean }> {
+  async preview(name: string): Promise<{ name: string; content: string; truncated: boolean; limit: number }> {
     const artifact = artifactName(name);
     const source = (await this.composition.core.artifacts.getFileContent(artifact)).toString('utf8');
     const maximum = 50_000;
-    return { name: artifact, content: source.slice(0, maximum), truncated: source.length > maximum };
+    return { name: artifact, content: source.slice(0, maximum), truncated: source.length > maximum, limit: maximum };
   }
 
   async validateArtifact(name?: string): Promise<ArtifactState[]> {
@@ -186,36 +225,50 @@ export class SubscriptionJobService {
     return name ? states.filter(state => state.name === artifactName(name)) : states;
   }
 
-  private async run(jobId: string): Promise<void> {
+  private run(jobId: string): Promise<void> {
+    const next = this.#queue.then(() => this.runJob(jobId));
+    this.#queue = next.catch(() => undefined);
+    return next;
+  }
+
+  private async runJob(jobId: string): Promise<void> {
     const initial = await this.require(jobId);
     if (initial.status !== 'queued') return;
     try {
-      await this.patch(jobId, { status: 'running', step: 'collect', progress: 10, message: '采集本机与远端来源', startedAt: this.now().toISOString() });
-      await this.patch(jobId, { status: 'running', step: 'parse', progress: 25, message: '解析代理来源' });
-      await this.patch(jobId, { status: 'running', step: 'deduplicate', progress: 40, message: '去重并整理代理节点' });
-      await this.patch(jobId, { status: 'running', step: 'encode', progress: 55, message: '编码订阅内容' });
-      await this.patch(jobId, { status: 'running', step: 'convert', progress: 68, message: '生成 Clash 衍生产物' });
-      const result = await this.composition.core.updateSubscription();
-      await this.patch(jobId, { status: 'running', step: 'validate', progress: 82, message: '验证每个订阅产物' });
+      const result = await this.composition.core.updateSubscription({
+        ...(this.#snapshots.has(jobId) ? { snapshot: this.#snapshots.get(jobId)! } : {}),
+        force: initial.force === true,
+        onProgress: async step => {
+          const progress = { collect: 10, convert: 50, validate: 75, publish: 90, backup: 97 }[step];
+          await this.patch(jobId, { status: 'running', step, progress, message: `订阅生成：${step}`, startedAt: initial.startedAt ?? this.now().toISOString() });
+        },
+      });
+      this.#snapshots.delete(jobId);
       const artifacts = await this.artifacts();
-      await this.patch(jobId, { status: 'running', step: 'publish', progress: 92, message: '发布正式产物' });
       const failed = artifacts.filter(artifact => !artifact.valid);
       await this.patch(jobId, { status: 'running', step: 'backup', progress: 97, message: '保存订阅备份并清理保留范围' });
       await this.cleanupBackups((await this.policy()).backupRetention);
-      const allWarnings = [...initial.warnings, ...(result.warnings ?? []), ...failed.map(item => `${item.name}: ${item.validationError ?? '无效'}`)];
+      const allWarnings = [...new Set([...initial.warnings, ...(result.warnings ?? []), ...failed.map(item => `${item.name}: ${item.validationError ?? '无效'}`)])];
       const status: SubscriptionJobStatus = failed.length === 0 && allWarnings.length === 0 && !(result.errors?.length) ? 'succeeded' : 'partial';
       await this.patch(jobId, {
         status, step: 'done', progress: 100,
         message: status === 'succeeded' ? '订阅生成完成' : '订阅部分生成成功',
-        nodesGenerated: result.nodesCount,
+        nodesGenerated: result.nodesCount, ...(result.diff ? { diff: result.diff } : {}),
         warnings: allWarnings,
         errors: result.errors ?? [], backupId: result.backupCreated, finishedAt: this.now().toISOString(),
       });
     } catch (error) {
+      this.#snapshots.delete(jobId);
+      if (error instanceof PublicationBlockedError) {
+        await this.patch(jobId, { status: 'blocked', step: 'done', progress: 100, message: error.message, diff: error.diff, errors: [error.message], finishedAt: this.now().toISOString() });
+        void this.composition.core.notifications.send('subscription.blocked', error.message).catch(() => undefined);
+        return;
+      }
       const failed = await this.patch(jobId, {
         status: 'failed', step: 'done', progress: 100, message: '订阅生成失败',
         errors: [error instanceof Error ? error.message : String(error)], finishedAt: this.now().toISOString(),
       });
+      void this.composition.core.notifications.send('subscription.failed', '订阅生成失败，请查看任务日志').catch(() => undefined);
       await this.scheduleRetry(failed);
     }
   }
@@ -230,7 +283,7 @@ export class SubscriptionJobService {
       const threshold = policy.freshnessHours * 3600;
       return {
         name, exists: true, valid: !error, size: details.size, updatedAt: details.mtime.toISOString(), ageSeconds,
-        freshness: error ? 'invalid' : ageSeconds > threshold ? 'stale' : ageSeconds >= threshold * 0.8 ? 'expiring' : 'fresh',
+        freshness: error ? 'invalid' : !policy.enabled ? 'fresh' : ageSeconds > threshold ? 'stale' : ageSeconds >= threshold * 0.8 ? 'expiring' : 'fresh',
         ...(error ? { validationError: error } : {}),
       };
     } catch (error) {
@@ -242,7 +295,8 @@ export class SubscriptionJobService {
   private async runSchedule(): Promise<void> {
     await this.runDueRetries();
     const policy = await this.policy();
-    if (!policy.enabled || !cronMatches(policy.cron, this.now())) return;
+    const minute = new Date(Math.floor(this.now().getTime() / 60_000) * 60_000);
+    if (!policy.enabled || nextScheduledRun(policy.cron, new Date(minute.getTime() - 1), this.composition.core.getEffectiveConfig().app?.timezone)?.getTime() !== minute.getTime()) return;
     const slot = this.now().toISOString().slice(0, 16);
     const previous = await this.composition.core.state.get('subscription-schedule/last-slot.txt');
     if (previous === slot) return;
@@ -318,7 +372,7 @@ export class SubscriptionJobService {
   }
 
   private async save(job: SubscriptionJob): Promise<void> {
-    const terminal = job.status === 'succeeded' || job.status === 'partial' || job.status === 'failed';
+    const terminal = job.status === 'succeeded' || job.status === 'partial' || job.status === 'failed' || job.status === 'blocked';
     // Claim queued/running jobs in memory before exposing their snapshot so the
     // same process never mistakes an in-flight write for restart recovery.
     if (!terminal) this.#jobs.set(job.id, job);
@@ -350,7 +404,7 @@ function validatePolicy(value: unknown): SubscriptionPolicy {
     retryDelaysMinutes: candidate.retryDelaysMinutes ?? DEFAULT_POLICY.retryDelaysMinutes,
     backupRetention: candidate.backupRetention ?? DEFAULT_POLICY.backupRetention,
   };
-  if (policy.cron.trim().split(/\s+/).length !== 5) throw new Error('Cron 必须包含 5 个字段');
+  validateSchedule(policy.cron);
   if (!Number.isFinite(policy.freshnessHours) || policy.freshnessHours < 1) throw new Error('新鲜度必须大于 0');
   if (policy.nodeDropPercent < 0 || policy.nodeDropPercent > 100) throw new Error('节点突降阈值必须为 0 到 100');
   if (!Array.isArray(policy.retryDelaysMinutes) || policy.retryDelaysMinutes.some(value => !Number.isFinite(value) || value < 0)) throw new Error('重试退避配置无效');
@@ -377,21 +431,4 @@ function validateContent(name: ArtifactState['name'], content: string): string |
     catch { return 'Base64 无法解码'; }
   }
   return /(^|\n)proxies\s*:/m.test(content) ? undefined : 'Clash YAML 不包含 proxies';
-}
-
-function cronMatches(expression: string, date: Date): boolean {
-  const parts = expression.trim().split(/\s+/);
-  if (parts.length !== 5) return false;
-  return cronField(parts[0]!, date.getMinutes(), 0)
-    && cronField(parts[1]!, date.getHours(), 0)
-    && cronField(parts[2]!, date.getDate(), 1)
-    && cronField(parts[3]!, date.getMonth() + 1, 1)
-    && cronField(parts[4]!, date.getDay(), 0);
-}
-
-function cronField(source: string, value: number, minimum: number): boolean {
-  if (source === '*') return true;
-  const step = source.match(/^\*\/(\d+)$/)?.[1];
-  if (step) return (value - minimum) % Number(step) === 0;
-  return source.split(',').some(candidate => Number(candidate) === value);
 }

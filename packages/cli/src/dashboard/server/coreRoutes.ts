@@ -26,9 +26,10 @@ export function registerCoreRoutes(
     },
   });
 
-  // GET /api/update
+  registrar.register({ method: 'GET', path: '/api/update', handler: (_req, res) => { res.header('Allow', 'POST'); res.status(405).json({ success: false, error: 'Use POST /api/update', timestamp: NOW() }); } });
+  // POST /api/update
   registrar.register({
-    method: 'GET',
+    method: 'POST',
     path: '/api/update',
     handler: async (_req: DashboardRequest, res: DashboardResponse) => {
       try {

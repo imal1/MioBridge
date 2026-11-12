@@ -1,3 +1,4 @@
+import { AuthGate } from './components/AuthGate';
 import React, { Suspense, lazy } from 'react';
 import { Navigate, Routes, Route, useLocation } from 'react-router-dom';
 import { AnimatePresence, motion } from 'motion/react';
@@ -8,6 +9,7 @@ import { queryClient } from './lib/queryClient';
 import { AppProvider, useAppContext } from './context/AppContext';
 import AppLayout from './components/layout/AppLayout';
 
+const WelcomeGuide = lazy(() => import('./components/WelcomeGuide'));
 const ConvertModal = lazy(() => import('./components/ConvertModal'));
 const Dashboard = lazy(() => import('./components/Dashboard'));
 const ConfigPage = lazy(() => import('./pages/config'));
@@ -53,6 +55,7 @@ function AnimatedRoutes() {
         <motion.div key={location.pathname} {...pageTransition}>
           <Suspense fallback={<PageLoader />}>
             <Routes location={location}>
+              <Route path="/help" element={<WelcomeGuide reopen />} />
               <Route path="/" element={<Dashboard />} />
               <Route path="/config" element={<ConfigPage />} />
               <Route path="/nodes" element={<NodesPage />} />
@@ -80,10 +83,10 @@ export function App() {
   return (
     <ThemeProvider>
       <QueryClientProvider client={queryClient}>
-        <AppProvider>
+        <AuthGate><AppProvider>
           <AnimatedRoutes />
           <Toaster richColors position="top-center" />
-        </AppProvider>
+        </AppProvider></AuthGate>
       </QueryClientProvider>
     </ThemeProvider>
   );

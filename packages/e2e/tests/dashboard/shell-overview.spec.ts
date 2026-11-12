@@ -12,7 +12,7 @@ import { expect, test } from '../../fixtures/e2e.js';
 /** Every real page, keyed by its h1 — identical to PAGE_TITLES in navigation.ts. */
 const pages = [
   ['/', '总览'],
-  ['/nodes', '节点'],
+  ['/nodes', '服务器'],
   ['/subscription', '订阅'],
   ['/logs', '日志'],
   ['/config', '配置'],
@@ -21,9 +21,9 @@ const pages = [
 
 /** Retired paths and the anchor each one lands on. */
 const redirects = [
-  ['/deploy', '/nodes', '节点'],
-  ['/agents', '/nodes', '节点'],
-  ['/runtimes', '/nodes', '节点'],
+  ['/deploy', '/nodes', '服务器'],
+  ['/agents', '/nodes', '服务器'],
+  ['/runtimes', '/nodes', '服务器'],
   ['/outputs', '/', '总览'],
   ['/subscription-status', '/subscription', '订阅'],
   ['/actions', '/subscription', '订阅'],
@@ -109,22 +109,22 @@ test.describe('E00–E01 · 全局壳层与总览', () => {
     ]));
   });
 
-  test('总览准确呈现就绪度、节点计数和三项正式产物', async ({ page }) => {
+  test('总览准确呈现就绪度、节点计数和三项正式订阅文件', async ({ page }) => {
     await page.goto('/');
     // 侧栏常驻显示 mihomo 版本，就绪检查里也有一份，断言必须限定在主区。
     const main = page.locator('#main-content');
 
-    await expect(main.getByText('1 个节点待部署', { exact: true })).toBeVisible();
+    await expect(main.getByText('1 台服务器待部署', { exact: true })).toBeVisible();
     await expect(main.getByText('1/1 可用', { exact: true })).toBeVisible();
     await expect(main.getByText('v1.19.0-e2e', { exact: true })).toBeVisible();
-    await expect(main.getByText('三个输出产物均可用', { exact: true })).toBeVisible();
-    await expect(main.getByText('节点在线').locator('..')).toContainText('1/2');
+    await expect(main.getByText('三个输出订阅文件均可用', { exact: true })).toBeVisible();
+    await expect(main.getByText('服务器在线').locator('..')).toContainText('1/2');
 
     const artifacts = page.getByRole('table');
     for (const name of ['raw.txt', 'subscription.txt', 'clash.yaml']) {
       const row = artifacts.getByRole('row').filter({ hasText: name });
       await expect(row).toBeVisible();
-      // 产物状态显示新鲜度而不是笼统的“可用”，缺失/无效必须缺席。
+      // 订阅文件状态显示新鲜度而不是笼统的“可用”，缺失/无效必须缺席。
       await expect(row.getByText('无效/缺失', { exact: true })).toHaveCount(0);
       await expect(row.getByRole('link', { name: '下载' })).toBeVisible();
     }
@@ -132,7 +132,7 @@ test.describe('E00–E01 · 全局壳层与总览', () => {
 
   test('总览页头导航只做上下文跳转，不产生写请求', async ({ page, snapshot }) => {
     const workflow = [
-      ['添加节点', '/nodes', '节点'],
+      ['添加服务器', '/nodes', '服务器'],
       ['生成订阅', '/subscription', '订阅'],
     ] as const;
 

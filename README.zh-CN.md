@@ -1,5 +1,20 @@
 # MioBridge
 
+## 开始使用
+
+[五步上手（含截图）](docs/QUICKSTART.zh-CN.md) · [自托管部署](docs/DEPLOYMENT.md) · [FAQ](docs/FAQ.zh-CN.md) · [故障排查](TROUBLESHOOTING.zh-CN.md)
+
+```mermaid
+flowchart LR
+  A[控制台] --> B[服务器：Agent + 协议内核]
+  B --> C[主控汇总代理来源]
+  C --> D[订阅文件]
+  D --> E[客户端代理节点]
+```
+
+控制台 API 需要管理员会话或 Bearer 令牌（`miobridge auth show`）。新安装的订阅地址需要独立令牌（`miobridge subscription url --qr`），`/health` 保持公开。旧安装在控制台提示启用订阅保护。服务器离线时默认复用最多 72 小时的成功来源；数量突降超过阈值时保留旧订阅，需人工检查差异。
+
+
 [English](./README.md)
 
 > 基于 mihomo 的分布式订阅转换与控制面板。MioBridge 将 sing-box、Xray、
@@ -80,7 +95,7 @@ bun run --cwd agent test
 | `/` | SPA 仪表盘 |
 | `/health` | 健康检查 |
 | `/api/status` | 服务状态 |
-| `/api/update` | 触发订阅刷新 |
+| `POST /api/update` | 管理员认证后触发订阅刷新；GET 返回 405 |
 | `/api/convert` | 转换传入的订阅内容 |
 | `/subscription.txt` | base64 订阅输出 |
 | `/clash.yaml` | Clash YAML 输出 |
@@ -121,11 +136,9 @@ miobridge nodes migrate-service <node-id> --user <existing-non-root-user>
 心跳首次失败显示“波动”，连续 3 次失败显示“异常”，5 次失败显示“离线”；
 连续 2 次成功后恢复在线，最近异常原因与时间仍可查看。
 
-新增或编辑子节点时，MioBridge 会先通过 SSH 检测 sing-box、Xray 和 V2Ray。
-选择对话框会分别显示各内核的已安装版本与默认配置路径。至少选择一个内核；
-Agent 部署只保留已安装且配置可读的内核，缺失内核绝不会随 Agent 自动安装；
-需要时必须通过对应内核的安装操作明确安装。已安装但未选择的内核仍显示为
-“未监听”。
+添加服务器时先完成 SSH 预检并确认指纹，默认自动安装 Agent、检测已安装的协议内核、
+纳管并生成订阅。未检测到协议内核时可选择安装或稍后配置；取消自动流程则只保存档案。
+编辑服务器不会自动重装组件，监控范围在服务器详情中调整。
 
 协议内核的安装、升级、修复、重装和卸载统一委托给上游 233boy 管理脚本
 （`233boy/sing-box`、`233boy/Xray`、`233boy/v2ray`）。MioBridge 检测

@@ -250,7 +250,7 @@ describe('CLI command contract', () => {
     for (const command of ['setup', 'nodes', 'upgrade', 'uninstall', 'update', 'status', 'config', 'logs', 'metrics', 'dashboard']) {
       expect(helpText).toMatch(new RegExp(`\\n  ${command}(?: |\\n)`));
     }
-    for (const excluded of ['node', 'deploy', 'agent', 'runtime', 'subscription', 'artifact', 'policy', 'notification', 'task', 'watch', 'retry', 'cancel']) {
+    for (const excluded of ['node', 'deploy', 'agent', 'runtime', 'artifact', 'policy', 'notification', 'task', 'watch', 'retry', 'cancel']) {
       expect(helpText).not.toMatch(new RegExp(`\\n  ${excluded}(?: |\\n)`));
     }
   });
@@ -466,4 +466,11 @@ describe('CLI command contract', () => {
       expect(run.stderr).toEqual([]);
     }
   });
+});
+
+it('returns operation failure for an extended command and usage failure for unknown arguments', async () => {
+  const output = { stdout: vi.fn(), stderr: vi.fn() };
+  expect(await runCli(['dashboard', 'restart'], { createCore, output, extraCommand: async () => { throw new Error('service restart failed'); } })).toBe(1);
+  expect(output.stderr).toHaveBeenCalledWith('Error: service restart failed');
+  expect(await runCli(['not-a-command'], { createCore, output, extraCommand: async () => undefined })).toBe(2);
 });

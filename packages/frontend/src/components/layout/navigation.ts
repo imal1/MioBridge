@@ -2,11 +2,11 @@ export type NavIcon = 'overview' | 'subscription' | 'nodes' | 'logs' | 'config' 
 
 export interface NavItem { href: string; icon: NavIcon; label: string; badge?: string }
 
-// 重设计导航：主区三项 + 系统区三项。部署/Agent/运行时并入「节点」详情标签页，
+// 重设计导航：主区三项 + 系统区三项。部署/Agent/运行时并入「服务器」详情标签页，
 // 衍生输出并入「总览」，订阅状态并入「订阅」。旧路由在 App.tsx 里 302 到新锚点。
 export const NAV_MAIN: NavItem[] = [
   { href: '/', icon: 'overview', label: '总览' },
-  { href: '/nodes', icon: 'nodes', label: '节点' },
+  { href: '/nodes', icon: 'nodes', label: '服务器' },
   { href: '/subscription', icon: 'subscription', label: '订阅' },
 ]
 
@@ -29,7 +29,7 @@ export const NAV_ICONS: Record<NavIcon, string> = {
 
 export const PAGE_TITLES: Record<string, string> = {
   '/': '总览',
-  '/nodes': '节点',
+  '/nodes': '服务器',
   '/subscription': '订阅',
   '/logs': '日志',
   '/config': '配置',

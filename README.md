@@ -1,5 +1,9 @@
 # MioBridge
 
+[Quick start (中文)](docs/QUICKSTART.zh-CN.md) · [Self-hosting](docs/DEPLOYMENT.md) · [FAQ (中文)](docs/FAQ.zh-CN.md)
+
+Dashboard APIs require an administrator session or Bearer token (`miobridge auth show`). New installs protect subscriptions with a separate token (`miobridge subscription url --qr`); `/health` stays public. Legacy installs prompt before enabling subscription protection.
+
 [简体中文](./README.zh-CN.md)
 
 > A distributed subscription converter and control plane powered by mihomo.
@@ -83,7 +87,7 @@ bun run --cwd agent test
 | `/` | SPA dashboard |
 | `/health` | health check |
 | `/api/status` | service status |
-| `/api/update` | trigger subscription refresh |
+| `POST /api/update` | authenticated subscription refresh; GET returns 405 |
 | `/api/convert` | convert supplied subscription content |
 | `/subscription.txt` | base64 subscription output |
 | `/clash.yaml` | Clash YAML output |
@@ -129,13 +133,10 @@ Heartbeats show fluctuating, abnormal and offline after 1, 3 and 5 consecutive
 failures. Two consecutive successes restore online status while preserving the
 last failure reason and time.
 
-When adding or editing a child node, MioBridge first detects sing-box, Xray,
-and V2Ray over SSH. The selection dialog shows the installed version and
-default configuration path for each kernel. Select at least one kernel;
-Agent deployment keeps only installed kernels whose configuration is readable.
-Missing kernels are never installed as a side effect; install one explicitly
-from its kernel action when needed. Installed but unselected kernels remain
-visible as unmonitored.
+Adding a server runs SSH preflight and confirms the host fingerprint. The default flow installs
+Agent, detects existing protocol kernels, adopts them and generates the subscription. If none
+are found, choose a kernel to install or finish later. Disable the automatic flow to save only
+the server record. Editing a record does not reinstall components.
 
 Protocol-kernel lifecycle operations delegate to the upstream 233boy
 management scripts (`233boy/sing-box`, `233boy/Xray`, and `233boy/v2ray`).

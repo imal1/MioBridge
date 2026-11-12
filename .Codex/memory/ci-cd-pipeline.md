@@ -112,3 +112,5 @@ Only the merged `main` commit may create the version tag/Release. Dispatch
 the release gate, then verify the tag, published Release, x64/arm64 CLI archives,
 Agent gzip files, `install-agent.sh`, and `SHA256SUMS`. Never publish a Release from
 the PR head.
+
+- 2026-11-09: systemd E2E now verifies unauthenticated API/subscription requests return 401, and checks compatibility files using the separate subscription token emitted by the installed CLI. Core cross-process lock test resolves its compiled module relative to import.meta.url so workspace and root coverage runs both work.

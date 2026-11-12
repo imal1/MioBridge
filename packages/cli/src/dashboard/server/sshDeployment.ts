@@ -1,3 +1,4 @@
+import { enrollControllerKey } from './ssh/controllerKey.js';
 /**
  * `SshDeploymentService` — the `DashboardOperationsPort` facade for node
  * deployment. It owns only the stateful orchestration (whole-node progress,
@@ -58,7 +59,6 @@ import {
   LEGACY_AGENT_PATH,
   LEGACY_AGENT_SERVICE_PATH,
   PROGRESS_TTL_MS,
-  TASK_HISTORY_TTL_MS,
   type ComponentDeployStatus,
   type DeployComponent,
   type DeploymentConnection,
@@ -95,9 +95,13 @@ export class SshDeploymentService {
   readonly #acceptance: AgentDeploymentAcceptance;
 
   constructor(private readonly composition: NodeCoreComposition, options: DeploymentServiceOptions = {}) {
-    this.#transport = new SshTransport(options);
+    this.#transport = new SshTransport({ timeouts: () => ({ ssh: composition.core.getEffectiveConfig().deployment?.ssh_timeout_ms ?? 15000, task: composition.core.getEffectiveConfig().deployment?.task_timeout_ms ?? 1800000 }), ...options });
     this.#targets = new NodeTargets(composition);
     this.#acceptance = composition.core.createAgentAcceptance(new AgentClient(options.fetch ? { fetch: options.fetch } : {}), options.acceptance);
+  }
+
+  enrollControllerKey(nodeId: string): Promise<void> {
+    return enrollControllerKey(this.composition, this.#transport, this.#targets, nodeId);
   }
 
   setOneTimeCredential(nodeId: string, credential: string): void {
@@ -216,6 +220,7 @@ export class SshDeploymentService {
   ): Promise<{ taskId: string }> {
     const component = deployComponent(componentValue);
     const operation = deployOperation(operationValue);
+    if (component === 'mihomo' && nodeId !== 'local') throw new Error('mihomo 仅用于主控本机转换，无需在子服务器安装');
     const active = Object.values(await this.getComponentDeployments([nodeId])).filter(item => item.status === 'pending' || item.status === 'running');
     const existing = active.find(item => item.component === component);
     if (existing) throw new Error(`${nodeId} 的 ${component} 已有进行中的任务 ${existing.taskId}`);
@@ -306,6 +311,12 @@ export class SshDeploymentService {
         const raw = await this.composition.core.state.get(key);
         if (raw) {
           let status = this.normalizeComponentStatus(JSON.parse(raw));
+          const retention = this.composition.core.getEffectiveConfig().deployment?.task_retention_days ?? 30;
+          if (status.finishedAt && status.finishedAt < Date.now() - retention * 86400000) {
+            await this.composition.core.state.del(key); this.#componentProgress.delete(status.taskId);
+            for (const eventKey of await this.composition.core.state.listKeys(`deployment-events/${status.taskId}/`)) await this.composition.core.state.del(eventKey);
+            return;
+          }
           const wasLoaded = this.#componentProgress.has(status.taskId);
           if (status.status === 'running' && !wasLoaded) {
             status = { ...status, step: 'done', status: 'error', progress: 100, message: '任务因服务重启或执行超时而中断，可使用相同参数重试', errorCode: 'TASK_INTERRUPTED', finishedAt: Date.now() };
@@ -520,7 +531,7 @@ export class SshDeploymentService {
         ...(error instanceof AgentDeploymentError ? { diagnostics: error.diagnostics } : {}),
       });
     } finally {
-      this.clearOneTimeCredential(nodeId);
+      // Credentials remain available for retries until their 30-minute TTL.
     }
   }
 
@@ -710,7 +721,7 @@ export class SshDeploymentService {
       emit(current?.step ?? 'connect', 'error', message, current?.progress ?? 0, error instanceof AgentDeploymentError ? error : undefined);
     } finally {
       try { await ssh?.end(); }
-      finally { this.clearOneTimeCredential(node.id); release(); }
+      finally { release(); }
     }
   }
 
@@ -734,7 +745,7 @@ export class SshDeploymentService {
   private cleanupComponentProgress(): void {
     const now = Date.now();
     for (const [taskId, status] of this.#componentProgress) {
-      if (status.finishedAt && now - status.finishedAt > TASK_HISTORY_TTL_MS) {
+      if (status.finishedAt && now - status.finishedAt > (this.composition.core.getEffectiveConfig().deployment?.task_retention_days ?? 30) * 86400000) {
         this.#componentProgress.delete(taskId);
         void (async () => {
           await this.composition.core.state.del(`deployment-tasks/${taskId}.json`);
@@ -747,6 +758,7 @@ export class SshDeploymentService {
   }
 
   private async saveComponentStatus(status: ComponentDeployStatus): Promise<void> {
+    if (status.status === 'error' && this.#componentProgress.get(status.taskId)?.status !== 'error') void this.composition.core.notifications?.send('deployment.failed', `服务器 ${status.nodeId} 的 ${status.component} 部署失败，请查看任务日志`).catch(() => undefined);
     this.#componentProgress.set(status.taskId, status);
     await this.composition.core.state.set(`deployment-tasks/${status.taskId}.json`, JSON.stringify(status));
     await this.appendDeploymentEvent(status);

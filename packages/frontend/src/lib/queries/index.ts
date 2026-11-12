@@ -109,7 +109,7 @@ export function useConfigSchema(options?: Extra<SchemaField[]>) {
   })
 }
 
-type EffectiveConfig = { config: Record<string, unknown>; path: string }
+type EffectiveConfig = { config: Record<string, unknown>; path: string; template?: string }
 export function useEffectiveConfig(options?: Extra<EffectiveConfig>) {
   return useQuery({
     queryKey: queryKeys.effectiveConfig,

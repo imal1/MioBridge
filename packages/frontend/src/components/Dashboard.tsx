@@ -1,3 +1,4 @@
+import WelcomeGuide from './WelcomeGuide'
 import { Icon } from '@iconify/react'
 import { useCallback, useState } from 'react'
 import { Link } from 'react-router-dom'
@@ -100,16 +101,16 @@ export default function Dashboard({ initialCluster = null, initialStatus = null,
   })
   const agentReady = managedNodes.length > 0 && undeployedNodes.length === 0
   const readiness = [
-    { label: '节点 Agent', ok: agentReady, desc: managedNodes.length === 0 ? '尚未添加节点' : undeployedNodes.length ? `${undeployedNodes.length} 个节点待部署` : '所有节点 Agent 已部署' },
-    { label: '节点内核', ok: configuredKernels.length > 0 && healthyKernels.length === configuredKernels.length, desc: configuredKernels.length === 0 ? '等待节点上报' : `${healthyKernels.length}/${configuredKernels.length} 可用` },
+    { label: '服务器 Agent', ok: agentReady, desc: managedNodes.length === 0 ? '尚未添加服务器' : undeployedNodes.length ? `${undeployedNodes.length} 台服务器待部署` : '所有服务器 Agent 已部署' },
+    { label: '协议内核', ok: configuredKernels.length > 0 && healthyKernels.length === configuredKernels.length, desc: configuredKernels.length === 0 ? '等待服务器上报' : `${healthyKernels.length}/${configuredKernels.length} 可用` },
     { label: 'mihomo 转换', ok: Boolean(status?.mihomoAvailable), desc: status?.mihomoAvailable ? status.mihomoVersion || '版本未知' : '服务器未安装；运行 miobridge setup --yes' },
-    { label: '文件写入', ok: missingFiles.length === 0, desc: missingFiles.length ? `缺少 ${missingFiles.map(f => f.name).join('、')}` : '三个输出产物均可用' },
+    { label: '文件写入', ok: missingFiles.length === 0, desc: missingFiles.length ? `缺少 ${missingFiles.map(f => f.name).join('、')}` : '三个输出订阅文件均可用' },
   ]
 
   const offline = cluster ? cluster.totalNodes - cluster.onlineNodes : 0
   const statCells = [
-    { label: '订阅节点', value: status?.nodesCount ?? cluster?.totalProxies ?? 0, sub: missingFiles.length === 0 ? 'raw.txt / clash.yaml 已生成' : '产物待生成', color: toneColor.success },
-    { label: '节点在线', value: cluster ? `${cluster.onlineNodes}/${cluster.totalNodes}` : '—', sub: offline > 0 ? `${offline} 个节点心跳中断` : '全部在线', color: offline > 0 ? toneColor.warning : toneColor.success },
+    { label: '代理节点', value: status?.nodesCount ?? cluster?.totalProxies ?? 0, sub: missingFiles.length === 0 ? 'raw.txt / clash.yaml 已生成' : '订阅文件待生成', color: toneColor.success },
+    { label: '服务器在线', value: cluster ? `${cluster.onlineNodes}/${cluster.totalNodes}` : '—', sub: offline > 0 ? `${offline} 台服务器心跳中断` : '全部在线', color: offline > 0 ? toneColor.warning : toneColor.success },
     { label: '活动任务', value: activeTasks.length, sub: activeTasks[0] ? `${activeTasks[0].nodeId} · ${activeTasks[0].component}` : '无进行中任务', color: toneColor.info },
     { label: '来源', value: metrics?.snapshot.sources ?? '—', sub: '预检与就绪状态见订阅页', color: toneColor.info },
   ]
@@ -122,19 +123,21 @@ export default function Dashboard({ initialCluster = null, initialStatus = null,
   ] as const
 
   const copyUrl = useCallback(async (name: string) => {
-    const url = new URL(`/${name}`, window.location.origin).toString()
     try {
-      await copyText(url)
-      toast.success('已复制公共产物 URL', { description: url })
+      const session = await fetch('/api/auth/session').then(response => { if (!response.ok) throw new Error('登录已失效'); return response.json() })
+      const url = new URL(`/${name}`, session.publicBaseUrl || window.location.origin)
+      if (session.subscriptionRequired) url.searchParams.set('token', session.subscriptionToken)
+      await copyText(url.toString())
+      toast.success('已复制公共订阅文件 URL', { description: url.toString() })
     } catch {
-      toast.error('复制失败，请手动复制', { description: url })
+      toast.error('复制失败，请在订阅页查看地址')
     }
   }, [])
 
   const openPreview = useCallback(async (name: ArtifactState['name']) => {
     const response = await apiService.previewArtifact(name)
     if (response.success && response.data) setPreview(response.data)
-    else toast.error('产物预览失败')
+    else toast.error('订阅文件预览失败')
   }, [])
 
   const validate = useCallback(async () => {
@@ -142,19 +145,20 @@ export default function Dashboard({ initialCluster = null, initialStatus = null,
     try {
       const response = await validateArtifacts.mutateAsync(undefined)
       const invalid = response.data?.artifacts.filter(i => !i.valid).length || 0
-      if (invalid > 0) toast.warning(`${invalid} 个产物未通过验证`)
-      else toast.success('三个正式产物均通过验证')
+      if (invalid > 0) toast.warning(`${invalid} 个订阅文件未通过验证`)
+      else toast.success('三个正式订阅文件均通过验证')
     } finally { setChecking(false) }
   }, [validateArtifacts])
 
   return (
     <>
+      <WelcomeGuide visible={artifacts.length === 3 && artifacts.every(item => !item.exists) && (cluster?.totalNodes ?? 2) <= 1} />
       <PageHeader
         title="总览"
-        description={`订阅生成、节点与产物的当前状态。最近生成 ${formatDate(status?.clashLastUpdated || status?.subscriptionLastUpdated)}。`}
+        description={`订阅生成、节点与订阅文件的当前状态。最近生成 ${formatDate(status?.clashLastUpdated || status?.subscriptionLastUpdated)}。`}
         actions={(
           <>
-            <Link to="/nodes" className="mb-pill-btn primary"><Icon icon="ph:plus-bold" />添加节点</Link>
+            <Link to="/nodes" className="mb-pill-btn primary"><Icon icon="ph:plus-bold" />添加服务器</Link>
             <Link to="/subscription" className="mb-pill-btn"><Icon icon="ph:arrows-clockwise-light" />生成订阅</Link>
           </>
         )}
@@ -181,12 +185,12 @@ export default function Dashboard({ initialCluster = null, initialStatus = null,
       </section>
 
       <section className="grid grid-cols-1 items-start gap-[14px] lg:[grid-template-columns:minmax(0,1.5fr)_minmax(0,1fr)]">
-        {/* 输出产物 */}
+        {/* 输出订阅文件 */}
         <div className="mb-card overflow-hidden">
           <div className="flex items-center justify-between px-[18px] pb-2.5 pt-[14px]">
             <div>
-              <h2 style={{ margin: 0, fontSize: 14.5, fontWeight: 700 }}>输出产物</h2>
-              <p style={{ margin: '2px 0 0', fontSize: 11.5, color: 'var(--muted-foreground)' }}>三个正式产物的状态与分发入口</p>
+              <h2 style={{ margin: 0, fontSize: 14.5, fontWeight: 700 }}>输出订阅文件</h2>
+              <p style={{ margin: '2px 0 0', fontSize: 11.5, color: 'var(--muted-foreground)' }}>三个正式订阅文件的状态与分发入口</p>
             </div>
             <button onClick={validate} disabled={checking} className="mb-pill-btn" style={{ height: 28, padding: '0 12px', fontSize: 11.5, borderRadius: 99 }}>
               {checking ? '验证中…' : '验证全部'}
@@ -196,7 +200,7 @@ export default function Dashboard({ initialCluster = null, initialStatus = null,
             <table className="mb-table" style={{ minWidth: 560 }}>
               <thead>
                 <tr>
-                  <th className="mb-th" style={{ padding: '6px 18px' }}>产物</th>
+                  <th className="mb-th" style={{ padding: '6px 18px' }}>订阅文件</th>
                   <th className="mb-th" style={{ padding: '6px 10px' }}>状态</th>
                   <th className="mb-th" style={{ padding: '6px 10px' }}>大小</th>
                   <th className="mb-th" style={{ padding: '6px 10px' }}>更新时间</th>
@@ -231,7 +235,7 @@ export default function Dashboard({ initialCluster = null, initialStatus = null,
                   )
                 })}
                 {artifacts.length === 0 ? (
-                  <tr><td colSpan={5} style={{ padding: '20px', textAlign: 'center', color: 'var(--muted-foreground)', fontSize: 12 }}>产物状态尚未加载。</td></tr>
+                  <tr><td colSpan={5} style={{ padding: '20px', textAlign: 'center', color: 'var(--muted-foreground)', fontSize: 12 }}>订阅文件状态尚未加载。</td></tr>
                 ) : null}
               </tbody>
             </table>
@@ -255,6 +259,7 @@ export default function Dashboard({ initialCluster = null, initialStatus = null,
                     <p style={{ margin: 0, fontSize: 12.5, fontWeight: 600 }}>{r.label}</p>
                     <p style={{ margin: 0, fontSize: 11.5, color: 'var(--muted-foreground)' }}>{r.desc}</p>
                   </div>
+                  {!r.ok && <Link className="mb-pill-btn" to={r.label === '文件写入' ? '/subscription' : r.label === 'mihomo 转换' ? '/help' : '/nodes'}>处理</Link>}
                 </div>
               ))}
             </div>
@@ -288,7 +293,7 @@ export default function Dashboard({ initialCluster = null, initialStatus = null,
         <DialogContent className="max-w-4xl">
           <DialogHeader>
             <DialogTitle>{preview?.name} 预览</DialogTitle>
-            <DialogDescription>{preview?.truncated ? '内容较长，当前只显示前 64 KiB。' : '当前正式发布内容。'}</DialogDescription>
+            <DialogDescription>{preview?.truncated ? '内容较长，当前只显示前 50,000 字符。' : '当前正式发布内容。'}</DialogDescription>
           </DialogHeader>
           <pre className="max-h-[65vh] overflow-auto rounded-2xl p-4 text-xs leading-6" style={{ background: 'var(--surface-container-high)' }}>{preview?.content}</pre>
         </DialogContent>

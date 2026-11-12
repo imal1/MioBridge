@@ -1,3 +1,4 @@
+import { validateSchedule } from './schedule.js';
 import type {
   ConfigFieldDefinition,
   ConfigValidationIssue,
@@ -36,6 +37,8 @@ const CONFIG_SHAPE: ConfigShape = {
     enabled: VALUE,
     cron: VALUE,
     freshness_hours: VALUE,
+    stale_source_max_hours: VALUE,
+    auto_regenerate: VALUE,
     node_drop_percent: VALUE,
     retry_delays_minutes: VALUE,
     backup_retention: VALUE,
@@ -51,6 +54,8 @@ const CONFIG_SHAPE: ConfigShape = {
       enabled: VALUE,
       url: VALUE,
       events: VALUE,
+      template: VALUE,
+      target: VALUE,
     },
   },
   logs: {
@@ -62,30 +67,29 @@ const CONFIG_SHAPE: ConfigShape = {
 export const CONFIG_FIELDS: readonly ConfigFieldDefinition[] = [
   { path: 'app.port', type: 'number', minimum: 1, maximum: 65535, restartRequired: true },
   { path: 'app.public_base_url', type: 'string', restartRequired: false },
-  { path: 'app.log_level', type: 'string', allowed: ['debug', 'info', 'warn', 'error'], restartRequired: false },
-  { path: 'app.timezone', type: 'string', restartRequired: true },
-  { path: 'network.request_timeout', type: 'number', minimum: 1000, maximum: 300000, restartRequired: false },
-  { path: 'protocols.sing_box_configs', type: 'string[]', restartRequired: false },
+  { path: 'app.timezone', type: 'string', restartRequired: false },
+  { path: 'network.request_timeout', type: 'number', minimum: 1000, maximum: 300000, restartRequired: true },
+  { path: 'protocols.sing_box_configs', type: 'string[]', restartRequired: true },
   { path: 'binaries.mihomo_path', type: 'string', restartRequired: true },
   { path: 'binaries.sing_box_path', type: 'string', restartRequired: true },
-  { path: 'binaries.xray_path', type: 'string', restartRequired: true },
-  { path: 'binaries.v2ray_path', type: 'string', restartRequired: true },
   { path: 'directories.data_dir', type: 'string', restartRequired: true },
   { path: 'directories.log_dir', type: 'string', restartRequired: true },
   { path: 'directories.backup_dir', type: 'string', restartRequired: true },
-  { path: 'subscription.clash_filename', type: 'string', restartRequired: false },
+  { path: 'subscription.auto_regenerate', type: 'boolean', restartRequired: false },
+  { path: 'subscription.stale_source_max_hours', type: 'number', minimum: 0, maximum: 8760, restartRequired: false },
   { path: 'subscription.enabled', type: 'boolean', restartRequired: false },
   { path: 'subscription.cron', type: 'string', restartRequired: false },
   { path: 'subscription.freshness_hours', type: 'number', minimum: 1, maximum: 8760, restartRequired: false },
   { path: 'subscription.node_drop_percent', type: 'number', minimum: 0, maximum: 100, restartRequired: false },
   { path: 'subscription.retry_delays_minutes', type: 'number[]', restartRequired: false },
   { path: 'subscription.backup_retention', type: 'number', minimum: 1, maximum: 1000, restartRequired: false },
-  { path: 'deployment.concurrency', type: 'number', minimum: 1, maximum: 32, restartRequired: false },
   { path: 'deployment.ssh_timeout_ms', type: 'number', minimum: 1000, maximum: 300000, restartRequired: false },
   { path: 'deployment.task_timeout_ms', type: 'number', minimum: 10000, maximum: 86400000, restartRequired: false },
   { path: 'deployment.task_retention_days', type: 'number', minimum: 1, maximum: 3650, restartRequired: false },
   { path: 'notifications.webhook.enabled', type: 'boolean', restartRequired: false },
   { path: 'notifications.webhook.url', type: 'string', restartRequired: false },
+  { path: 'notifications.webhook.template', type: 'string', allowed: ['generic', 'telegram', 'bark', 'wechat'], restartRequired: false },
+  { path: 'notifications.webhook.target', type: 'string', restartRequired: false },
   { path: 'notifications.webhook.events', type: 'string[]', restartRequired: false },
   { path: 'logs.level', type: 'string', allowed: ['debug', 'info', 'warn', 'error'], restartRequired: false },
   { path: 'logs.task_retention_days', type: 'number', minimum: 1, maximum: 3650, restartRequired: false },
@@ -124,7 +128,7 @@ export function validateConfigDocument(document: FullConfig): ConfigValidationRe
 export function validateField(field: ConfigFieldDefinition, value: unknown): string | null {
   const arrayType = field.type.endsWith('[]');
   if (arrayType) {
-    if (!Array.isArray(value) || value.length === 0) return '必须是非空数组';
+    if (!Array.isArray(value) || (value.length === 0 && field.path !== 'subscription.retry_delays_minutes' && field.path !== 'notifications.webhook.events')) return '必须是非空数组';
     const expected = field.type === 'string[]' ? 'string' : 'number';
     if (value.some(item => typeof item !== expected
       || (expected === 'string' && !(item as string).trim())
@@ -136,6 +140,16 @@ export function validateField(field: ConfigFieldDefinition, value: unknown): str
   if (typeof value !== field.type) return `必须是 ${field.type}`;
   if (typeof value === 'string') {
     if (!value.trim()) return '不能为空';
+    if (field.path === 'subscription.cron') {
+      try { validateSchedule(value); } catch (error) { return (error as Error).message; }
+    }
+    if (field.path === 'app.public_base_url') {
+      try { const url = new URL(value); if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password || url.search || url.hash) return '必须是 HTTP(S) 公网基地址，不包含凭据、查询或片段'; }
+      catch { return '必须是有效的 HTTP(S) 地址'; }
+    }
+    if (field.path === 'app.timezone') {
+      try { new Intl.DateTimeFormat('en', { timeZone: value }).format(); } catch { return '无效的 IANA 时区'; }
+    }
     if (field.allowed && !field.allowed.includes(value)) return `只允许: ${field.allowed.join(', ')}`;
   }
   if (typeof value === 'number') {

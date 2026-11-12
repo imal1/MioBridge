@@ -1,3 +1,5 @@
+import { WebhookService } from '@miobridge/core';
+import { metricHistory } from '../../operations/metricHistory.js';
 import { KERNEL_TYPES, type NodeKernelConfig } from '@miobridge/core';
 import { CLI_VERSION } from '../../command.js';
 import { parse as parseYaml, stringify as stringifyYaml } from 'yaml';
@@ -7,13 +9,17 @@ import type { DashboardRequest, DashboardResponse, DashboardRouteRegistrar } fro
 interface ApiEnvelope<T> {
   readonly success: boolean;
   readonly data?: T;
-  readonly error?: { code: string; message: string; retryable: boolean; field?: string; taskId?: string };
+  readonly error?: { code: string; message: string; retryable: boolean; hint?: string; field?: string; taskId?: string };
   readonly timestamp: string;
   readonly requestId: string;
   readonly role: 'admin';
 }
 
 export function registerApplicationRoutes(registrar: DashboardRouteRegistrar, deps: DashboardServerDependencies): void {
+  route(registrar, 'POST', '/api/onboarding/local', async (req, res) => {
+    if (!deps.operations.prepareLocal) return sendError(req, res, 'NOT_AVAILABLE', '当前运行环境不支持本机准备', false, 501);
+    await sendResult(req, res, await deps.operations.prepareLocal());
+  });
   route(registrar, 'POST', '/api/deployments/preflight', async (req, res) => {
     await sendResult(req, res, await deps.operations.preflightNode(req.body));
   });
@@ -150,7 +156,7 @@ export function registerApplicationRoutes(registrar: DashboardRouteRegistrar, de
     await sendResult(req, res, await deps.subscription.preflight());
   });
   route(registrar, 'POST', '/api/subscription-jobs', async (req, res) => {
-    await sendResult(req, res, await deps.subscription.start(header(req, 'idempotency-key')), 202);
+    await sendResult(req, res, await deps.subscription.start(header(req, 'idempotency-key'), Boolean(req.body && typeof req.body === 'object' && (req.body as Record<string, unknown>).force === true)), 202);
   });
   route(registrar, 'GET', '/api/subscription-jobs', async (req, res) => {
     await sendResult(req, res, await deps.subscription.list());
@@ -191,7 +197,7 @@ export function registerApplicationRoutes(registrar: DashboardRouteRegistrar, de
     res.json(envelope(req, { fields: deps.core.config.getSchema() }));
   });
   route(registrar, 'GET', '/api/config/effective', async (req, res) => {
-    res.json(envelope(req, { config: deps.core.getEffectiveConfig(), path: deps.core.getConfigPath() }));
+    res.json(envelope(req, { config: deps.core.getEffectiveConfig(), path: deps.core.getConfigPath(), template: deps.core.config.getTemplatePath?.() }));
   });
   route(registrar, 'POST', '/api/config/validate', async (req, res) => {
     const body = req.body;
@@ -232,18 +238,10 @@ export function registerApplicationRoutes(registrar: DashboardRouteRegistrar, de
 
   route(registrar, 'GET', '/api/metrics', async (req, res) => {
     const snapshot = await deps.core.getMetricsSnapshot();
-    await deps.core.state.set(`metrics/${Date.now()}.json`, JSON.stringify(snapshot));
     const range = queryString(req, 'range') ?? '24h';
     const duration = range === '30d' ? 30 * 86400000 : range === '7d' ? 7 * 86400000 : 86400000;
     const cutoff = Date.now() - duration;
-    const keys = await deps.core.state.listKeys('metrics/');
-    const history: unknown[] = [];
-    for (const key of keys) {
-      const timestamp = Number(key.match(/metrics\/(\d+)\.json$/)?.[1]);
-      if (!Number.isFinite(timestamp) || timestamp < cutoff) continue;
-      const raw = await deps.core.state.get(key);
-      if (raw) try { history.push(JSON.parse(raw)); } catch { /* Ignore malformed samples. */ }
-    }
+    const history = await metricHistory(deps.core.state, cutoff);
     const summary = await metricSummary(deps, cutoff, [...history, snapshot]);
     res.json(envelope(req, { range, snapshot, history, summary }));
   });
@@ -264,14 +262,8 @@ export function registerApplicationRoutes(registrar: DashboardRouteRegistrar, de
   route(registrar, 'POST', '/api/notifications/test', async (req, res) => {
     const webhook = deps.core.getEffectiveConfig().notifications?.webhook;
     if (!webhook?.enabled || !webhook.url) throw new Error('Webhook 尚未启用或未配置 URL');
-    const startedAt = new Date().toISOString();
-    const response = await fetch(webhook.url, {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ event: 'test', status: 'ok', timestamp: startedAt }),
-    });
-    const record = { id: `${Date.now()}`, event: 'test', ok: response.ok, statusCode: response.status, timestamp: startedAt };
-    await deps.core.state.set(`notifications/${record.id}.json`, JSON.stringify(record));
-    res.status(response.ok ? 200 : 502).json(envelope(req, record));
+    const record = await new WebhookService(deps.core.state, () => webhook).send('test', '通知测试');
+    res.status(record?.ok ? 200 : 502).json(envelope(req, record));
   });
   route(registrar, 'GET', '/api/notifications/history', async (req, res) => {
     const keys = (await deps.core.state.listKeys('notifications/')).sort().reverse().slice(0, 100);
@@ -374,7 +366,7 @@ function envelope<T>(req: DashboardRequest, data?: T, error?: ApiEnvelope<T>['er
 }
 
 function apiError(code: string, message: string, retryable: boolean, field?: string): NonNullable<ApiEnvelope<unknown>['error']> {
-  return { code, message, retryable, ...(field ? { field } : {}) };
+  return { code, message, retryable, hint: /SSH|凭据/.test(message) ? '在服务器详情中编辑 SSH 凭据后重新预检' : /3001|Agent.*健康/.test(message) ? '检查 Agent 服务，并放行 3001/tcp 和云安全组' : retryable ? '检查日志后重试' : '检查请求字段和当前配置', ...(field ? { field } : {}) };
 }
 
 function object(value: unknown): Record<string, unknown> {
@@ -551,7 +543,20 @@ function openApiDocument(req: DashboardRequest): Record<string, unknown> {
     ['Compatibility', 'GET', '/raw.txt', '原始节点产物'],
     ['Compatibility', 'GET', '/subscription.txt', 'Base64 订阅产物'],
     ['Compatibility', 'GET', '/clash.yaml', 'Clash YAML 产物'],
-    ['Compatibility', 'GET', '/api/update', '兼容订阅生成端点'],
+    ['Compatibility', 'POST', '/api/update', '兼容订阅生成端点'],
+    ['Onboarding', 'POST', '/api/onboarding/local', '准备本机服务器档案'],
+    ['Compatibility', 'GET', '/api/update', '返回 405；请使用 POST'],
+    ['Deprecated', 'GET', '/api/yaml/config', '兼容旧客户端；请迁移到新配置或部署接口'],
+    ['Deprecated', 'GET', '/api/yaml/frontend', '兼容旧客户端；请迁移到新配置或部署接口'],
+    ['Deprecated', 'GET', '/api/yaml/validate', '兼容旧客户端；请迁移到新配置或部署接口'],
+    ['Deprecated', 'POST', '/api/yaml/generate', '兼容旧客户端；请迁移到新配置或部署接口'],
+    ['Deprecated', 'GET', '/api/configs', '兼容旧客户端；请迁移到新配置或部署接口'],
+    ['Deprecated', 'POST', '/api/configs', '兼容旧客户端；请迁移到新配置或部署接口'],
+    ['Deprecated', 'GET', '/api/cluster/deploy/progress', '兼容旧客户端；请迁移到新配置或部署接口'],
+    ['Deprecated', 'GET', '/api/cluster/deploy/status', '兼容旧客户端；请迁移到新配置或部署接口'],
+    ['Deprecated', 'GET', '/api/cluster/deployments', '兼容旧客户端；请迁移到新配置或部署接口'],
+    ['Deprecated', 'POST', '/api/cluster/deploy', '兼容旧客户端；请迁移到新配置或部署接口'],
+    ['Deprecated', 'POST', '/api/cluster/deployments', '兼容旧客户端；请迁移到新配置或部署接口'],
   ] as const;
   return {
     openapi: '3.1.0', info: { title: 'MioBridge API', version: CLI_VERSION },
@@ -562,7 +567,7 @@ function openApiDocument(req: DashboardRequest): Record<string, unknown> {
       document[path] = {
         ...(document[path] ?? {}),
         [method.toLowerCase()]: {
-          tags: [tag], summary,
+          tags: [tag], summary, ...(tag === 'Deprecated' ? { deprecated: true } : {}),
           parameters: parametersFor(method, path),
           ...(body ? { requestBody: body } : {}),
           responses: {

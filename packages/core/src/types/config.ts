@@ -14,6 +14,8 @@ export interface SubscriptionPolicyConfig {
   enabled?: boolean;
   cron?: string;
   freshness_hours?: number;
+  stale_source_max_hours?: number;
+  auto_regenerate?: boolean;
   node_drop_percent?: number;
   retry_delays_minutes?: number[];
   backup_retention?: number;
@@ -27,6 +29,8 @@ export interface DeploymentPolicyConfig {
 }
 
 export interface NotificationWebhookConfig {
+  template?: string;
+  target?: string;
   enabled?: boolean;
   url?: string;
   events?: string[];

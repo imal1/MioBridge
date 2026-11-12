@@ -16,6 +16,7 @@ export interface LocalNodeConfigurationResult {
 export interface LocalNodeConfigurationAdapters {
   confirm(message: string): Promise<boolean>;
   readonly mihomoPath?: string;
+  uninstallAgent?: () => Promise<void>;
 }
 
 export class LocalNodeConfigurationService {
@@ -29,6 +30,7 @@ export class LocalNodeConfigurationService {
     const enabled = options.enabled ?? (options.assumeYes
       ? true
       : await this.adapters.confirm(`Configure this server as a local node? (currently ${previous ? 'enabled' : 'disabled'})`));
+    if (!enabled && previous && this.adapters.uninstallAgent && await this.adapters.confirm('同时卸载本机 Agent？配置将保留。')) await this.adapters.uninstallAgent();
     await this.repository.configureLocalNode(enabled);
     return {
       enabled,
@@ -49,7 +51,6 @@ export class LocalNodeConfigurationService {
         type: kernel.type,
         configPath: kernel.configPath ?? DEFAULT_CONFIG_PATHS[kernel.type],
       })),
-      mihomo: { path: this.adapters.mihomoPath ?? 'mihomo' },
       port: node.port ?? node.agent?.port ?? 3001,
     }, { lineWidth: 0 });
   }

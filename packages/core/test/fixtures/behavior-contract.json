@@ -8,8 +8,8 @@
     ],
     "deduplicatedNodeIds": ["local", "remote"],
     "clashNames": [
-      "香港 node [vless://id-a@a.example:443#node]",
-      "香港 node [vless://id-b@b.example:443#node]"
+      "香港 node",
+      "香港 node 2"
     ]
   },
   "artifacts": {

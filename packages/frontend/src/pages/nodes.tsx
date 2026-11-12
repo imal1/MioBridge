@@ -1,3 +1,5 @@
+import { PillButton as Chip, InfoCell as Cell } from '@/components/shared/Compact'
+import { errorMessage } from '@/lib/errorMessage';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { Icon } from '@iconify/react'
@@ -44,11 +46,7 @@ const DETAIL_TABS: Array<{ key: DetailTab; label: string }> = [
   { key: 'overview', label: '概览' }, { key: 'deploy', label: '部署' }, { key: 'agent', label: 'Agent' }, { key: 'runtime', label: '运行时' },
 ]
 
-function errorMessage(value: unknown, fallback: string) {
-  if (typeof value === 'string') return value
-  if (value && typeof value === 'object' && 'message' in value && typeof value.message === 'string') return value.message
-  return fallback
-}
+
 
 const CERT_VERIFY_LABEL = { strict: '严格校验', insecure: '跳过校验' } as const
 /** 概览里的一行摘要：只列出用户显式设置的项，未设置即「沿用内核上报值」。 */
@@ -90,27 +88,6 @@ function readTimeline(): Record<string, DeploymentEvent[]> {
 }
 
 // Compact chip / pill helpers -------------------------------------------------
-function Chip({ active, children, onClick }: { active: boolean; children: React.ReactNode; onClick: () => void }) {
-  return (
-    <button
-      onClick={onClick}
-      style={{
-        height: 28, padding: '0 12px', borderRadius: 99, cursor: 'pointer', fontFamily: 'inherit', fontSize: 11.5, fontWeight: 600,
-        border: `1px solid ${active ? 'var(--primary)' : 'var(--border)'}`,
-        background: active ? 'var(--success-bg)' : 'transparent',
-        color: active ? 'var(--primary)' : 'var(--foreground)',
-      }}
-    >{children}</button>
-  )
-}
-function Cell({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <div style={{ padding: '9px 12px', borderRadius: 10, background: 'var(--card2)' }}>
-      <p style={{ margin: 0, fontSize: 10.5, color: 'var(--muted-foreground)' }}>{label}</p>
-      <p style={{ margin: '2px 0 0', fontSize: 12.5, fontWeight: 600 }}>{children}</p>
-    </div>
-  )
-}
 const smallBtn = 'mb-pill-btn' // height override via style
 const smallBtnStyle: React.CSSProperties = { height: 28, padding: '0 12px', fontSize: 11.5, borderRadius: 99 }
 
@@ -173,9 +150,9 @@ export default function NodesPage() {
           ...(sshCredential ? sshAuthMethod === 'password' ? { sshAuthMethod, sshPassword: sshCredential } : { sshAuthMethod, sshPrivateKey: sshCredential } : {}),
         },
       })
-      if (!response.success) throw new Error(response.error || '节点更新失败')
-      setEditing(null); toast.success('节点档案已更新')
-    } catch (caught) { setError(caught instanceof Error ? caught.message : '节点更新失败') }
+      if (!response.success) throw new Error(errorMessage(response.error, '服务器更新失败'))
+      setEditing(null); toast.success('服务器档案已更新')
+    } catch (caught) { setError(caught instanceof Error ? caught.message : '服务器更新失败') }
     finally { setBusy(null) }
   }
 
@@ -197,26 +174,26 @@ export default function NodesPage() {
     setBusy(node.nodeId); setError(null)
     try {
       const response = await updateNode.mutateAsync({ nodeId: node.nodeId, patch: { enabled: node.enabled === false } })
-      if (!response.success) throw new Error(response.error || '节点状态更新失败')
-      toast.success(node.enabled === false ? '节点已启用纳管' : '节点已暂停纳管')
-    } catch (caught) { setError(caught instanceof Error ? caught.message : '节点状态更新失败') }
+      if (!response.success) throw new Error(errorMessage(response.error, '服务器状态更新失败'))
+      toast.success(node.enabled === false ? '服务器已启用纳管' : '服务器已暂停纳管')
+    } catch (caught) { setError(caught instanceof Error ? caught.message : '服务器状态更新失败') }
     finally { setBusy(null) }
   }
 
   const remove = async (node: NodeStatus) => {
-    if (!window.confirm(`确认删除节点“${node.name}”？此操作会删除控制面档案和 SSH 凭据。`)) return
+    if (!window.confirm(`确认删除服务器“${node.name}”？此操作会删除控制面档案和 SSH 凭据。`)) return
     setBusy(node.nodeId)
     setError(null)
     try {
       let result = await deleteNode.mutateAsync({ nodeId: node.nodeId })
-      if (!result.success && result.error?.includes('节点仍安装 Agent')) {
-        const force = window.confirm(`节点“${node.name}”仍标记为已安装 Agent。若节点已失联，可仅强制删除控制面档案；远端文件不会被清理。是否继续？`)
+      if (!result.success && errorMessage(result.error).includes('仍安装 Agent')) {
+        const force = window.confirm(`服务器“${node.name}”仍标记为已安装 Agent。若服务器已失联，可仅强制删除控制面档案；远端文件不会被清理。是否继续？`)
         if (!force) return
         result = await deleteNode.mutateAsync({ nodeId: node.nodeId, force: true })
       }
-      if (!result.success) throw new Error(result.error || '删除失败')
-      setSelId(null); toast.success('节点档案已删除')
-    } catch (caught) { setError(caught instanceof Error ? caught.message : '节点删除失败') }
+      if (!result.success) throw new Error(errorMessage(result.error, '删除失败'))
+      setSelId(null); toast.success('服务器档案已删除')
+    } catch (caught) { setError(caught instanceof Error ? caught.message : '服务器删除失败') }
     finally { setBusy(null) }
   }
 
@@ -225,7 +202,7 @@ export default function NodesPage() {
     setBusy(`${node.nodeId}:${action}`); setError(null)
     try {
       const response = action === 'health' ? await healthCheck.mutateAsync(node.nodeId) : await agentAction.mutateAsync({ nodeId: node.nodeId, action })
-      if (!response.success) throw new Error(response.error || `${action} 失败`)
+      if (!response.success) throw new Error(errorMessage(response.error, `${action} 失败`))
       toast.success(action === 'health' ? '健康检查完成' : 'Agent 维护操作完成', { description: node.name })
     } catch (caught) { setError(caught instanceof Error ? caught.message : 'Agent 操作失败') }
     finally { setBusy(null) }
@@ -257,7 +234,7 @@ export default function NodesPage() {
       if (adopted.length === 0) { toast.info('未检测到新安装的协议核心'); return }
       const kernels = [...monitored.values(), ...adopted.map(i => ({ type: i.type, ...(i.defaultConfigPath ? { configPath: i.defaultConfigPath } : {}) }))]
       const result = await updateNodeKernels.mutateAsync({ nodeId: sel.nodeId, kernels })
-      if (!result.success) throw new Error(result.error || '纳管失败')
+      if (!result.success) throw new Error(errorMessage(result.error, '纳管失败'))
       toast.success(`已纳管：${adopted.map(i => KERNEL_LABEL[i.type]).join('、')}`)
     } catch (caught) { setError(caught instanceof Error ? caught.message : '再次检测失败') }
     finally { setBusy(null) }
@@ -268,7 +245,7 @@ export default function NodesPage() {
     setBusy(`${sel.nodeId}:monitoring`); setError(null)
     try {
       const result = await updateNodeKernels.mutateAsync({ nodeId: sel.nodeId, kernels })
-      if (!result.success) throw new Error(result.error || '监控配置保存失败')
+      if (!result.success) throw new Error(errorMessage(result.error, '监控配置保存失败'))
       setEditorOpen(false); toast.success('监控配置已写入远端并通过 Agent 验证')
       await detect(sel.nodeId)
     } catch (caught) { setError(caught instanceof Error ? caught.message : '监控配置保存失败') }
@@ -278,6 +255,11 @@ export default function NodesPage() {
   // ---- deploy tab ----
   const [deployComponent, setDeployComponent] = useState<DeployComponent>('agent')
   const [operation, setOperation] = useState<DeployOperation>('install')
+  const availableOperations = OPERATIONS.filter(item => sel && installed(sel, deployComponent) ? item.value !== 'install' : item.value === 'install')
+  useEffect(() => {
+    const nextInstalled = sel && installed(sel, deployComponent)
+    setOperation(current => nextInstalled ? (current === 'install' ? 'upgrade' : current) : 'install')
+  }, [sel, deployComponent])
   const [blocked, setBlocked] = useState<Record<string, string[]>>({})
   const preflight = useCallback(async () => {
     if (!sel) return
@@ -286,7 +268,7 @@ export default function NodesPage() {
       const response = await apiService.preflightDeployment(sel.nodeId, deployComponent, operation)
       if (!response.success) throw new Error(errorMessage(response.error, 'SSH 预检失败'))
       const failed = response.data?.checks.filter(c => !c.ok) ?? []
-      setBlocked(prev => ({ ...prev, [sel.nodeId]: failed.map(f => f.label) }))
+      setBlocked(prev => ({ ...prev, [`${sel.nodeId}:${deployComponent}:${operation}`]: failed.map(f => f.label) }))
       if (failed.length) toast.warning('预检完成，存在阻断项', { description: failed.map(f => f.label).join('、') })
       else toast.success(sel.nodeId === 'local' ? '本机预检通过' : 'SSH 预检通过', { description: `${response.data?.architecture || '未知架构'} · systemd 可用` })
     } catch (caught) { setError(caught instanceof Error ? caught.message : 'SSH 预检失败') }
@@ -295,10 +277,14 @@ export default function NodesPage() {
 
   const submitDeploy = useCallback(async () => {
     if (!sel) return
-    const block = blocked[sel.nodeId] ?? []
+    const block = blocked[`${sel.nodeId}:${deployComponent}:${operation}`] ?? []
     if (block.length) { setError(`SSH 预检存在阻断项，请先修复：${block.join('、')}`); return }
     setBusy(`${sel.nodeId}:deploy`); setError(null)
     try {
+      const checked = await apiService.preflightDeployment(sel.nodeId, deployComponent, operation)
+      if (!checked.success) throw new Error(errorMessage(checked.error, '预检失败'))
+      const failed = checked.data?.checks.filter(check => !check.ok) ?? []
+      if (failed.length) throw new Error(`预检未通过：${failed.map(check => check.label).join('、')}`)
       const response = await startDeployment.mutateAsync({ nodeId: sel.nodeId, component: deployComponent, operation, options: { preserveConfig: true, preserveData: true } })
       if (!response.success) throw new Error(errorMessage(response.error, '创建部署任务失败'))
       toast.success('部署任务已进入队列', { description: `${sel.name} · ${deployComponent}` })
@@ -353,25 +339,25 @@ export default function NodesPage() {
     setAddOpen(false)
     const next = new URLSearchParams(params); next.delete('intent'); setParams(next)
     await clusterQuery.refetch()
-    toast.success('节点档案已创建', { description: '尚未安装任何组件，请在部署标签页安装。' })
+    toast.success('服务器档案已保存')
     if (nodeId) { setSelId(nodeId); setDetailTab('deploy') }
   }, [params, setParams, clusterQuery])
 
   const selectNode = (id: string) => { setSelId(prev => prev === id ? null : id); setDetailTab('overview') }
-  const block = sel ? blocked[sel.nodeId] ?? [] : []
+  const block = sel ? blocked[`${sel.nodeId}:${deployComponent}:${operation}`] ?? [] : []
 
   return (
     <>
       <PageHeader
-        title="节点"
+        title="服务器"
         description="档案、部署、Agent 与运行时集中在这里；点击行展开详情。"
-        actions={<button onClick={() => setAddOpen(true)} className="mb-pill-btn primary"><Icon icon="ph:plus-bold" />添加节点</button>}
+        actions={<button onClick={() => setAddOpen(true)} className="mb-pill-btn primary"><Icon icon="ph:plus-bold" />添加服务器</button>}
       />
 
       {error ? (
         <div className="garden-alert garden-alert-danger" style={{ borderRadius: 14, marginBottom: 12 }}>
           <Icon icon="ph:warning-circle-light" className="mt-0.5 size-5 shrink-0" />
-          <div><p className="font-semibold">节点操作失败</p><p className="text-xs">{error}</p></div>
+          <div><p className="font-semibold">服务器操作失败</p><p className="text-xs">{error}</p>{sel && /SSH|凭据/.test(error) && <Button variant="outline" onClick={() => openEdit(sel)}>补充 SSH 凭据</Button>}</div>
         </div>
       ) : null}
 
@@ -379,17 +365,17 @@ export default function NodesPage() {
         <div className="relative max-w-[340px] flex-1">
           <Icon icon="ph:magnifying-glass-light" style={{ position: 'absolute', left: 11, top: 9, fontSize: 15, color: 'var(--muted-foreground)' }} />
           <input
-            aria-label="搜索节点"
+            aria-label="搜索服务器"
             value={query} onChange={e => setQuery(e.target.value)} placeholder="搜索名称、主机、地域…"
             style={{ width: '100%', height: 33, padding: '0 12px 0 32px', border: '1px solid var(--border)', borderRadius: 10, background: 'var(--card)', color: 'var(--foreground)', fontSize: 12.5, fontFamily: 'inherit', outline: 'none', boxSizing: 'border-box' }}
           />
         </div>
         <select
-          aria-label="筛选节点"
+          aria-label="筛选服务器"
           value={filter} onChange={e => setFilter(e.target.value as Filter)}
           style={{ height: 33, padding: '0 10px', border: '1px solid var(--border)', borderRadius: 10, background: 'var(--card)', color: 'var(--foreground)', fontSize: 12.5, fontFamily: 'inherit', outline: 'none' }}
         >
-          <option value="all">全部节点</option><option value="enabled">已启用</option><option value="disabled">已暂停</option><option value="undeployed">Agent 未安装</option>
+          <option value="all">全部服务器</option><option value="enabled">已启用</option><option value="disabled">已暂停</option><option value="undeployed">Agent 未安装</option>
         </select>
       </div>
 
@@ -400,7 +386,7 @@ export default function NodesPage() {
             <table className="mb-table" style={{ minWidth: 420 }}>
               <thead>
                 <tr>
-                  <th className="mb-th" style={{ padding: '8px 16px' }}>节点</th>
+                  <th className="mb-th" style={{ padding: '8px 16px' }}>服务器</th>
                   <th className="mb-th" style={{ padding: '8px 10px' }}>Agent</th>
                   <th className="mb-th" style={{ padding: '8px 10px' }}>内核</th>
                   <th className="mb-th" style={{ padding: '8px 16px', textAlign: 'right' }}>延迟</th>
@@ -427,7 +413,7 @@ export default function NodesPage() {
                     </tr>
                   )
                 })}
-                {nodes.length === 0 ? <tr><td colSpan={4} style={{ padding: 28, textAlign: 'center', color: 'var(--muted-foreground)', fontSize: 12 }}>没有匹配的节点。</td></tr> : null}
+                {nodes.length === 0 ? <tr><td colSpan={4} style={{ padding: 28, textAlign: 'center', color: 'var(--muted-foreground)', fontSize: 12 }}>没有匹配的服务器。</td></tr> : null}
               </tbody>
             </table>
           </div>
@@ -483,14 +469,14 @@ export default function NodesPage() {
                 <>
                   <p style={{ margin: '0 0 8px', fontSize: 11, fontWeight: 700, letterSpacing: '.05em', color: 'var(--muted-foreground)' }}>组件</p>
                   <div className="flex flex-wrap gap-1.5">
-                    {DEPLOY_COMPONENTS.map(c => <Chip key={c} active={deployComponent === c} onClick={() => setDeployComponent(c)}>{COMPONENT_LABEL[c]}</Chip>)}
+                    {DEPLOY_COMPONENTS.filter(c => c !== 'mihomo' || sel.nodeId === 'local').map(c => <Chip key={c} active={deployComponent === c} onClick={() => setDeployComponent(c)}>{COMPONENT_LABEL[c]}</Chip>)}
                   </div>
                   <p style={{ margin: '12px 0 6px', fontSize: 11, fontWeight: 700, letterSpacing: '.05em', color: 'var(--muted-foreground)' }}>操作</p>
                   <select value={operation} onChange={e => setOperation(e.target.value as DeployOperation)} style={{ width: '100%', height: 33, padding: '0 10px', border: '1px solid var(--border)', borderRadius: 10, background: 'var(--card)', color: 'var(--foreground)', fontSize: 12.5, fontFamily: 'inherit', outline: 'none', boxSizing: 'border-box' }}>
-                    {OPERATIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+                    {availableOperations.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
                   </select>
                   <div style={{ marginTop: 10, padding: '9px 12px', borderRadius: 10, background: 'var(--card2)', fontSize: 11.5, color: 'var(--muted-foreground)' }}>
-                    任务边界：{sel.name} · {COMPONENT_LABEL[deployComponent]} · 同节点同组件互斥。{installed(sel, deployComponent) ? '当前已安装。' : '当前未安装。'}
+                    任务边界：{sel.name} · {COMPONENT_LABEL[deployComponent]} · 同服务器同组件互斥。{installed(sel, deployComponent) ? '当前已安装。' : '当前未安装。'}
                   </div>
                   {block.length ? <div style={{ marginTop: 8, padding: '9px 12px', borderRadius: 10, background: 'var(--danger-bg)', color: 'var(--danger)', fontSize: 11.5 }}>预检阻断项：{block.join('、')}。修复后重新预检。</div> : null}
                   <div className="mt-3 flex gap-1.5">
@@ -514,7 +500,7 @@ export default function NodesPage() {
                     </div>
                   </div>
                   <div className="mt-3 flex flex-wrap gap-1.5">
-                    {sel.agent?.status === 'stopped' ? <button className={smallBtn} style={smallBtnStyle} disabled={busy !== null} onClick={() => runAgent(sel, 'start')}>启动</button> : null}
+                    {sel.agent?.deployed && sel.agent?.status !== 'running' ? <button className={smallBtn} style={smallBtnStyle} disabled={busy !== null} onClick={() => runAgent(sel, 'start')}>启动</button> : null}
                     {sel.agent?.status === 'running' ? <button className={smallBtn} style={smallBtnStyle} disabled={busy !== null} onClick={() => runAgent(sel, 'stop')}>停止</button> : null}
                     {sel.agent?.deployed ? <button className={smallBtn} style={smallBtnStyle} disabled={busy !== null} onClick={() => runAgent(sel, 'restart')}>重启</button> : null}
                     {sel.agent?.deployed ? <button className={smallBtn} style={smallBtnStyle} disabled={busy !== null} onClick={() => runAgent(sel, 'health')}>健康检查</button> : null}
@@ -527,16 +513,16 @@ export default function NodesPage() {
               {detailTab === 'runtime' ? (
                 <>
                   <div className="flex flex-col gap-2">
-                    <RuntimeRow name="mihomo" tone={sel.mihomoAvailable ? 'success' : 'muted'} status={sel.mihomoAvailable ? '可用' : '未安装'} path={sel.mihomoAvailable ? 'CLI 转换器' : '—'} detail={`v${sel.mihomoVersion || '版本未知'}`} />
+                    {sel.nodeId === 'local' && <RuntimeRow name="mihomo" tone={sel.mihomoAvailable ? 'success' : 'muted'} status={sel.mihomoAvailable ? '可用' : '未安装'} path={sel.mihomoAvailable ? 'CLI 转换器' : '—'} detail={`v${sel.mihomoVersion || '版本未知'}`} />}
                     {KERNEL_TYPES.map(type => {
                       const runtime = sel.kernels.find(k => k.type === type)
                       const detected = detections.find(d => d.type === type)
                       const monitored = sel.configuredKernels.some(k => k.type === type)
                       const isInstalled = Boolean(detected?.installed || runtime?.detected)
-                      const tone: 'success' | 'warning' | 'muted' = monitored ? 'success' : isInstalled ? 'warning' : 'muted'
+                      const tone: 'success' | 'warning' | 'muted' = monitored ? (runtime?.accessible ? 'success' : 'warning') : isInstalled ? 'warning' : 'muted'
                       const status = monitored ? '已监控' : isInstalled ? '未监控' : '未安装'
                       const path = sel.configuredKernels.find(k => k.type === type)?.configPath || detected?.defaultConfigPath || runtime?.binaryPath || '—'
-                      const detail = monitored ? `运行中 · ${runtime?.accessible ? '可读' : runtime?.error || '状态未知'} · ${runtime?.nodesCount ?? 0} 个来源` : isInstalled ? '已安装 · 未写入 Agent 配置' : '通过部署标签页安装后自动纳管'
+                      const detail = monitored ? `${runtime?.accessible ? '可读' : runtime?.error || '状态未知'} · ${runtime?.nodesCount ?? 0} 个来源` : isInstalled ? '已安装 · 未写入 Agent 配置' : '通过部署标签页安装后自动纳管'
                       return <RuntimeRow key={type} name={KERNEL_LABEL[type]} tone={tone} status={status} path={path} detail={detail} />
                     })}
                   </div>
@@ -598,8 +584,8 @@ export default function NodesPage() {
       <Dialog open={Boolean(editing)} onOpenChange={open => { if (!open) setEditing(null) }}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>编辑节点档案</DialogTitle>
-            <DialogDescription>{editing?.nodeId === 'local' ? '本机节点固定通过回环地址直接执行。' : '修改主机会清除已确认的 host key，下次部署前需要重新预检。'}</DialogDescription>
+            <DialogTitle>编辑服务器档案</DialogTitle>
+            <DialogDescription>{editing?.nodeId === 'local' ? '本机固定通过回环地址直接执行。' : '修改主机会清除已确认的 host key，下次部署前需要重新预检。'}</DialogDescription>
           </DialogHeader>
           <div className="grid gap-4 py-4">
             <div className="grid gap-2"><Label htmlFor="edit-name">名称</Label><Input id="edit-name" value={draft.name} onChange={e => setDraft(p => ({ ...p, name: e.target.value }))} /></div>
@@ -621,7 +607,7 @@ export default function NodesPage() {
             ) : null}
             <div className="grid gap-2">
               <Label htmlFor="edit-ssh-credential">{editing?.nodeId !== 'local' && draft.sshAuthMethod === 'privateKey' ? '私钥' : '密码'}</Label>
-              <Input id="edit-ssh-credential" type="password" autoComplete="new-password" value={draft.sshCredential} onChange={e => setDraft(p => ({ ...p, sshCredential: e.target.value }))} placeholder={draft.sshUser.trim() === 'root' ? 'root 凭据仅供下一次部署或维护使用，不保存' : '留空保留现有凭据；普通用户凭据默认保存'} />
+              <Input id="edit-ssh-credential" type="password" autoComplete="new-password" value={draft.sshCredential} onChange={e => setDraft(p => ({ ...p, sshCredential: e.target.value }))} placeholder={draft.sshUser.trim() === 'root' ? '留空保留专用密钥；补充凭据后重新安装主控公钥' : '留空保留现有凭据；普通用户凭据默认保存'} />
             </div>
           </div>
           <DialogFooter>
