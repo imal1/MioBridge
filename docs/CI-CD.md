@@ -34,6 +34,12 @@ bun run --cwd agent test
 bun run build
 ```
 
+`bun run cli:release` cross-compiles both Linux architectures. The CLI build
+passes `--external cpu-features`: that optional native addon of `ssh2` exists
+only where the build host compiled it (not on macOS), and `ssh2` falls back to
+its built-in implementation when it is absent at runtime. Keep the flag on any
+hand-written `bun build packages/cli/src/main.ts --compile` command.
+
 ## Deployment Secrets
 
 No GitHub Actions deployment secrets are required for production. Keep Vercel

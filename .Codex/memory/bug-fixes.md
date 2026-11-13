@@ -11,6 +11,12 @@ metadata:
 
 # Bug Fixes
 
+- 2026-11-13: Cross-compiling the Linux CLI on macOS failed on
+  `cpu-features/build/Release/cpufeatures.node` (#51). `ssh2` requires that
+  optional native addon inside a try/catch, but the addon's own entry requires
+  the `.node` file unguarded, so Bun fails at bundle time wherever the host did
+  not compile it. `package-cli-release.sh` now passes `--external cpu-features`;
+  a compiled binary without it completes an SSH handshake and exec normally.
 - 2026-11-12: Source collection results are reused three ways (in-flight
   request per node, 5-minute memory cache, persisted offline snapshot). They
   must hold only raw Agent sources; `location` and `proxy` are bound when

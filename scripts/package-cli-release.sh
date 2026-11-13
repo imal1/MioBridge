@@ -83,7 +83,11 @@ build_one() {
   if [[ -n "$override" ]]; then
     cp "$override" "$binary"
   else
+    # ssh2 optionally requires the native cpu-features addon, which only exists
+    # where the build host compiled it. Leaving it external keeps cross-builds
+    # from macOS working and makes every archive use ssh2's built-in fallback.
     "$BUN_CMD" build "$ROOT_DIR/packages/cli/src/main.ts" --compile --target="$target" \
+      --external cpu-features \
       --define "process.env.MIOBRIDGE_BUILD_VERSION='$VERSION'" --outfile "$binary"
   fi
   chmod 0755 "$binary"

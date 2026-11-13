@@ -7,6 +7,13 @@ metadata:
 
 # CI/CD Pipeline
 
+## 2026-11-13 — CLI release build externalizes `cpu-features`
+
+`package-cli-release.sh` compiles the CLI with `--external cpu-features`, so
+release archives no longer depend on whether the build host compiled that
+optional `ssh2` addon. This lets macOS cross-compile both Linux targets (#51);
+the release contract test asserts the flag on both CLI builds.
+
 ## 2026-07-26 — Release packaging does not depend on Docker
 
 `release.yml` builds, tests, inspects, and installer-verifies release artifacts
