@@ -2,10 +2,15 @@
 
 本文档记录 MioBridge 的重要变更。版本号遵循语义化版本规范。
 
-## [Unreleased]
+## [1.3.0] — 2026-11-14
+
+1.3.0-beta.1 的内容随本版正式发布。
 
 ### Added
 
+- 管理员登录、独立订阅令牌、二维码与客户端导入、首次引导和自动添加服务器流程。
+- 离线来源缓存、订阅数量突降拦截与差异预览、真实任务进度、Webhook 事件通知。
+- SSH 专用密钥、原子状态写入与跨进程锁、日志/指标保留及 CLI 管理命令和中文帮助。
 - 节点新增持久的「订阅出口」设置（`nodes.yaml` 的 `proxy`、
   `PATCH /api/cluster/nodes/{id}`、节点详情概览）：连接域名、TLS SNI、证书校验
   策略（严格 / 跳过 / 沿用内核）、生效协议范围和订阅显示名称。连接域名与 Agent
@@ -14,6 +19,12 @@
 - CLI 新增 `miobridge nodes proxy <id>`：在没有浏览器的服务器上查看、逐字段修改
   或清除节点的订阅出口设置（`--server`、`--sni`、`--cert-verify`、`--protocols`、
   `--name`、`--clear`、`--json`），与 Dashboard 写入同一份 `nodes.yaml`。
+
+### Changed
+
+- 统一订阅策略配置，Agent 异步采集并缓存结果，完善本机 Agent 生命周期和用户模板保护。
+- 更新自托管部署、快速上手、FAQ 和排错文档；完整实施说明见
+  [优化方案实施与验收](docs/OPTIMIZATION-IMPLEMENTATION.zh-CN.md)。
 
 ### Fixed
 

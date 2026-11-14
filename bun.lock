@@ -13,7 +13,7 @@
     },
     "agent": {
       "name": "miobridge-agent",
-      "version": "1.2.23",
+      "version": "1.3.0",
       "devDependencies": {
         "@types/bun": "latest",
         "@types/node": "^24.0.8",
@@ -22,7 +22,7 @@
     },
     "packages/cli": {
       "name": "@miobridge/cli",
-      "version": "1.2.23",
+      "version": "1.3.0",
       "bin": {
         "miobridge": "./dist/main.js",
       },
@@ -41,7 +41,7 @@
     },
     "packages/core": {
       "name": "@miobridge/core",
-      "version": "1.2.23",
+      "version": "1.3.0",
       "dependencies": {
         "qrcode-generator": "2.0.4",
         "croner": "9.1.0",
@@ -55,7 +55,7 @@
     },
     "packages/e2e": {
       "name": "@miobridge/e2e",
-      "version": "1.2.23",
+      "version": "1.3.0",
       "devDependencies": {
         "@miobridge/cli": "workspace:*",
         "@miobridge/core": "workspace:*",
@@ -67,7 +67,7 @@
     },
     "packages/frontend": {
       "name": "@miobridge/frontend",
-      "version": "1.2.23",
+      "version": "1.3.0",
       "dependencies": {
         "qrcode-generator": "2.0.4",
         "@iconify/react": "^6.0.0",
@@ -114,7 +114,7 @@
     },
     "packages/integration": {
       "name": "@miobridge/integration",
-      "version": "1.2.23",
+      "version": "1.3.0",
       "devDependencies": {
         "@miobridge/core": "workspace:*",
         "@types/node": "^24.0.8",
