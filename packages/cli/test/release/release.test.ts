@@ -116,8 +116,10 @@ describe('CLI release distribution', () => {
     });
     expect(readFileSync(log, 'utf8').trim().split('\n')).toEqual([
       `run --cwd ${coreDir} build`,
-      expect.stringContaining(`build ${join(sandbox, 'packages', 'cli', 'src', 'main.ts')} --compile --target=bun-linux-x64`),
-      expect.stringContaining(`build ${join(sandbox, 'packages', 'cli', 'src', 'main.ts')} --compile --target=bun-linux-arm64`),
+      // cpu-features 是 ssh2 的可选原生加速，只在构建机编译过才存在；不 external 的话
+      // 在 macOS 上交叉编译会因找不到 cpufeatures.node 直接失败（#51）。
+      expect.stringContaining(`build ${join(sandbox, 'packages', 'cli', 'src', 'main.ts')} --compile --target=bun-linux-x64 --external cpu-features`),
+      expect.stringContaining(`build ${join(sandbox, 'packages', 'cli', 'src', 'main.ts')} --compile --target=bun-linux-arm64 --external cpu-features`),
       expect.stringContaining(`build ${join(sandbox, 'agent', 'src', 'server.ts')} --compile --target=bun-linux-x64`),
       expect.stringContaining(`build ${join(sandbox, 'agent', 'src', 'server.ts')} --compile --target=bun-linux-arm64`),
     ]);

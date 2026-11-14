@@ -25,6 +25,10 @@
   由数字标签组成的域名通过校验。
 - 订阅显示名称可持久配置；重命名同时作用于 Clash 节点和模板策略组引用。此前
   导出名称只取地域标签与内核节点名，修改节点名称不会改变导出结果。
+- 在 macOS 上用 `scripts/package-cli-release.sh` 交叉编译 Linux CLI 不再因
+  `Could not resolve: "../build/Release/cpufeatures.node"` 失败：`ssh2` 的可选原生
+  加速 `cpu-features` 在编译时标记为 external，所有构建机产出的 CLI 都使用
+  `ssh2` 内置的回退实现（#51）。
 
 ## [1.2.23] — 2026-09-24
 
